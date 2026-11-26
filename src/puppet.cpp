@@ -111,6 +111,10 @@ uint64_t g_buddyMode = 0;      // его режим скрипта до нас -
 SRWLOCK g_namesLock = SRWLOCK_INIT;
 std::string g_heroName, g_companionName;
 
+// Партнёра изображает настоящий спутник главы: партнёр выбрал спутника, или это проверка
+// без сети (F10 - спутник ходит и стреляет за нас); но не когда мы сами спутник (наш спрятан).
+bool PartnerIsBuddy() { return (PartnerCharacter() == 1 || !UsingNetwork()) && MyCharacter() != 1; }
+
 // Без собственной воли: тот же набор, что у марионетки в TLOU2-Coop.
 void AiOff(uint64_t npc) {
 	Call(g_dc.scriptMode, { npc, 2, 1 });  // выключить ИИ и сюжетные команды
@@ -304,7 +308,7 @@ void Update() {
 		waitingSince = 0;
 		// Партнёра-спутника изображает настоящий спутник главы, если он есть и не спрятан у нас
 		// (мы сами спутник - наш спрятан, тогда партнёр - копия в облике спутника).
-		if (PartnerCharacter() == 1 && MyCharacter() != 1)
+		if (PartnerIsBuddy())
 			if (const uint64_t buddy = CurrentBuddy(0)) {
 				TakeOverBuddy(buddy);
 				g_puppet = puppet = buddy;
@@ -706,7 +710,7 @@ void ScriptTick() {
 	// Роль сменилась на напарника, а партнёра изображал наш спутник: отдать его ИИ (дальше он спрятан).
 	// Партнёр больше не спутник, а его изображал наш спутник - отдать того ИИ.
 	// И если мы сами стали спутником: наш спутник теперь спрятан, партнёру нужна копия.
-	if ((PartnerCharacter() != 1 || MyCharacter() == 1) && g_puppetIsBuddy) Hide();
+	if (!PartnerIsBuddy() && g_puppetIsBuddy) Hide();
 	// Партнёр выбрал другого персонажа - копию NPC пересоздать в новом облике.
 	const bool lookChanged = g_puppetChar >= 0 && g_puppetChar != 1 && !Locked(g_partnerLook).empty() &&
 		g_puppetLook != Locked(g_partnerLook) && PartnerCharacter() < 2;
