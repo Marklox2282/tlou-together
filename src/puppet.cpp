@@ -139,6 +139,9 @@ uint64_t Spawn(const Locator& at) {
 	if (std::string sent = Locked(g_partnerLook); !sent.empty() && g_puppetChar != 1) look = std::move(sent);
 	if (g_puppetChar >= 2)
 		if (std::string art = ArtOfCharacter(CharacterName(g_puppetChar)); !art.empty()) look = std::move(art);
+	if (g_puppetChar == 1)  // спутник копией (свой спутник спрятан или его нет): облик спутника главы
+		if (const uint64_t buddy = CurrentBuddy(0))
+			if (std::string art = ArtOfNpc(buddy); !art.empty()) look = std::move(art);
 	g_puppetLook = look;
 	std::string name;
 	if (g_badForChapter != LoadChapter(g_myChapter).task) {
@@ -282,8 +285,17 @@ void Update() {
 	if (!DelayedTarget(now, target) || PartnerTooFar(target)) return;
 	if (!puppet) {
 		if (now - g_lastSpawnTry < (g_failures >= 3 ? 15000u : 3000u)) return;
-		// Герою партнёра изображает настоящий спутник главы, если он есть.
-		if (PartnerCharacter() == 1)
+		// Облик партнёра приходит с его позами: ждём его до 5 с, иначе создали бы копию по догадке
+		// и тут же пересоздали (лишняя копия рядом).
+		static ULONGLONG waitingSince = 0;
+		if (UsingNetwork() && PartnerCharacter() != 1 && Locked(g_partnerLook).empty()) {
+			if (!waitingSince) waitingSince = now;
+			if (now - waitingSince < 5000) return;
+		}
+		waitingSince = 0;
+		// Партнёра-спутника изображает настоящий спутник главы, если он есть и не спрятан у нас
+		// (мы сами спутник - наш спрятан, тогда партнёр - копия в облике спутника).
+		if (PartnerCharacter() == 1 && MyCharacter() != 1)
 			if (const uint64_t buddy = CurrentBuddy(0)) {
 				TakeOverBuddy(buddy);
 				g_puppet = puppet = buddy;
@@ -655,7 +667,8 @@ void ScriptTick() {
 	FinishJoin();
 	// Роль сменилась на напарника, а партнёра изображал наш спутник: отдать его ИИ (дальше он спрятан).
 	// Партнёр больше не спутник, а его изображал наш спутник - отдать того ИИ.
-	if (PartnerCharacter() != 1 && g_puppetIsBuddy) Hide();
+	// И если мы сами стали спутником: наш спутник теперь спрятан, партнёру нужна копия.
+	if ((PartnerCharacter() != 1 || MyCharacter() == 1) && g_puppetIsBuddy) Hide();
 	// Партнёр выбрал другого персонажа - копию NPC пересоздать в новом облике.
 	const bool lookChanged = g_puppetChar >= 0 && g_puppetChar != 1 && !Locked(g_partnerLook).empty() &&
 		g_puppetLook != Locked(g_partnerLook) && PartnerCharacter() < 2;
