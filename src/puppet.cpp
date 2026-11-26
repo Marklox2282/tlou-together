@@ -246,21 +246,35 @@ void SetPartnerChapter(uint64_t chapter) { g_partnerChapter = chapter; }
 uint64_t MyChapter() { return g_myChapter; }
 uint64_t Current() { return g_puppet; }
 
+// Свой номер кадра: хук интерпретатора срабатывает на каждом вызове скриптовой функции (тысячи
+// за кадр на всех потоках), и проверка там должна стоить одно сравнение. Раньше здесь читался
+// счётчик кадров игры через проверяемое чтение памяти, и FPS заметно проседал.
+std::atomic<uint64_t> g_frame{ 0 };
+std::atomic<uint64_t> g_workUs{ 0 };
+
+void OnFrame() { g_frame.fetch_add(1, std::memory_order_relaxed); }
+uint64_t TakeWorkMicroseconds() { return g_workUs.exchange(0); }
+
 // Скрипты выполняются на нескольких потоках; работа - один раз за кадр, первым пришедшим.
 void ScriptTick() {
 	if (!g_wanted.load(std::memory_order_relaxed) && !g_teleport.load(std::memory_order_relaxed) &&
 		!g_netActive.load(std::memory_order_relaxed))
 		return;
-	const uint64_t frame = FrameCounter();
+	const uint64_t frame = g_frame.load(std::memory_order_relaxed);
 	uint64_t done = g_doneFrame.load(std::memory_order_relaxed);
-	if (!frame || done == frame || !g_doneFrame.compare_exchange_strong(done, frame)) return;
-	// Счётчик кадра меняется, пока предыдущая работа ещё идёт в другом потоке ("story task" в
-	// логе дважды за миллисекунду): у работы общее состояние, поэтому один поток за раз.
+	if (done == frame || !g_doneFrame.compare_exchange_strong(done, frame)) return;
+	// Работа может ещё идти в другом потоке, когда начался следующий кадр: у неё общее
+	// состояние, поэтому один поток за раз.
 	static std::atomic_flag busy = ATOMIC_FLAG_INIT;
 	if (busy.test_and_set(std::memory_order_acquire)) return;
+	LARGE_INTEGER a, b, f;
+	QueryPerformanceCounter(&a);
 	ReadChapter();
 	if (g_teleport.exchange(false)) TeleportToPartner();
 	if (g_wanted) Update();
+	QueryPerformanceCounter(&b);
+	QueryPerformanceFrequency(&f);
+	g_workUs.fetch_add(static_cast<uint64_t>((b.QuadPart - a.QuadPart) * 1000000 / f.QuadPart), std::memory_order_relaxed);
 	busy.clear(std::memory_order_release);
 }
 

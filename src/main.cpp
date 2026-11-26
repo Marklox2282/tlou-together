@@ -122,7 +122,11 @@ void FrameTick(safetyhook::Context&) {
 	static ULONGLONG lastLog = 0;
 	static unsigned frames = 0;
 	static bool f10Down = false, f9Down = false, f7Down = false;
+	static uint64_t frameUs = 0;
+	LARGE_INTEGER start;
+	QueryPerformanceCounter(&start);
 	++frames;
+	puppet::OnFrame();
 	const ULONGLONG now = GetTickCount64();
 
 	Locator me{};
@@ -142,11 +146,19 @@ void FrameTick(safetyhook::Context&) {
 	if (KeyPressed(VK_F7, f7Down)) puppet::RequestTeleport();
 
 	if (now - lastLog >= 2000) {
-		if (havePlayer)
-			Log("player pos=(%.2f %.2f %.2f) fps=%.0f", me.pos[0], me.pos[1], me.pos[2], frames * 1000.0 / (now - lastLog));
+		// Сколько мод тратит на кадр: в основном потоке и в скриптовом (среднее за 2 с).
+		const uint64_t scriptUs = puppet::TakeWorkMicroseconds();
+		if (havePlayer && frames)
+			Log("player pos=(%.2f %.2f %.2f) fps=%.0f mod=%llu+%llu us/frame", me.pos[0], me.pos[1], me.pos[2],
+				frames * 1000.0 / (now - lastLog), frameUs / frames, scriptUs / frames);
 		lastLog = now;
 		frames = 0;
+		frameUs = 0;
 	}
+	LARGE_INTEGER end, freq;
+	QueryPerformanceCounter(&end);
+	QueryPerformanceFrequency(&freq);
+	frameUs += static_cast<uint64_t>((end.QuadPart - start.QuadPart) * 1000000 / freq.QuadPart);
 }
 
 void ScriptInvoke(safetyhook::Context&) { puppet::ScriptTick(); }

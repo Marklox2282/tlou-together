@@ -58,7 +58,6 @@ struct Locator { float pos[4], rot[4]; };
 bool PlayerLocator(Locator& l);            // без скриптового контекста, только чтение
 bool NpcLocator(uint64_t npc, Locator& out);
 uint64_t BoundFrame(const float pos[3], const float rot[4]);
-uint64_t FrameCounter();
 // Текущее сюжетное задание (id из task-get-current), 0 - нет. Скриптовый контекст.
 uint64_t CurrentChapter();
 

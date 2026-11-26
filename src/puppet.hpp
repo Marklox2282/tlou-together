@@ -21,8 +21,10 @@ void SetNetActive(bool on);     // сеть включена: читать св�
 void SetPartnerChapter(uint64_t chapter);
 uint64_t MyChapter();
 
-// Раз за кадр в скриптовом контексте (хук интерпретатора).
+// Раз за кадр в скриптовом контексте (хук интерпретатора); OnFrame - из обработчика кадра.
+void OnFrame();
 void ScriptTick();
+uint64_t TakeWorkMicroseconds();  // время работы ScriptTick с прошлого вызова
 
 uint64_t Current();  // id марионетки (для журнала падений)
 

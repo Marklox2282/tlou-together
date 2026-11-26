@@ -15,7 +15,6 @@ namespace {
 constexpr uintptr_t kPlayerHandleRva = 0x5ECAA80;  // из get-player-health
 constexpr uintptr_t kProcessIdOffset = 0x98;
 constexpr uintptr_t kLocatorOffset = 0x1B0;        // pos xyz(w), затем quat
-constexpr uintptr_t kFrameCounterRva = 0x6433108;  // [ptr]+0x40 = номер кадра (get-current-frame-count)
 constexpr uintptr_t kLevelMgrRva = 0x6433130;      // тот же менеджер, что обходит get-spawner
 constexpr uintptr_t kMgrLevels = 0x1E0, kMgrLevelCount = 0x1D8, kLevelSpawnData = 0x100;
 constexpr uintptr_t kTaskId = 0x08;                // task-get-current -> объект задания, id на +0x08
@@ -228,12 +227,6 @@ uint64_t BoundFrame(const float pos[3], const float rot[4]) {
 	const uint64_t v = Call(g_dc.allocVector, { F(pos[0]), F(pos[1]), F(pos[2]), F(1.0f), 0 });
 	const uint64_t q = Call(g_dc.allocQuat, { F(rot[0]), F(rot[1]), F(rot[2]), F(rot[3]), 0 });
 	return v && q ? Call(g_dc.allocBoundFrame, { v, q, 0, 0, 0 }) : 0;
-}
-
-uint64_t FrameCounter() {
-	const uintptr_t globals = ReadPtr(g_base + kFrameCounterRva);
-	uint64_t frame = 0;
-	return globals && Read(globals + 0x40, frame) ? frame : 0;
 }
 
 // task-get-current возвращает объект задания; id задания на +0x08, узел (чекпоинт) на +0x120.
