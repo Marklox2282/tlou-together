@@ -503,14 +503,11 @@ const char* TextLookup(void* db, uint64_t key, bool* found) {
 }
 
 std::atomic<bool> g_mainMenu{ true };
-// Обновление окна лобби: игра копирует текст при открытии, поэтому при смене состояния окно
-// закрываем (ScriptTick, menu2-pop-page) и открываем заново из кода меню (Visible - его игра
-// вызывает каждый кадр, пока меню на экране; открытие из обработчика кадра роняло игру).
-std::atomic<bool> g_boxOpen{ false }, g_popRequest{ false }, g_reopen{ false };
+// Повторный показ лобби после действия (ScriptTick, основной поток). g_boxOpen - наше окно
+// на экране (снимается любым ответом в нём).
+std::atomic<bool> g_boxOpen{ false }, g_reopen{ false };
 std::atomic<DWORD> g_mainThread{ 0 };  // основной поток (из OnFrame): меню трогаем только из него
 std::atomic<ULONGLONG> g_reopenAfter{ 0 };
-std::atomic<uint64_t> g_boxPage{ 0 };  // имя страницы окна в стеке (узнаём после открытия)
-std::atomic<ULONGLONG> g_boxOpenedAt{ 0 };
 int g_textTurn = 0;  // какой из двух ключей текста лобби у следующего окна
 
 void RequestReopen(ULONGLONG delayMs) {
@@ -522,13 +519,7 @@ bool OpenLobby(bool mainMenu);
 
 // Вызывается на каждый пункт меню каждый кадр: читаем прямо (указатель дала сама игра).
 bool Visible(uintptr_t condition, uintptr_t a2, uintptr_t a3, uintptr_t a4) {
-	if (condition && *reinterpret_cast<const uint64_t*>(condition + 8) == kQuitLibrary) {
-		// Меню на экране и окна нет - открыть отложенное лобби (здесь мы внутри кода меню).
-		bool want = true;
-		if (g_reopen && !g_boxOpen && GetTickCount64() >= g_reopenAfter && g_reopen.compare_exchange_strong(want, false))
-			Log("menu: lobby reopened %s", OpenLobby(g_mainMenu) ? "ok" : "FAILED");
-		return false;
-	}
+	if (condition && *reinterpret_cast<const uint64_t*>(condition + 8) == kQuitLibrary) return false;
 	return g_visibleHook.call<bool>(condition, a2, a3, a4);
 }
 
@@ -549,8 +540,6 @@ bool OpenLobby(bool mainMenu) {
 	const uintptr_t box = stack ? reinterpret_cast<BoxFn>(base + kMessageBoxRva)(stack, page, (g_textTurn ^= 1) ? kLobbyText2 : kLobbyText, kLobbyBox, 0, 2) : 0;
 	if (box) reinterpret_cast<void (*)(uintptr_t, uint64_t)>(base + kBoxTitleRva)(box, kLibraryText);
 	if (box) {
-		g_boxPage = 0;
-		g_boxOpenedAt = GetTickCount64();
 		g_boxOpen = true;
 	}
 	return box != 0;
@@ -612,29 +601,6 @@ bool g_installed = false;
 
 void OnFrame() {
 	g_mainThread = GetCurrentThreadId();
-	// Состояние лобби сменилось, а окно открыто - закрыть его (ScriptTick) и открыть заново.
-	static ULONGLONG lastCheck = 0;
-	static std::string lastState;
-	if (g_lobby && GetTickCount64() - lastCheck >= 500) {
-		lastCheck = GetTickCount64();
-		const Lobby s = g_lobby();
-		const auto b = [](bool v) { return v ? '1' : '0'; };
-		const std::string state = std::string{ b(s.on), b(s.lobby), b(s.busy), b(s.connected), b(s.codeError) } + s.partner + s.code +
-			s.myCharacter + s.partnerCharacter;
-		if (state != lastState) {
-			const bool first = lastState.empty();
-			lastState = state;
-			if (!first && g_boxOpen) g_popRequest = true;
-		}
-	}
-	// Живой текст: переписать буферы, которые игра уже получила (только своя память, без вызовов
-	// игры - открытие окна отсюда роняло игру).
-	static ULONGLONG lastRefresh = 0;
-	if (const Lang* l = g_lastLang.load(); l && GetTickCount64() - lastRefresh >= 500) {
-		lastRefresh = GetTickCount64();
-		LobbyText(*l);
-		TitleText(*l);
-	}
 	static bool registered = false;
 	if (registered || !g_installed) return;
 	registered = true;
@@ -644,44 +610,16 @@ void OnFrame() {
 	Log("menu: description %s", src ? "registered" : "FAILED");
 }
 
+// Отложенное открытие лобби (после "создать лобби", входа по коду, смены персонажа): здесь
+// середина обновления игры на основном потоке - так открывают меню и её скрипты; из конца кадра
+// (OnFrame) открытие роняло игру. Открытое окно игра не обновляет и закрыть его снаружи мы пока не
+// умеем (menu2-pop-page его не закрывал), поэтому в промежуточных состояниях - подсказка.
 void ScriptTick() {
-	const bool reopenDue = g_reopen.load(std::memory_order_relaxed) && !g_boxOpen.load(std::memory_order_relaxed);
-	if (!g_boxOpen.load(std::memory_order_relaxed) && !reopenDue) return;
-	if (GetCurrentThreadId() != g_mainThread.load(std::memory_order_relaxed)) {
-		static std::atomic<bool> logged{ false };
-		if (!logged.exchange(true)) Log("menu: script tick on another thread, waiting for the main one");
-		return;
-	}
-	static std::atomic<bool> mainSeen{ false };
-	if (!mainSeen.exchange(true)) Log("menu: script tick on the main thread");
-	const uint64_t stack = g_mainMenu ? Sid("main") : Sid("ingame");
-	// Отложенное открытие лобби: здесь середина обновления игры на основном потоке (скрипты меню
-	// работают так же), а не конец кадра, где открытие роняло игру.
-	if (reopenDue) {
-		bool want = true;
-		if (GetTickCount64() >= g_reopenAfter && g_reopen.compare_exchange_strong(want, false))
-			Log("menu: lobby reopened %s", OpenLobby(g_mainMenu) ? "ok" : "FAILED");
-		return;
-	}
-	// Страницу окна запоминаем через 0.3 с после открытия: в стек оно встаёт не сразу (сразу
-	// сверху была ещё прежняя страница, и закрывалась она, а не наше окно).
-	if (!g_boxPage.load(std::memory_order_relaxed)) {
-		if (GetTickCount64() - g_boxOpenedAt < 300) return;
-		g_boxPage = Call(g_dc.topPage, { stack, 0 });
-		Log("menu: lobby box page %016llX", static_cast<unsigned long long>(g_boxPage.load()));
-	}
+	if (!g_reopen.load(std::memory_order_relaxed) || g_boxOpen.load(std::memory_order_relaxed)) return;
+	if (GetCurrentThreadId() != g_mainThread.load(std::memory_order_relaxed)) return;
 	bool want = true;
-	if (!g_popRequest.load(std::memory_order_relaxed) || !g_popRequest.compare_exchange_strong(want, false)) return;
-	// Закрываем, только если сверху именно наше окно.
-	const uint64_t page = g_boxPage, top = Call(g_dc.topPage, { stack, 0 });
-	if (page && top == page) {
-		Call(g_dc.popPage, { stack, page });
-		g_boxOpen = false;
-		RequestReopen(1000);  // дать окну закрыться до конца (анимация), иначе меню брало то же окно
-		Log("menu: lobby changed - box closed to show it again");
-	} else {
-		Log("menu: lobby changed, but the box is not on top (%016llX); leaving it", static_cast<unsigned long long>(top));
-	}
+	if (GetTickCount64() >= g_reopenAfter && g_reopen.compare_exchange_strong(want, false))
+		Log("menu: lobby reopened %s", OpenLobby(g_mainMenu) ? "ok" : "FAILED");
 }
 
 bool Install(LobbyFn lobby, ActionFn action) {
