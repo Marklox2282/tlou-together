@@ -210,7 +210,7 @@ bool InitNatives() {
 		{ &g_dc.taskNode, "task-get-current-node-id" }, { &g_dc.taskSubnode, "task-get-current-subnode-id" },
 		{ &g_dc.taskPlay, "task-play-debug!" }, { &g_dc.getScriptMode, "npc-get-script-mode" },
 		{ &g_dc.swapLook, "player-swap-look-id" }, { &g_dc.isFiring, "player-is-firing?" },
-		{ &g_dc.fireWeapon, "npc-fire-weapon" } };
+		{ &g_dc.fireWeapon, "npc-fire-weapon" }, { &g_dc.cameraLocator, "camera-locator" } };
 	for (const auto& [slot, name] : table) {
 		*slot = FindNative(name);
 		if (!*slot) return false;
@@ -304,6 +304,12 @@ uint64_t Call(NativeFn fn, std::initializer_list<uint64_t> args) {
 			break;
 		}
 	return ret[0];
+}
+
+// camera-locator(0) отдаёт локатор {pos, quat}, как его читает TLOU2-Coop для ников.
+bool CameraLocator(Locator& l) {
+	const uint64_t p = Call(g_dc.cameraLocator, { 0 });
+	return p && Read(p, l) && std::isfinite(l.pos[0]) && std::isfinite(l.rot[3]);
 }
 
 bool PlayerLocator(Locator& l) {

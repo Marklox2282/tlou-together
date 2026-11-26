@@ -44,7 +44,7 @@ using NativeFn = void (*)(uint64_t* ret, int argc, const uint64_t* argv, uint64_
 struct Natives {
 	NativeFn allocVector, allocQuat, allocBoundFrame, spawnWithLook, entityExists, teleport, scriptMode,
 		setIgnore, setBlind, setDeaf, hitReactions, stun, dodges, objectLocator, moveTo, newBoxedValue, sendEvent,
-		setVisible, setUnshootable, darrayCount, darrayAt, getHealth, setHealth, isDead, npcDie, taskNode, taskSubnode, taskPlay, getScriptMode, swapLook, isFiring, fireWeapon;
+		setVisible, setUnshootable, darrayCount, darrayAt, getHealth, setHealth, isDead, npcDie, taskNode, taskSubnode, taskPlay, getScriptMode, swapLook, isFiring, fireWeapon, cameraLocator;
 };
 extern Natives g_dc;
 bool InitNatives();  // false, если какой-то не найден
@@ -62,6 +62,7 @@ uint64_t MicrosecondsSince(int64_t qpcStart);
 struct Locator { float pos[4], rot[4]; };
 
 bool PlayerLocator(Locator& l);            // без скриптового контекста, только чтение
+bool CameraLocator(Locator& l);            // камера игрока (вперёд - +Z), скриптовый контекст
 bool NpcLocator(uint64_t npc, Locator& out);
 uint64_t BoundFrame(const float pos[3], const float rot[4]);
 // Место в сюжете: узел графа заданий (глава) и задание в нём (чекпоинт). Скриптовый контекст.
