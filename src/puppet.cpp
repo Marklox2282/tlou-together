@@ -144,12 +144,19 @@ uint64_t Spawn(const Locator& at) {
 			if (Call(g_dc.entityExists, { sid })) return true;
 		return false;
 	};
+	std::vector<uintptr_t> skip = g_badSpawners;
 	for (int tries = 0; tries < 8; ++tries) {
-		sp = FindBuddySpawner(HeroName(look), g_badSpawners, name);
+		sp = FindBuddySpawner(HeroName(look), skip, name);
 		if (!sp || !inScene(sp)) break;
 		Log("puppet: %s is in the scene already, skipping", name.c_str());
-		g_badSpawners.push_back(sp);
+		skip.push_back(sp);
 		sp = 0;
+	}
+	// Ничего не осталось (партнёр выбрал персонажа, который и так здесь, а других NPC нет - пролог):
+	// берём любой NPC и надеваем выбранный облик. Двойник лучше невидимого партнёра.
+	if (!sp && !look.empty()) {
+		sp = FindBuddySpawner(std::string(), g_badSpawners, name);
+		if (sp) Log("puppet: no other NPC to use; %s will wear the look", name.c_str());
 	}
 	g_lastSpawner = sp;
 	// Спавнер того же пола выбирается первым (SpawnerRank); другой пол - только если своего нет
