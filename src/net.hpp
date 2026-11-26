@@ -49,6 +49,7 @@ public:
 	void SendPose(const float pos[3], const float rot[4]);
 	void SetChapter(uint64_t chapter) { chapter_ = chapter; }
 	void SetName(const std::string& name) { name_ = name; }
+	void SetBeep(bool on) { beep_ = on; }  // звук Windows при соединении (в игре - да, в тестах - нет)
 
 	State GetState() const { return state_; }
 	const std::string& PeerName() const { return peerName_; }
@@ -78,6 +79,7 @@ private:
 	uint64_t lastHello_ = 0, lastHeard_ = 0, lastMismatchLog_ = 0;
 	uint32_t seq_ = 0, lastSeq_ = 0;
 	bool oldProtocolLogged_ = false;
+	bool beep_ = true;
 };
 
 }  // namespace net

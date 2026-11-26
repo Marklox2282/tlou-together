@@ -266,7 +266,7 @@ void Link::OnHello(const Packet& p, uint64_t from, uint64_t nowMs) {
 	lastHeard_ = nowMs;
 	lastSeq_ = 0;
 	log_("net: connected to %s", peerName_.c_str());
-	MessageBeep(MB_OK);
+	if (beep_) MessageBeep(MB_OK);
 	Send(Make(kHello));  // чтобы второй тоже сразу узнал
 }
 
