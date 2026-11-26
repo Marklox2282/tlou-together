@@ -37,6 +37,12 @@ int main() {
 	Check(HeroName("t1x-joel-costume-01") == "joel", "hero from costume art");
 	Check(HeroName("t1x-joel") == "joel", "hero from short art");
 	Check(HeroName("survivor-m-02").empty(), "generic NPC has no hero name");
+	Check(SpawnerRank("t1x-tool-clump-cleaning-rod", "joel") == 0, "item with t1x- art is not a character");
+	Check(SpawnerRank("t1x-joel-costume-01", "joel") == 0, "never a copy of the hero being played");
+	Check(SpawnerRank("t1x-tommy-costume-01", "joel") > SpawnerRank("survivor-m-02", "joel"), "male story NPC first for Joel");
+	Check(SpawnerRank("survivor-m-02", "joel") > SpawnerRank("t1x-marlene-costume-01", "joel"), "then a generic man, not Marlene");
+	Check(SpawnerRank("invisible-cube", "joel") == 0 && SpawnerRank("arrow-tail", "") == 0, "non-people refused");
+	Check(SpawnerRank("military-f-01", "ellie") > SpawnerRank("military-m-01", "ellie"), "woman for Ellie");
 	static_assert(Sid("player") == 0x4580FAB03B7EB9C0ull);
 	Check(Sid("a") == 0xAF63DC4C8601EC8Cull, "FNV-1a 64 of \"a\"");
 

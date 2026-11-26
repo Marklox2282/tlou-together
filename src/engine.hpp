@@ -86,5 +86,8 @@ uintptr_t FindBuddySpawner(const std::string& hero, std::string& nameOut);
 // Костюм героя главы: арт ближайшей к точке точки появления игрока ("t1x-joel-costume-01").
 std::string HeroLook(const float around[3]);
 std::string HeroName(const std::string& art);  // "t1x-joel-costume-01" -> "joel"
+bool IsFemaleHero(const std::string& name);
+// Пригодность спавнера с артом art для партнёра героя hero: 0 - не годится, больше - лучше.
+int SpawnerRank(const std::string& art, const std::string& hero);
 
 }  // namespace engine

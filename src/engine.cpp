@@ -78,6 +78,8 @@ void ForEachSpawner(Fn&& fn) {
 	}
 }
 
+}  // namespace
+
 bool IsFemaleHero(const std::string& name) {
 	for (const char* f : { "ellie", "sarah", "tess", "marlene", "riley", "maria" })
 		if (name == f) return true;
@@ -89,9 +91,13 @@ bool IsFemaleHero(const std::string& name) {
 // Сюжетные арты: "t1x-<имя>[-costume-NN]"; обычные: "survivor-m-02", "military-f-01"...
 // 0 - не годится; больше - лучше. Спавнер самого героя не берём: копия персонажа, которым
 // играет игрок, роняла игру (HALT движка при spawn-entity-at-with-look).
+// Арт "t1x-..." бывает и у предметов ("t1x-tool-clump-cleaning-rod" у treasure-tool-3: попытка
+// сделать из него NPC роняла игру), поэтому персонаж - только "t1x-<имя>-costume-...".
 int SpawnerRank(const std::string& art, const std::string& hero) {
 	const bool heroFemale = IsFemaleHero(hero);
-	if (const std::string name = HeroName(art); !name.empty()) {
+	if (art.rfind("t1x-", 0) == 0) {
+		if (art.find("-costume") == std::string::npos) return 0;
+		const std::string name = HeroName(art);
 		if (!hero.empty() && name == hero) return 0;
 		return hero.empty() || IsFemaleHero(name) == heroFemale ? 4 : 1;
 	}
@@ -100,6 +106,8 @@ int SpawnerRank(const std::string& art, const std::string& hero) {
 	if (hero.empty()) return 2;
 	return (heroFemale ? female : male) ? 3 : 1;
 }
+
+namespace {
 
 }  // namespace
 
@@ -240,13 +248,18 @@ uintptr_t FindBuddySpawner(const std::string& hero, std::string& nameOut) {
 	ForEachSpawner([&](uintptr_t sp, const SpawnerHead& h) {
 		if (!h.type || (h.flags0 & kSpDisabled)) return true;
 		const std::string art = ReadName(h.art);
-		const int rank = SpawnerRank(art, hero);
+		int rank = SpawnerRank(art, hero) * 2;
+		if (!rank) return true;
+		// "snpc-..." - упрощённая массовка; полноценный NPC ("npc-...", сюжетный) надёжнее
+		// принимает команды движения, поэтому при равном ранге он впереди.
+		const std::string name = ReadName(h.name);
+		if (name.rfind("snpc-", 0) != 0) ++rank;
 		if (rank > bestRank) {
 			best = sp;
 			bestRank = rank;
-			nameOut = ReadName(h.name) + " (" + art + ")";
+			nameOut = name + " (" + art + ")";
 		}
-		return bestRank < 4;
+		return bestRank < 9;
 	});
 	return best;
 }
