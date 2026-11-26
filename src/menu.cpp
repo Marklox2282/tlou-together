@@ -44,7 +44,7 @@ constexpr uintptr_t kDataSourcesRva = 0x8089550, kAddDataSourceRva = 0x25D6390;
 constexpr size_t kMainMenuVcall = 0x458;  // меню->вызов: true в главном меню (стек "main"), false в паузе ("ingame")
 
 constexpr uint64_t kLibraryText = Sid("MENU_OPTION_QUIT_TO_LIBRARY_PC");
-constexpr uint64_t kLobbyText = Sid("TLOU1COOP_LOBBY");
+constexpr uint64_t kLobbyText = Sid("TLOU1COOP_LOBBY"), kLobbyText2 = Sid("TLOU1COOP_LOBBY2");  // чередуются: новый ключ - игра точно перечитает текст
 constexpr uint64_t kDescText = Sid("TLOU1COOP_DESCRIPTION");
 constexpr uint64_t kLobbyBox = Sid("tlou1coop-lobby");
 constexpr uint64_t kQuitLibrary = Sid("quit-library");
@@ -490,14 +490,14 @@ std::atomic<bool> g_boxConnected{ false };  // подключены: перва�
 
 const char* TextLookup(void* db, uint64_t key, bool* found) {
 	const bool labels = (key == kYesText || key == kNoText) && GetTickCount64() < g_labelsUntil;
-	if (key == kLibraryText || key == kLobbyText || key == kDescText || labels) {
+	if (key == kLibraryText || key == kLobbyText || key == kLobbyText2 || key == kDescText || labels) {
 		const Lang& l = LangFor(g_textHook.call<const char*>(db, kLibraryText, nullptr));
 		if (found) *found = true;
 		if (labels) {
 			if (key == kYesText) return g_boxConnected ? l.swap : g_boxInLobby ? l.invite : l.create;
 			return g_boxInLobby ? l.leave : l.joinCode;
 		}
-		return key == kLobbyText ? LobbyText(l) : key == kDescText ? DescText(l) : TitleText(l);
+		return key == kLobbyText || key == kLobbyText2 ? LobbyText(l) : key == kDescText ? DescText(l) : TitleText(l);
 	}
 	return g_textHook.call<const char*>(db, key, found);
 }
@@ -511,6 +511,7 @@ std::atomic<DWORD> g_mainThread{ 0 };  // основной поток (из OnFr
 std::atomic<ULONGLONG> g_reopenAfter{ 0 };
 std::atomic<uint64_t> g_boxPage{ 0 };  // имя страницы окна в стеке (узнаём после открытия)
 std::atomic<ULONGLONG> g_boxOpenedAt{ 0 };
+int g_textTurn = 0;  // какой из двух ключей текста лобби у следующего окна
 
 void RequestReopen(ULONGLONG delayMs) {
 	g_reopenAfter = GetTickCount64() + delayMs;
@@ -545,7 +546,7 @@ bool OpenLobby(bool mainMenu) {
 	using BoxFn = uintptr_t (*)(uintptr_t, const char*, uint64_t, uint64_t, uint64_t, int);
 	const uintptr_t stack = reinterpret_cast<StackFn>(base + kPageStackRva)(0, mainMenu ? Sid("main") : Sid("ingame"));
 	const char* page = "menu/message-box-yes-no-cancel";
-	const uintptr_t box = stack ? reinterpret_cast<BoxFn>(base + kMessageBoxRva)(stack, page, kLobbyText, kLobbyBox, 0, 2) : 0;
+	const uintptr_t box = stack ? reinterpret_cast<BoxFn>(base + kMessageBoxRva)(stack, page, (g_textTurn ^= 1) ? kLobbyText2 : kLobbyText, kLobbyBox, 0, 2) : 0;
 	if (box) reinterpret_cast<void (*)(uintptr_t, uint64_t)>(base + kBoxTitleRva)(box, kLibraryText);
 	if (box) {
 		g_boxPage = 0;
@@ -676,7 +677,7 @@ void ScriptTick() {
 	if (page && top == page) {
 		Call(g_dc.popPage, { stack, page });
 		g_boxOpen = false;
-		RequestReopen(300);
+		RequestReopen(1000);  // дать окну закрыться до конца (анимация), иначе меню брало то же окно
 		Log("menu: lobby changed - box closed to show it again");
 	} else {
 		Log("menu: lobby changed, but the box is not on top (%016llX); leaving it", static_cast<unsigned long long>(top));
