@@ -32,8 +32,6 @@ constexpr uintptr_t kVisibleRva = 0x1BFE960;
 constexpr uintptr_t kPressRva = 0x1C8544A, kPressDoneRva = 0x1C85F13;
 // Ответ окна сообщения: rdi - id окна (как у выхода "confirm_exit_to_desktop"), [rsp+0x30] - кнопка.
 constexpr uintptr_t kAnswerRva = 0x1C86022;
-// Там же (функция 0x1C83174): ветки кнопок buttonCampaignTLOU и buttonCampaignSPDLC1 - начать игру.
-constexpr uintptr_t kStartTlouRva = 0x1C834CE, kStartLeftBehindRva = 0x1C83C9F;
 // Как в обработчике выхода: менеджер страниц по имени стека ("main"/"ingame") и показ окна
 // (менеджер, страница, текст, id ответа, 0, 2).
 // После создания окна - заголовок (окно, ключ текста); без него окно не показывалось.
@@ -388,8 +386,7 @@ const Lang& LangFor(const char* library) {
 LobbyFn g_lobby = nullptr;
 ActionFn g_action = nullptr;
 safetyhook::InlineHook g_textHook, g_visibleHook;
-safetyhook::MidHook g_pressHook, g_answerHook, g_startHook, g_startLbHook;
-std::atomic<ULONGLONG> g_waitUntil{ 0 };  // окно открыто из-за "начать игру" без напарника
+safetyhook::MidHook g_pressHook, g_answerHook;
 
 // Строки должны жить, пока игра их показывает: по два буфера на каждую, по очереди.
 template <size_t N>
@@ -435,13 +432,6 @@ const char* LobbyText(const Lang& l) {
 
 const char* LobbyTextInto(const Lang& l, char* buf, size_t n) {
 	const Lobby s = g_lobby ? g_lobby() : Lobby{};
-	if (GetTickCount64() < g_waitUntil && !(g_lobby && g_lobby().connected)) {  // почему не начали игру - первой строкой
-		const int k = snprintf(buf, n, "%s<br><br>", l.waitStart);
-		if (k > 0 && static_cast<size_t>(k) < n) {
-			buf += k;
-			n -= k;
-		}
-	}
 	if (s.connected) {
 		// "Подключено: Вася... <br><br>Вы: Sarah · Вася: Tess (напарник)".
 		auto who = [&](const std::string& c) {
@@ -536,7 +526,9 @@ bool OpenLobby(bool mainMenu) {
 	using StackFn = uintptr_t (*)(uintptr_t, uint64_t);
 	using BoxFn = uintptr_t (*)(uintptr_t, const char*, uint64_t, uint64_t, uint64_t, int);
 	const uintptr_t stack = reinterpret_cast<StackFn>(base + kPageStackRva)(0, mainMenu ? Sid("main") : Sid("ingame"));
-	const char* page = "menu/message-box-yes-no-cancel";
+	// Две кнопки: у окна на три кнопки "Отмена" присылала то же событие, что вторая кнопка
+	// (выходила из лобби). Закрыть окно - "Назад" (Esc), подсказка внизу экрана.
+	const char* page = "menu/message-box-yes-no";
 	const uintptr_t box = stack ? reinterpret_cast<BoxFn>(base + kMessageBoxRva)(stack, page, (g_textTurn ^= 1) ? kLobbyText2 : kLobbyText, kLobbyBox, 0, 2) : 0;
 	if (box) reinterpret_cast<void (*)(uintptr_t, uint64_t)>(base + kBoxTitleRva)(box, kLibraryText);
 	if (box) {
@@ -555,23 +547,8 @@ void OnPress(safetyhook::Context& ctx) {
 	ctx.rip = engine::g_base + kPressDoneRva;
 }
 
-// Готовность: в лобби, а напарник ещё не подключился - игру не начинаем, а показываем лобби
-// с причиной (кнопки пригласить / покинуть лобби / отмена). Без лобби - как обычно.
-void OnStart(safetyhook::Context& ctx) {
-	const Lobby s = g_lobby ? g_lobby() : Lobby{};
-	Log("menu: start pressed (lobby %d, connected %d)", (s.lobby || s.busy) ? 1 : 0, s.connected ? 1 : 0);
-	if (!(s.lobby || s.busy) || s.connected) return;
-	g_waitUntil = GetTickCount64() + 30000;  // строка видна, пока окно открыто (текст живой)
-	const uintptr_t menu = ctx.r15;
-	using MainMenuFn = bool (*)(uintptr_t);
-	const auto mainMenu = reinterpret_cast<MainMenuFn>(*reinterpret_cast<uintptr_t*>(*reinterpret_cast<uintptr_t*>(menu) + kMainMenuVcall));
-	g_mainMenu = mainMenu(menu);
-	Log("menu: start pressed while the partner is connecting - lobby %s", OpenLobby(g_mainMenu) ? "shown" : "FAILED");
-	ctx.rip = engine::g_base + kPressDoneRva;
-}
-
 // Ответ в окне: наше - обрабатываем сами, а игре подсовываем id, которого она не знает.
-// Кнопки: messageBoxOk - первая, messageBoxCancel - вторая, messageBoxPop - "отмена"/назад.
+// Кнопки: messageBoxOk - первая, messageBoxCancel - вторая, messageBoxPop - "Назад".
 void OnAnswer(safetyhook::Context& ctx) {
 	if (ctx.rdi != kLobbyBox) return;
 	g_boxOpen = false;  // любое событие нашего окна - оно закрылось
@@ -628,12 +605,9 @@ bool Install(LobbyFn lobby, ActionFn action) {
 	// Порядок важен: сначала нажатие и ответ, видимость - последней. Если что-то не встало,
 	// снимаем всё: иначе видимый пункт выходил бы в библиотеку.
 	const bool ok = Make(g_pressHook, kPressRva, OnPress, "press") && Make(g_answerHook, kAnswerRva, OnAnswer, "answer") &&
-		Make(g_startHook, kStartTlouRva, OnStart, "start") && Make(g_startLbHook, kStartLeftBehindRva, OnStart, "start left behind") &&
 		Make(g_textHook, kTextLookupRva, TextLookup, "text") && Make(g_visibleHook, kVisibleRva, Visible, "visibility");
 	if (!ok) {
 		g_visibleHook = {};
-		g_startLbHook = {};
-		g_startHook = {};
 		g_textHook = {};
 		g_answerHook = {};
 		g_pressHook = {};
