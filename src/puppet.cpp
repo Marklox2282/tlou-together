@@ -831,7 +831,15 @@ void ScriptTick() {
 			ReleaseSRWLockExclusive(&g_lookLock);
 		}
 	}
-	g_meFiring = (Call(g_dc.isFiring, {}) & 1) != 0;
+	// Выстрел своего игрока: флаг "стреляет" держится не каждый кадр, поэтому ещё и счётчик выстрелов.
+	{
+		static uint64_t lastShots = ~0ull;
+		const uint64_t firing = Call(g_dc.isFiring, {}), shots = Call(g_dc.shotsFired, {});
+		const bool counted = lastShots != ~0ull && shots != lastShots;
+		if (counted || (firing & 1)) Log("me: shot (firing=%llu shots=%llu)", static_cast<unsigned long long>(firing), static_cast<unsigned long long>(shots));
+		lastShots = shots;
+		g_meFiring = (firing & 1) != 0 || counted;
+	}
 	// Поза: своя - для отправки (5 раз в секунду хватает), партнёра - на марионетку при смене.
 	// Манеры NPC из скриптов игры: 'crouch - присед, 'ambient - обычная.
 	// Копию бьют враги - держим её живой: здоровье обратно до того, с каким она появилась.
@@ -929,7 +937,9 @@ void ScriptTick() {
 	const bool shoot = UsingNetwork() ? g_partnerFiring.load() : g_meFiring.load();
 	if (shoot && (g_puppetIsBuddy || g_enemiesSee) && g_puppet && !g_hidden && GetTickCount64() - lastShot >= 180) {
 		lastShot = GetTickCount64();
-		Call(g_dc.fireWeapon, { g_puppet });
+		const uint64_t r = Call(g_dc.fireWeapon, { g_puppet });
+		Log("puppet: fires (%llu, weapon %016llX)", static_cast<unsigned long long>(r),
+			static_cast<unsigned long long>(Call(g_dc.npcWeapon, { g_puppet })));
 	}
 	s = QpcNow();
 	if (g_wanted) Update();

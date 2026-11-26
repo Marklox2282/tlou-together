@@ -45,7 +45,7 @@ struct Natives {
 	NativeFn allocVector, allocQuat, allocBoundFrame, spawnWithLook, entityExists, teleport, scriptMode,
 		setIgnore, setBlind, setDeaf, hitReactions, stun, dodges, objectLocator, moveTo, newBoxedValue, sendEvent,
 		setVisible, setUnshootable, darrayCount, darrayAt, getHealth, setHealth, isDead, npcDie, taskNode, taskSubnode, taskPlay, getScriptMode, swapLook, isFiring, fireWeapon, cameraLocator, artGroup, playerHealth, isCrouched, isAiming, setDemeanor, weaponUp, weaponDown, getFaction, setFaction, highlight, allocColor, getDifficulty, setDifficulty, hudMessage,
-		playerWeapon, npcWeapon, giveWeapon, destroyWeapon;
+		playerWeapon, npcWeapon, giveWeapon, destroyWeapon, shotsFired;
 };
 extern Natives g_dc;
 bool InitNatives();  // false, если какой-то не найден
