@@ -87,11 +87,12 @@ bool IsFemaleHero(const std::string& name) {
 // Образ героя надевается на скелет и анимации спавнера, поэтому спавнер подбирается под героя:
 // мужской образ на женском скелете (Джоэл на Марлин) бегал криво. Заражённых и собак не берём.
 // Сюжетные арты: "t1x-<имя>[-costume-NN]"; обычные: "survivor-m-02", "military-f-01"...
-// 0 - не годится; больше - лучше.
+// 0 - не годится; больше - лучше. Спавнер самого героя не берём: копия персонажа, которым
+// играет игрок, роняла игру (HALT движка при spawn-entity-at-with-look).
 int SpawnerRank(const std::string& art, const std::string& hero) {
 	const bool heroFemale = IsFemaleHero(hero);
 	if (const std::string name = HeroName(art); !name.empty()) {
-		if (!hero.empty() && name == hero) return 5;
+		if (!hero.empty() && name == hero) return 0;
 		return hero.empty() || IsFemaleHero(name) == heroFemale ? 4 : 1;
 	}
 	if (art.rfind("survivor-", 0) && art.rfind("smuggler-", 0) && art.rfind("military-", 0)) return 0;
@@ -245,7 +246,7 @@ uintptr_t FindBuddySpawner(const std::string& hero, std::string& nameOut) {
 			bestRank = rank;
 			nameOut = ReadName(h.name) + " (" + art + ")";
 		}
-		return bestRank < 5;
+		return bestRank < 4;
 	});
 	return best;
 }

@@ -71,6 +71,8 @@ uint64_t Spawn(const Locator& at) {
 		Log("puppet: no buddy spawner in loaded levels");
 		return 0;
 	}
+	// До вызова движка: если он упадёт, в логе будет видно, на каком спавнере.
+	Log("puppet: spawning from %s, look %s", name.c_str(), look.empty() ? "-" : look.c_str());
 	// Бит "multi-spawn": иначе движок переиспользует и телепортирует сюжетного NPC уровня.
 	auto* flags1 = reinterpret_cast<uint8_t*>(sp + kSpFlags1);
 	*flags1 = static_cast<uint8_t>(f1 | kSpMultiSpawn);
