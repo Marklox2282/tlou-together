@@ -28,7 +28,7 @@ namespace {
 
 // Номер версии мода: увеличивать при каждом выпуске (tools/release.py берёт его отсюда).
 // Игроки с разными версиями не соединяются.
-constexpr uint32_t kModVersion = 24;
+constexpr uint32_t kModVersion = 25;
 
 using engine::Locator;
 
@@ -67,6 +67,7 @@ net::Config LoadConfig(std::string& name) {
 				";             tommy, bill, henry, sam, riley, marlene, maria.\n"
 				"; story_sync = on (default): when your partner reaches a new checkpoint (cutscene, car...),\n"
 				";             you load it too and stand next to them. off: each plays the story alone.\n"
+				"; partner_outline = on (default): your partner is outlined through walls when more than 12 m away.\n"
 				"; enemies_see_partner = on (default): enemies notice and attack your partner's character too.\n"
 				"; shared_death = on (default): when one of you dies, the other reloads the checkpoint too.\n"
 				"; enemy_sync = soft (default): enemies keep their AI, moved to the host's spot off-screen.\n"
@@ -93,6 +94,7 @@ net::Config LoadConfig(std::string& name) {
 		else if (key == "story_sync") g_storySync = value != "off";
 		else if (key == "shared_death") g_sharedDeath = value != "off";
 		else if (key == "enemies_see_partner") puppet::SetEnemiesSeePartner(value != "off");
+		else if (key == "partner_outline") puppet::SetPartnerOutline(value != "off");
 		else if (key == "character") puppet::SetMyCharacter(puppet::CharacterFromName(value));
 	}
 	fclose(f);

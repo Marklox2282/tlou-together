@@ -66,6 +66,8 @@ void SetPartnerStance(bool crouched, bool aiming);
 // Враги видят копию партнёра (ini enemies_see_partner, по умолчанию да): она во фракции игрока,
 // не "игнорируется" ИИ; урон по ней партнёру не передаётся - у него свои враги бьют его самого.
 void SetEnemiesSeePartner(bool on);
+// Контур партнёра сквозь стены, когда он дальше 12 м (ini partner_outline, по умолчанию да).
+void SetPartnerOutline(bool on);
 Role GetRole();                             // Companion, если мой персонаж - спутник
 // Имена персонажей текущей главы для лобби ("joel", "tess"); пусто - неизвестно.
 std::string HeroCharacter();

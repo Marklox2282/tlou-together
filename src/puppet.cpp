@@ -106,7 +106,7 @@ std::string Locked(const std::string& s) {
 	return out;
 }
 std::atomic<bool> g_meFiring{ false }, g_partnerFiring{ false };
-std::atomic<bool> g_enemiesSee{ true };
+std::atomic<bool> g_enemiesSee{ true }, g_outline{ true };
 uint64_t g_buddyFaction = 0;  // фракция спутника до нас - вернуть при отпускании
 std::atomic<bool> g_meCrouched{ false }, g_meAiming{ false }, g_partnerCrouched{ false }, g_partnerAiming{ false };
 bool g_puppetIsBuddy = false;  // марионетка - настоящий спутник главы (у героя)
@@ -681,6 +681,7 @@ bool MeFiring() { return g_meFiring; }
 bool MeCrouched() { return g_meCrouched; }
 bool MeAiming() { return g_meAiming; }
 void SetEnemiesSeePartner(bool on) { g_enemiesSee = on; }
+void SetPartnerOutline(bool on) { g_outline = on; }
 void SetPartnerStance(bool crouched, bool aiming) {
 	g_partnerCrouched = crouched;
 	g_partnerAiming = aiming;
@@ -835,6 +836,20 @@ void ScriptTick() {
 			memcpy(&full, &fullHealth, 4);
 			if (now < full && now > 0.0f) Call(g_dc.setHealth, { puppet, fullHealth });
 		}
+	}
+	// Контур далёкого партнёра: игра держит подсветку один кадр, поэтому - каждый кадр, пока далеко.
+	// Даль проверяем раз в 0.3 с (позиции читаются из памяти).
+	static ULONGLONG lastFar = 0;
+	static bool partnerFar = false;
+	if (g_outline && g_puppet && !g_hidden && UsingNetwork()) {
+		if (GetTickCount64() - lastFar >= 300) {
+			lastFar = GetTickCount64();
+			Locator me{}, them{};
+			partnerFar = PlayerLocator(me) && NpcLocator(g_puppet, them) && Dist(me.pos, them.pos) > 12.0f;
+		}
+		if (partnerFar)
+			if (const uint64_t color = Call(g_dc.allocColor, { F(0.55f), F(0.8f), F(1.0f), F(1.0f), 0 }))
+				Call(g_dc.highlight, { g_puppet, 0, color });
 	}
 	static ULONGLONG lastStance = 0;
 	if (GetTickCount64() - lastStance >= 200) {
