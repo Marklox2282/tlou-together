@@ -90,6 +90,8 @@ static_assert(offsetof(SpawnerHead, sid) == kSpSid && offsetof(SpawnerHead, name
 // Человек-NPC для партнёра, под пол и имя героя (hero - "joel", пусто = любой); exclude -
 // спавнеры, которые уже не сработали.
 uintptr_t FindBuddySpawner(const std::string& hero, const std::vector<uintptr_t>& exclude, std::string& nameOut);
+// Имена (sid) NPC всех спавнеров этого сюжетного персонажа ("marlene") на загруженных уровнях.
+std::vector<uint64_t> CharacterSids(const std::string& character);
 // Костюм героя главы: арт ближайшей к точке точки появления игрока ("t1x-joel-costume-01").
 std::string HeroLook(const float around[3]);
 std::string HeroName(const std::string& art);  // "t1x-joel-costume-01" -> "joel"

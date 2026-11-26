@@ -337,6 +337,16 @@ std::string HeroName(const std::string& art) {
 	return art.substr(4, end == std::string::npos ? std::string::npos : end - 4);
 }
 
+std::vector<uint64_t> CharacterSids(const std::string& character) {
+	std::vector<uint64_t> out;
+	if (character.empty()) return out;
+	ForEachSpawner([&](uintptr_t, const SpawnerHead& h) {
+		if (h.type && HeroName(ReadName(h.art)) == character) out.push_back(h.sid);
+		return out.size() < 64;
+	});
+	return out;
+}
+
 uintptr_t FindBuddySpawner(const std::string& hero, const std::vector<uintptr_t>& exclude, std::string& nameOut) {
 	uintptr_t best = 0;
 	int bestRank = 0;

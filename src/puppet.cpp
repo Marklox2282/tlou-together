@@ -79,10 +79,18 @@ uint64_t Spawn(const Locator& at) {
 	// Персонаж, который сейчас сам есть на уровне по сюжету (Роберт в его миссии), не копируем:
 	// игрок видел "лишнего" Роберта. Имя (sid) NPC спавнера совпадает с sid самого спавнера.
 	uintptr_t sp = 0;
+	// Сюжетного персонажа проверяем по всем его спавнерам: настоящую Марлин уровень создал из
+	// другого спавнера, и рядом с ней появлялась вторая.
+	auto inScene = [](uintptr_t spawner) {
+		uint64_t spSid = 0;
+		if (Read(spawner + kSpSid, spSid) && Call(g_dc.entityExists, { spSid })) return true;
+		for (uint64_t sid : CharacterSids(HeroName(ReadName(ReadPtr(spawner + kSpArt)))))
+			if (Call(g_dc.entityExists, { sid })) return true;
+		return false;
+	};
 	for (int tries = 0; tries < 8; ++tries) {
 		sp = FindBuddySpawner(HeroName(look), g_badSpawners, name);
-		uint64_t spSid = 0;
-		if (!sp || !Read(sp + kSpSid, spSid) || !Call(g_dc.entityExists, { spSid })) break;
+		if (!sp || !inScene(sp)) break;
 		Log("puppet: %s is in the scene already, skipping", name.c_str());
 		g_badSpawners.push_back(sp);
 		sp = 0;
@@ -212,9 +220,21 @@ void Update() {
 		movedAt = now;
 	}
 	const bool stuck = err > 3.0f && now - movedAt > 2000;
+	// Телепорт, после которого она так и осталась далеко (точка недоступна), не повторяем каждые
+	// 2 с: после двух таких подряд - пауза 10 с.
+	static int uselessSnaps = 0;
+	static float errAtSnap = 0;
+	static bool judged = true;
+	if (!judged && now - lastSnapAt > 500) {  // каждый телепорт оцениваем один раз
+		judged = true;
+		uselessSnaps = err > errAtSnap - 1.0f ? uselessSnaps + 1 : 0;
+		if (uselessSnaps == 2) Log("puppet: teleport does not bring it closer, retrying every 10 s");
+	}
 	if (err > 15.0f || stuck) {
 		movedAt = 0;
-		if (now - lastSnapAt < 1000) return;
+		if (now - lastSnapAt < (uselessSnaps >= 2 ? 10000u : 1000u)) return;
+		errAtSnap = err;
+		judged = false;
 		lastSnapAt = lastCmdAt = now;
 		lastMode = -1;
 		if (const uint64_t frame = BoundFrame(target.pos, target.rot)) Call(g_dc.teleport, { puppet, frame });
