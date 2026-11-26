@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tlou-together — co-op for The Last of Us Part I</title>
+<meta name="description" content="Unofficial two-player story co-op mod for The Last of Us Part I on PC (Steam).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0b0d0b;
+  --bg2: #121511;
+  --text: #e8e4d9;
+  --muted: #9a9688;
+  --line: rgba(232, 228, 217, .12);
+  --accent: #c9a24a;
+  --green: #7c9461;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.6 Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased; overflow-x: hidden;
+}
+a { color: inherit; }
+/* film grain over everything */
+body::after {
+  content: ""; position: fixed; inset: -50%; pointer-events: none; z-index: 50; opacity: .07;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation: grain 1.2s steps(6) infinite;
+}
+@keyframes grain { 0%{transform:translate(0,0)} 25%{transform:translate(-3%,2%)} 50%{transform:translate(2%,-3%)} 75%{transform:translate(-2%,-1%)} 100%{transform:translate(0,0)} }
+@media (prefers-reduced-motion: reduce) { body::after { animation: none; } .ray { animation: none !important; } }
+
+.wrap { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: space-between; padding: 18px 28px;
+  background: linear-gradient(var(--bg), transparent);
+}
+.logo { font: 500 18px Oswald, sans-serif; letter-spacing: .25em; text-transform: uppercase; text-decoration: none; }
+.logo span { color: var(--accent); }
+.navlinks { display: flex; gap: 22px; align-items: center; font-size: 14px; }
+.navlinks a { text-decoration: none; color: var(--muted); transition: color .2s; }
+.navlinks a:hover { color: var(--text); }
+.lang { border: 1px solid var(--line); border-radius: 999px; overflow: hidden; display: flex; }
+.lang button { background: none; border: 0; color: var(--muted); font: 600 12px Inter; padding: 6px 12px; cursor: pointer; }
+.lang button.on { background: var(--text); color: var(--bg); }
+
+/* hero: dusk light falling through a window */
+header {
+  position: relative; min-height: 100vh; display: flex; align-items: center; overflow: hidden;
+  background:
+    radial-gradient(ellipse 60% 50% at 78% 35%, rgba(214, 150, 70, .28), transparent 70%),
+    radial-gradient(ellipse 80% 60% at 20% 100%, rgba(80, 100, 60, .25), transparent 70%),
+    linear-gradient(180deg, #0d100c 0%, #0b0d0b 100%);
+}
+.ray {
+  position: absolute; top: -20%; right: 8%; width: 46vw; height: 140%;
+  background: linear-gradient(180deg, rgba(232, 190, 120, .14), transparent 75%);
+  transform: skewX(-18deg); filter: blur(8px); animation: sway 9s ease-in-out infinite alternate;
+}
+.ray.two { right: 26%; width: 12vw; opacity: .7; animation-duration: 12s; }
+@keyframes sway { from { transform: skewX(-18deg) translateX(0); opacity: .8; } to { transform: skewX(-14deg) translateX(-3vw); opacity: 1; } }
+.leaves { position: absolute; inset: 0; pointer-events: none; opacity: .35;
+  background-image: radial-gradient(circle at 90% 10%, rgba(124,148,97,.35) 0 2px, transparent 3px),
+                    radial-gradient(circle at 70% 25%, rgba(124,148,97,.25) 0 2px, transparent 3px);
+  background-size: 140px 140px, 90px 90px; mask-image: linear-gradient(90deg, transparent 40%, #000 100%); }
+.hero { position: relative; z-index: 2; padding-top: 80px; }
+.kicker { font: 500 13px Oswald; letter-spacing: .4em; text-transform: uppercase; color: var(--accent); }
+h1 {
+  font: 700 clamp(56px, 11vw, 140px)/.9 Oswald, sans-serif; letter-spacing: .02em; text-transform: uppercase;
+  margin: 18px 0 22px; text-shadow: 0 0 60px rgba(201, 162, 74, .15);
+}
+h1 em { font-style: normal; color: transparent; -webkit-text-stroke: 1px rgba(232, 228, 217, .55); }
+.lead { font-size: 19px; max-width: 560px; color: #cfcabd; }
+.cta { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 34px; }
+.btn {
+  display: inline-flex; align-items: center; gap: 10px; padding: 15px 26px; border-radius: 2px;
+  font: 500 15px Oswald; letter-spacing: .18em; text-transform: uppercase; text-decoration: none;
+  border: 1px solid var(--line); transition: transform .15s, background .2s, border-color .2s;
+}
+.btn:hover { transform: translateY(-2px); border-color: rgba(232,228,217,.4); }
+.btn.main { background: var(--text); color: var(--bg); border-color: var(--text); }
+.btn.main:hover { background: #fff; }
+.note { margin-top: 18px; font-size: 13px; color: var(--muted); }
+.scroll { position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); font: 12px Oswald; letter-spacing: .35em; color: var(--muted); z-index: 2; }
+
+section { padding: 110px 0; border-top: 1px solid var(--line); }
+h2 { font: 500 clamp(32px, 5vw, 52px)/1.05 Oswald; text-transform: uppercase; letter-spacing: .04em; margin: 0 0 14px; }
+.sub { color: var(--muted); max-width: 620px; margin: 0 0 54px; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+.card { background: var(--bg); padding: 30px 26px; transition: background .25s; }
+.card:hover { background: var(--bg2); }
+.card .n { font: 500 12px Oswald; letter-spacing: .3em; color: var(--accent); }
+.card h3 { font: 500 22px Oswald; text-transform: uppercase; letter-spacing: .05em; margin: 12px 0 8px; }
+.card p { margin: 0; color: var(--muted); font-size: 15px; }
+
+.steps { counter-reset: s; display: grid; gap: 18px; max-width: 760px; }
+.step { display: grid; grid-template-columns: 64px 1fr; gap: 18px; align-items: start; padding: 22px 0; border-bottom: 1px solid var(--line); }
+.step::before { counter-increment: s; content: "0" counter(s); font: 700 34px Oswald; color: transparent; -webkit-text-stroke: 1px var(--accent); }
+.step h3 { margin: 4px 0 6px; font: 500 20px Oswald; text-transform: uppercase; letter-spacing: .05em; }
+.step p { margin: 0; color: var(--muted); }
+code { font: 14px ui-monospace, Consolas, monospace; background: rgba(232,228,217,.08); padding: 2px 7px; border-radius: 3px; color: var(--text); }
+kbd { font: 600 12px Inter; border: 1px solid var(--line); border-bottom-width: 2px; padding: 2px 7px; border-radius: 4px; color: var(--text); }
+
+.keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-top: 40px; }
+.key { padding: 18px; border: 1px solid var(--line); }
+.key kbd { font-size: 14px; }
+.key div { color: var(--muted); font-size: 14px; margin-top: 10px; }
+
+details { border-bottom: 1px solid var(--line); padding: 20px 0; max-width: 820px; }
+summary { cursor: pointer; font: 500 19px Oswald; text-transform: uppercase; letter-spacing: .05em; list-style: none; display: flex; justify-content: space-between; }
+summary::after { content: "+"; color: var(--accent); }
+details[open] summary::after { content: "–"; }
+details p { color: var(--muted); margin: 12px 0 0; }
+
+footer { padding: 60px 0 80px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+footer .legal { max-width: 760px; }
+footer a { color: var(--text); }
+.status { display: inline-block; margin-top: 26px; font: 500 12px Oswald; letter-spacing: .25em; text-transform: uppercase; color: var(--green); border: 1px solid rgba(124,148,97,.4); padding: 6px 12px; }
+
+[data-ru] { display: none; }
+html[lang="ru"] [data-en] { display: none; }
+html[lang="ru"] [data-ru] { display: revert; }
+
+@media (max-width: 700px) {
+  .navlinks a { display: none; }
+  nav { padding: 14px 16px; }
+  .wrap { padding: 0 16px; }
+  section { padding: 80px 0; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="logo" href="#">tlou<span>·</span>together</a>
+  <div class="navlinks">
+    <a href="#features"><span data-en>Features</span><span data-ru>Возможности</span></a>
+    <a href="#install"><span data-en>Install</span><span data-ru>Установка</span></a>
+    <a href="#faq">FAQ</a>
+    <a href="https://github.com/Marklox2282/tlou-together">GitHub</a>
+    <div class="lang"><button id="en" class="on">EN</button><button id="ru">RU</button></div>
+  </div>
+</nav>
+
+<header>
+  <div class="ray"></div><div class="ray two"></div><div class="leaves"></div>
+  <div class="wrap hero">
+    <div class="kicker"><span data-en>Unofficial fan mod · The Last of Us Part I · PC</span><span data-ru>Неофициальный фанатский мод · The Last of Us Part I · ПК</span></div>
+    <h1>Endure<br><em>together</em></h1>
+    <p class="lead">
+      <span data-en>Play the whole story of The Last of Us Part I with a friend. Two players, one journey — each on their own PC and their own copy of the game.</span>
+      <span data-ru>Пройдите весь сюжет The Last of Us Part I вдвоём с другом. Два игрока, одна дорога — каждый на своём ПК и со своей копией игры.</span>
+    </p>
+    <div class="cta">
+      <a class="btn main" href="https://github.com/Marklox2282/tlou-together/releases/latest/download/winmm.dll"><span data-en>Download</span><span data-ru>Скачать</span> ↓</a>
+      <a class="btn" href="#install"><span data-en>How to install</span><span data-ru>Как установить</span></a>
+      <a class="btn" href="https://github.com/Marklox2282/tlou-together">GitHub</a>
+    </div>
+    <p class="note"><span data-en>Free and open source (GPL-3.0). Needs The Last of Us Part I on Steam. Updates itself.</span><span data-ru>Бесплатно, с открытым кодом (GPL-3.0). Нужна The Last of Us Part I в Steam. Обновляется сам.</span></p>
+    <div class="status"><span data-en>Early test builds</span><span data-ru>Ранние тестовые версии</span></div>
+  </div>
+  <div class="scroll">↓</div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <h2><span data-en>What it does</span><span data-ru>Что умеет</span></h2>
+    <p class="sub"><span data-en>A MULTIPLAYER item appears right in the game's own main menu. Everything else happens in the game.</span><span data-ru>Пункт MULTIPLAYER появляется прямо в главном меню игры. Всё остальное происходит в самой игре.</span></p>
+    <div class="grid">
+      <div class="card"><div class="n">01</div><h3><span data-en>Lobby</span><span data-ru>Лобби</span></h3><p><span data-en>Create a lobby, invite a Steam friend or share a code with a secret part. In 23 languages.</span><span data-ru>Создайте лобби, пригласите друга из Steam или отправьте код с секретной частью. На 23 языках.</span></p></div>
+      <div class="card"><div class="n">02</div><h3><span data-en>Your partner</span><span data-ru>Напарник</span></h3><p><span data-en>See your friend walk, run, crouch and aim — as the chapter's hero, the companion or a character of their choice.</span><span data-ru>Друг ходит, бегает, приседает и целится — в облике героя главы, спутника или выбранного персонажа.</span></p></div>
+      <div class="card"><div class="n">03</div><h3><span data-en>Shared fights</span><span data-ru>Общие бои</span></h3><p><span data-en>Damage and kills are shared. Enemies notice both of you.</span><span data-ru>Урон и убийства общие. Враги замечают вас обоих.</span></p></div>
+      <div class="card"><div class="n">04</div><h3><span data-en>One story</span><span data-ru>Один сюжет</span></h3><p><span data-en>Checkpoints follow the player who got further. Die together, restart together. Same difficulty.</span><span data-ru>Чекпоинты подтягиваются за тем, кто прошёл дальше. Погибли — начинаете вместе. Сложность общая.</span></p></div>
+      <div class="card"><div class="n">05</div><h3><span data-en>Never lost</span><span data-ru>Не потеряетесь</span></h3><p><span data-en>Your partner is outlined through walls when far away. Go to them in one key.</span><span data-ru>Далёкий напарник виден контуром сквозь стены. Перенестись к нему — одна клавиша.</span></p></div>
+      <div class="card"><div class="n">06</div><h3><span data-en>Self-updating</span><span data-ru>Обновляется сам</span></h3><p><span data-en>New versions download at game start. Every update is signed and checked.</span><span data-ru>Новые версии скачиваются при запуске игры. Каждое обновление подписано и проверяется.</span></p></div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <h2><span data-en>Install</span><span data-ru>Установка</span></h2>
+    <p class="sub"><span data-en>One file, once. Both players need it.</span><span data-ru>Один файл, один раз. Нужен обоим игрокам.</span></p>
+    <div class="steps">
+      <div class="step"><div><h3><span data-en>Download</span><span data-ru>Скачайте</span></h3><p><span data-en>Get <code>winmm.dll</code> with the Download button above.</span><span data-ru>Скачайте <code>winmm.dll</code> кнопкой «Скачать» вверху.</span></p></div></div>
+      <div class="step"><div><h3><span data-en>Put it next to the game</span><span data-ru>Положите рядом с игрой</span></h3><p><span data-en>Steam → Library → The Last of Us Part I → Manage → Browse local files. Copy the file there.</span><span data-ru>Steam → Библиотека → The Last of Us Part I → Управление → Просмотреть локальные файлы. Скопируйте файл туда.</span></p></div></div>
+      <div class="step"><div><h3><span data-en>Play</span><span data-ru>Играйте</span></h3><p><span data-en>Start the game. Main menu → MULTIPLAYER → Create lobby, send the code to your friend; they choose Join by code. When they're in, press Start game.</span><span data-ru>Запустите игру. Главное меню → MULTIPLAYER → Создать лобби, отправьте код другу, он выбирает «Войти по коду». Когда он подключится — «Начать игру».</span></p></div></div>
+    </div>
+    <div class="keys">
+      <div class="key"><kbd>F7</kbd><div><span data-en>Go to your partner</span><span data-ru>К напарнику</span></div></div>
+      <div class="key"><kbd>F5</kbd><div><span data-en>Load your partner's chapter</span><span data-ru>Загрузить главу напарника</span></div></div>
+      <div class="key"><kbd>F6</kbd><div><span data-en>Leave the lobby</span><span data-ru>Покинуть лобби</span></div></div>
+      <div class="key"><kbd>F8</kbd><div><span data-en>Connect without a lobby</span><span data-ru>Подключиться без лобби</span></div></div>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <h2>FAQ</h2>
+    <details><summary><span data-en>Do both of us need the game?</span><span data-ru>Игра нужна обоим?</span></summary><p><span data-en>Yes. Each player needs their own copy of The Last of Us Part I on Steam.</span><span data-ru>Да. Каждому нужна своя копия The Last of Us Part I в Steam.</span></p></details>
+    <details><summary><span data-en>Does it change my saves?</span><span data-ru>Мод меняет мои сохранения?</span></summary><p><span data-en>The mod doesn't touch save files, but loading your partner's checkpoint is a normal game load, so the game may autosave there. Back up your saves if you care about them.</span><span data-ru>Мод не трогает файлы сохранений, но загрузка чекпоинта напарника — обычная загрузка игры, и игра может сделать там автосохранение. Если сохранения важны — сделайте копию.</span></p></details>
+    <details><summary><span data-en>The lobby can't be created</span><span data-ru>Лобби не создаётся</span></summary><p><span data-en>Steam must be online. A VPN or proxy can block Steam's lobby servers — try turning it off.</span><span data-ru>Steam должен быть в сети. VPN или прокси могут мешать серверам лобби Steam — попробуйте их выключить.</span></p></details>
+    <details><summary><span data-en>A game update broke it</span><span data-ru>После обновления игры мод не работает</span></summary><p><span data-en>The mod supports one game build at a time and switches itself off on others. Wait for a mod update — it arrives automatically.</span><span data-ru>Мод поддерживает одну сборку игры и на других выключается сам. Дождитесь обновления мода — оно придёт автоматически.</span></p></details>
+    <details><summary><span data-en>How do I remove it?</span><span data-ru>Как удалить?</span></summary><p><span data-en>Delete <code>winmm.dll</code> and the <code>tlou-together.*</code> files from the game folder.</span><span data-ru>Удалите <code>winmm.dll</code> и файлы <code>tlou-together.*</code> из папки игры.</span></p></details>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p class="legal">
+      <span data-en>tlou-together is an unofficial fan project. It is not affiliated with, endorsed by or sponsored by Sony Interactive Entertainment or Naughty Dog. "The Last of Us" is a trademark of its owners. You need your own legitimately purchased copy of the game (Steam). This site and the repository contain no game files and no assets taken from the game.</span>
+      <span data-ru>tlou-together — неофициальный фанатский проект. Он не связан с Sony Interactive Entertainment и Naughty Dog и не одобрен и не спонсирован ими. «The Last of Us» — товарный знак своих владельцев. Нужна своя законно купленная копия игры (Steam). На этом сайте и в репозитории нет файлов игры и ассетов из неё.</span>
+    </p>
+    <p><span data-en>Built on</span><span data-ru>Основано на</span> <a href="https://github.com/cheese123113/TLOU2-Coop">TLOU2-Coop</a> <span data-en>and</span><span data-ru>и</span> <a href="https://twelve-weeks.com/">Twelve Weeks</a> · GPL-3.0 · <a href="https://github.com/Marklox2282/tlou-together">GitHub</a></p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  const set = (lang) => {
+    document.documentElement.lang = lang;
+    document.getElementById('en').classList.toggle('on', lang === 'en');
+    document.getElementById('ru').classList.toggle('on', lang === 'ru');
+    try { localStorage.setItem('lang', lang); } catch (e) {}
+  };
+  let saved = null;
+  try { saved = localStorage.getItem('lang'); } catch (e) {}
+  set(saved || ((navigator.language || '').toLowerCase().startsWith('ru') ? 'ru' : 'en'));
+  document.getElementById('en').onclick = () => set('en');
+  document.getElementById('ru').onclick = () => set('ru');
+})();
+</script>
+</body>
+</html>
