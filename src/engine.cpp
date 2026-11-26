@@ -104,30 +104,51 @@ int SpawnerRank(const std::string& art, const std::string& hero) {
 
 uintptr_t g_base = 0;
 Natives g_dc{};
-thread_local bool t_safeRead = false;
+// Чтение без исключений. Перехват ошибки доступа (__try) в потоках-файберах движка ломал саму
+// обработку исключения (вторая ошибка в ntdll, игра вставала), а ReadProcessMemory на каждое
+// поле при обходе тысяч спавнеров вешал игру на секунды. Поэтому адрес проверяется заранее:
+// VirtualQuery по области памяти, области кэшируются (их немного и они большие) на 200 мс,
+// чтобы освобождённая игрой память не считалась доступной надолго.
+namespace {
 
-// Само копирование - отдельной невстраиваемой функцией: clang-cl ловит аппаратные ошибки в
-// __try только на вызовах (синхронная модель, /EHsc). Встроенный memcpy превращался в mov, и
-// ошибка чтения проходила мимо __except (поймано test/enginetest).
-__declspec(noinline) static void CopyRaw(void* dst, const void* src, size_t n) {
-	auto* d = static_cast<volatile uint8_t*>(dst);
-	const auto* s = static_cast<const volatile uint8_t*>(src);
-	for (size_t i = 0; i < n; ++i) d[i] = s[i];
+struct Region { uintptr_t begin, end; ULONGLONG at; };
+thread_local Region t_regions[32];
+thread_local unsigned t_nextRegion = 0;
+
+bool IsReadableProtect(DWORD p) {
+	if (p & (PAGE_GUARD | PAGE_NOACCESS)) return false;
+	return (p & (PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE |
+		PAGE_EXECUTE_WRITECOPY)) != 0;
 }
 
-// Прямое копирование под __try: ReadProcessMemory на каждое поле при обходе тысяч спавнеров
-// вешал игру на секунды.
-bool SafeCopy(void* dst, uintptr_t src, size_t n) {
-	if (src < 0x10000 || src + n < src || src + n > 0x7FFFFFFFFFFFull) return false;
-	t_safeRead = true;
-	bool ok = true;
-	__try {
-		CopyRaw(dst, reinterpret_cast<const void*>(src), n);
-	} __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
-		ok = false;
+bool Readable(uintptr_t begin, uintptr_t end) {
+	const ULONGLONG now = GetTickCount64();
+	for (uintptr_t p = begin; p < end;) {
+		bool cached = false;
+		for (const Region& r : t_regions)
+			if (p >= r.begin && p < r.end && now - r.at < 200) {
+				p = r.end;
+				cached = true;
+				break;
+			}
+		if (cached) continue;
+		MEMORY_BASIC_INFORMATION mbi{};
+		if (!VirtualQuery(reinterpret_cast<const void*>(p), &mbi, sizeof(mbi)) || mbi.State != MEM_COMMIT ||
+			!IsReadableProtect(mbi.Protect))
+			return false;
+		const uintptr_t rb = reinterpret_cast<uintptr_t>(mbi.BaseAddress), re = rb + mbi.RegionSize;
+		t_regions[t_nextRegion++ % 32] = { rb, re, now };
+		p = re;
 	}
-	t_safeRead = false;
-	return ok;
+	return true;
+}
+
+}  // namespace
+
+bool SafeCopy(void* dst, uintptr_t src, size_t n) {
+	if (src < 0x10000 || src + n < src || src + n > 0x7FFFFFFFFFFFull || !Readable(src, src + n)) return false;
+	memcpy(dst, reinterpret_cast<const void*>(src), n);
+	return true;
 }
 
 uintptr_t ReadPtr(uintptr_t a) {

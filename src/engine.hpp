@@ -20,8 +20,7 @@ constexpr uintptr_t kScriptInvokeRva = 0x208BC36;
 extern uintptr_t g_base;
 
 // ---- память --------------------------------------------------------------------------------
-// Неверный адрес даёт false, а не вылет игры. t_safeRead - чтобы журнал падений не писал свои.
-extern thread_local bool t_safeRead;
+// Неверный адрес даёт false, а не вылет игры (проверка VirtualQuery, без исключений).
 bool SafeCopy(void* dst, uintptr_t src, size_t n);
 template <typename T>
 bool Read(uintptr_t address, T& out) { return SafeCopy(&out, address, sizeof(T)); }

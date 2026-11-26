@@ -169,7 +169,7 @@ void CrashWrite(const char* fmt, ...) {
 }
 
 LONG CALLBACK OnException(EXCEPTION_POINTERS* e) {
-	if (e->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || engine::t_safeRead || g_crashCount++ >= 3)
+	if (e->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || g_crashCount++ >= 3)
 		return EXCEPTION_CONTINUE_SEARCH;
 	const uintptr_t base = engine::g_base;
 	const CONTEXT& c = *e->ContextRecord;

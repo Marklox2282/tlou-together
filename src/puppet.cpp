@@ -229,9 +229,14 @@ void ScriptTick() {
 	const uint64_t frame = FrameCounter();
 	uint64_t done = g_doneFrame.load(std::memory_order_relaxed);
 	if (!frame || done == frame || !g_doneFrame.compare_exchange_strong(done, frame)) return;
+	// Счётчик кадра меняется, пока предыдущая работа ещё идёт в другом потоке ("story task" в
+	// логе дважды за миллисекунду): у работы общее состояние, поэтому один поток за раз.
+	static std::atomic_flag busy = ATOMIC_FLAG_INIT;
+	if (busy.test_and_set(std::memory_order_acquire)) return;
 	ReadChapter();
 	if (g_teleport.exchange(false)) TeleportToPartner();
 	if (g_wanted) Update();
+	busy.clear(std::memory_order_release);
 }
 
 }  // namespace puppet

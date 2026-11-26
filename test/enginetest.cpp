@@ -28,8 +28,11 @@ int main() {
 	memcpy(page + 0x1000 - 3, "xyz", 3);  // без нуля: строка упирается в недоступную страницу
 	Check(ReadName(edge - 3) == "xyz", "unterminated name stops at the edge");
 	Check(!Read(edge - 4, v), "read across into an inaccessible page fails");
-	Check(!t_safeRead, "safe-read flag cleared");
 	Check(ReadPtr(reinterpret_cast<uintptr_t>(page)) == 0, "zero pointer reads as 0");
+	Check(Read(edge - 8, v), "readable page is readable");
+	VirtualFree(page, 0x1000, MEM_DECOMMIT);  // игра освободила память, а область ещё в кэше
+	Sleep(250);
+	Check(!Read(edge - 8, v), "freed memory is not read once the cache expires");
 
 	Check(HeroName("t1x-joel-costume-01") == "joel", "hero from costume art");
 	Check(HeroName("t1x-joel") == "joel", "hero from short art");
