@@ -170,6 +170,14 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	if (action == menu::Invite) g_link.InviteToLobby();
 	if (action == menu::GoToPartner) puppet::RequestTeleport();  // как F7
 	if (puppet::TakeMyDeath()) g_link.SendDeath();
+	// Оружие в руках: при смене сразу и раз в 2 с (пакет мог потеряться).
+	static ULONGLONG lastWeapon = 0;
+	static uint64_t sentWeapon = 0;
+	if (g_link.GetState() == net::State::Connected && (puppet::MyWeapon() != sentWeapon || now - lastWeapon >= 2000)) {
+		lastWeapon = now;
+		sentWeapon = puppet::MyWeapon();
+		g_link.SendWeapon(sentWeapon);
+	}
 	// Сложность: ведущая сторона (хозяин лобби) шлёт свою раз в 3 с, гость играет на ней.
 	static ULONGLONG lastSettings = 0;
 	const bool linked = g_link.GetState() == net::State::Connected;
@@ -238,6 +246,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	g_link.SetChapter({ mine.node, mine.task });
 	if (gotPose) {
 		puppet::SetPartnerFiring((pose.flags & net::kFlagFiring) != 0);
+		puppet::SetPartnerWeapon(g_link.PeerWeapon());
 		puppet::SetPartnerStance((pose.flags & net::kFlagCrouch) != 0, (pose.flags & net::kFlagAim) != 0);
 		puppet::SetPartnerCharacter(puppet::CharacterFromSid(pose.target));
 		char look[sizeof(pose.name) + 1]{};

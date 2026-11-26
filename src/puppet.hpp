@@ -59,6 +59,8 @@ int PartnerCharacter();
 enum class Role { Hero, Companion };
 bool MeFiring();                   // свой игрок стреляет (читается в скриптовом потоке)
 void SetPartnerFiring(bool on);    // партнёр стреляет: марионетка стреляет тоже
+uint64_t MyWeapon();                 // оружие в руках своего игрока (0 - нет или неизвестно)
+void SetPartnerWeapon(uint64_t weapon);  // оружие партнёра: то же даётся марионетке
 // Поза: присел, целится. Своя - для отправки; партнёра - марионетка садится и поднимает оружие.
 bool MeCrouched();
 bool MeAiming();

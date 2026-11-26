@@ -157,6 +157,13 @@ int main() {
 		Run(a, b, 2);
 		Check(b.PeerDifficulty() == 3, "difficulty arrives");
 
+		puts("== weapon");
+		Check(b.PeerWeapon() == 0, "no weapon before it is sent");
+		a.SendWeapon(0x1234567890ABCDEFull);
+		Sleep(10);
+		Run(a, b, 2);
+		Check(b.PeerWeapon() == 0x1234567890ABCDEFull, "weapon arrives");
+
 		puts("== bye");
 		a.Stop();
 		Sleep(10);

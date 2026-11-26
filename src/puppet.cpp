@@ -106,6 +106,8 @@ std::string Locked(const std::string& s) {
 	return out;
 }
 std::atomic<bool> g_meFiring{ false }, g_partnerFiring{ false };
+std::atomic<uint64_t> g_myWeapon{ 0 }, g_partnerWeapon{ 0 };
+uint64_t g_buddyWeapon = 0;  // оружие спутника до нас - вернуть при отпускании
 std::atomic<bool> g_enemiesSee{ true }, g_outline{ true };
 std::atomic<int> g_myDifficulty{ -1 }, g_wantDifficulty{ -1 };
 std::atomic<int> g_ownDifficulty{ -1 };  // своя сложность до хоста - вернуть при отключении
@@ -140,6 +142,8 @@ void AiOff(uint64_t npc) {
 void TakeOverBuddy(uint64_t npc) {
 	g_buddyMode = Call(g_dc.getScriptMode, { npc });
 	g_buddyFaction = Call(g_dc.getFaction, { npc });
+	g_buddyWeapon = Call(g_dc.npcWeapon, { npc });
+	Log("puppet: companion weapon %016llX", static_cast<unsigned long long>(g_buddyWeapon));
 	AiOff(npc);
 	g_puppetIsBuddy = true;
 	Log("puppet: companion %016llX now follows the partner (its AI is off)", static_cast<unsigned long long>(npc));
@@ -151,7 +155,13 @@ void ReleaseBuddy(uint64_t npc) {
 		if (g_buddyFaction) Call(g_dc.setFaction, { npc, g_buddyFaction });
 		for (NativeFn off : { g_dc.setIgnore, g_dc.setBlind, g_dc.setDeaf }) Call(off, { npc, 0 });
 		for (NativeFn on : { g_dc.hitReactions, g_dc.stun, g_dc.dodges }) Call(on, { npc, 1 });
+		// Своё оружие обратно, если мы его меняли на оружие партнёра.
+		if (g_buddyWeapon && Call(g_dc.npcWeapon, { npc }) != g_buddyWeapon) {
+			Call(g_dc.destroyWeapon, { npc });
+			Call(g_dc.giveWeapon, { npc, g_buddyWeapon, 999, 1 });
+		}
 	}
+	g_buddyWeapon = 0;
 	g_puppetIsBuddy = false;
 	Log("puppet: companion %016llX has its AI back", static_cast<unsigned long long>(npc));
 }
@@ -691,6 +701,8 @@ void SetPartnerStance(bool crouched, bool aiming) {
 	g_partnerAiming = aiming;
 }
 void SetPartnerFiring(bool on) { g_partnerFiring = on; }
+uint64_t MyWeapon() { return g_myWeapon; }
+void SetPartnerWeapon(uint64_t weapon) { g_partnerWeapon = weapon; }
 std::string HeroCharacter() {
 	AcquireSRWLockShared(&g_namesLock);
 	std::string s = g_heroName;
@@ -890,15 +902,32 @@ void ScriptTick() {
 			if (crouch != crouchNow) Log("puppet: %s", crouch ? "crouches" : "stands up");
 		}
 		if (puppet && !g_hidden && (puppet != appliedTo || aim != aimNow)) Call(aim ? g_dc.weaponUp : g_dc.weaponDown, { puppet });
+		// Оружие: у марионетки в руках то же, что у партнёра (без него npc-fire-weapon не стреляет).
+		g_myWeapon = Call(g_dc.playerWeapon, {});
+		static uint64_t weaponOf = 0, weaponNow = 0;
+		const uint64_t weapon = UsingNetwork() ? g_partnerWeapon.load() : g_myWeapon.load();
+		if (puppet != weaponOf) weaponNow = 0;
+		if (puppet && !g_hidden && weapon && weapon != weaponNow) {
+			const uint64_t had = Call(g_dc.npcWeapon, { puppet });
+			if (had != weapon) {
+				Call(g_dc.destroyWeapon, { puppet });
+				Call(g_dc.giveWeapon, { puppet, weapon, 999, 1 });
+			}
+			Log("puppet: weapon %016llX -> %016llX (now %016llX)", static_cast<unsigned long long>(had),
+				static_cast<unsigned long long>(weapon), static_cast<unsigned long long>(Call(g_dc.npcWeapon, { puppet })));
+			if (aim) Call(g_dc.weaponUp, { puppet });  // новое оружие - снова в руки
+			weaponNow = weapon;
+		}
+		weaponOf = puppet;
 		appliedTo = puppet;
 		crouchNow = crouch;
 		aimNow = aim;
 	}
 	// Партнёр стреляет (по сети; без сети - свой игрок, для проверки): стреляет и марионетка.
-	// Только настоящий спутник главы: он союзник и в игрока не попадает; копия NPC - нет.
+	// Только союзник: спутник главы или копия во фракции игрока (enemies_see_partner) - в игрока не попадает.
 	static ULONGLONG lastShot = 0;
 	const bool shoot = UsingNetwork() ? g_partnerFiring.load() : g_meFiring.load();
-	if (shoot && g_puppetIsBuddy && g_puppet && !g_hidden && GetTickCount64() - lastShot >= 180) {
+	if (shoot && (g_puppetIsBuddy || g_enemiesSee) && g_puppet && !g_hidden && GetTickCount64() - lastShot >= 180) {
 		lastShot = GetTickCount64();
 		Call(g_dc.fireWeapon, { g_puppet });
 	}

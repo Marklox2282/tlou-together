@@ -263,6 +263,7 @@ void Link::Stop() {
 	peerChapter_ = {};
 	lastSeq_ = 0;
 	peerDifficulty_ = -1;
+	peerWeapon_ = 0;
 	enemyEvents_.clear();
 }
 
@@ -422,6 +423,10 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 			Disconnected("left");
 			continue;
 		}
+		if (p.type == kWeapon) {
+			peerWeapon_ = p.target;
+			continue;
+		}
 		if (p.type == kSettings) {
 			peerDifficulty_ = static_cast<int>(p.target);
 			continue;
@@ -490,6 +495,13 @@ void Link::SendSettings(uint32_t difficulty) {
 	if (state_ != State::Connected) return;
 	Packet p = Make(kSettings);
 	p.target = difficulty;
+	Send(p);
+}
+
+void Link::SendWeapon(uint64_t weapon) {
+	if (state_ != State::Connected) return;
+	Packet p = Make(kWeapon);
+	p.target = weapon;
 	Send(p);
 }
 

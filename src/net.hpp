@@ -11,7 +11,7 @@ namespace net {
 
 constexpr uint32_t kMagic = 0x4F433154;  // "T1CO"
 constexpr uint8_t kProtocol = 3;          // 1 = v7 (без рукопожатия), 2 = v8 (без врагов)
-enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kEnemyPos = 6, kDeath = 7, kSettings = 8 };  // 5 - бывший обмен ролями
+enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kEnemyPos = 6, kDeath = 7, kSettings = 8, kWeapon = 9 };  // 5 - бывший обмен ролями
 constexpr uint16_t kFlagDead = 1;  // kEnemy: враг убит
 constexpr uint16_t kFlagHero = 2;  // kPose: отправитель играет за героя главы
 constexpr uint16_t kFlagFiring = 4;  // kPose: отправитель стреляет
@@ -72,6 +72,8 @@ public:
 	void SendDeath();          // свой игрок погиб (с гарантией доставки)
 	void SendSettings(uint32_t difficulty);  // ведущая сторона: её сложность
 	int PeerDifficulty() const { return peerDifficulty_; }  // -1 - не знаем
+	void SendWeapon(uint64_t weapon);  // оружие в руках своего игрока (имя оружия, 0 - без оружия)
+	uint64_t PeerWeapon() const { return peerWeapon_; }
 	bool TakePartnerDeath();   // партнёр погиб с прошлого раза
 	// Друзья в этой игре (только Steam; включает Steam при первом вызове). Готовность - по
 	// приветствиям за последние 3 с, поэтому видна, пока ищем.
@@ -147,6 +149,7 @@ private:
 	bool leaveAfterTick_ = false;
 	bool partnerDied_ = false;
 	int peerDifficulty_ = -1;
+	uint64_t peerWeapon_ = 0;
 	uint16_t port_ = 0;
 	bool beep_ = true;
 };
