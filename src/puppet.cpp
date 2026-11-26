@@ -288,9 +288,13 @@ void ScriptTick() {
 	if (busy.test_and_set(std::memory_order_acquire)) return;
 	LARGE_INTEGER a, b, f;
 	QueryPerformanceCounter(&a);
+	int64_t s = QpcNow();
 	ReadChapter();
+	ProfileAdd("[chapter]", MicrosecondsSince(s));
 	if (g_teleport.exchange(false)) TeleportToPartner();
+	s = QpcNow();
 	if (g_wanted) Update();
+	ProfileAdd("[update]", MicrosecondsSince(s));
 	QueryPerformanceCounter(&b);
 	QueryPerformanceFrequency(&f);
 	g_workUs.fetch_add(static_cast<uint64_t>((b.QuadPart - a.QuadPart) * 1000000 / f.QuadPart), std::memory_order_relaxed);

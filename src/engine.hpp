@@ -53,6 +53,10 @@ uint64_t F(float v);
 uint64_t Call(NativeFn fn, std::initializer_list<uint64_t> args);
 // Вызовы и время по функциям движка с прошлого раза ("npc-move-to 20x 3.1ms, ...").
 std::string TakeProfile();
+// Свои замеры в том же отчёте: name - строковый литерал (сравнивается по адресу).
+void ProfileAdd(const char* name, uint64_t us);
+int64_t QpcNow();
+uint64_t MicrosecondsSince(int64_t qpcStart);
 
 // ---- объекты -------------------------------------------------------------------------------
 struct Locator { float pos[4], rot[4]; };

@@ -123,6 +123,10 @@ namespace {
 
 uintptr_t g_base = 0;
 Natives g_dc{};
+void ProfileAdd(const char* name, uint64_t us);
+uint64_t MicrosecondsSince(int64_t qpcStart);
+int64_t QpcNow();
+
 // Чтение без исключений. Перехват ошибки доступа (__try) в потоках-файберах движка ломал саму
 // обработку исключения (вторая ошибка в ntdll, игра вставала), а ReadProcessMemory на каждое
 // поле при обходе тысяч спавнеров вешал игру на секунды. Поэтому адрес проверяется заранее:
@@ -152,7 +156,10 @@ bool Readable(uintptr_t begin, uintptr_t end) {
 			}
 		if (cached) continue;
 		MEMORY_BASIC_INFORMATION mbi{};
-		if (!VirtualQuery(reinterpret_cast<const void*>(p), &mbi, sizeof(mbi)) || mbi.State != MEM_COMMIT ||
+		const int64_t q0 = QpcNow();
+		const SIZE_T got = VirtualQuery(reinterpret_cast<const void*>(p), &mbi, sizeof(mbi));
+		ProfileAdd("VirtualQuery", MicrosecondsSince(q0));
+		if (!got || mbi.State != MEM_COMMIT ||
 			!IsReadableProtect(mbi.Protect))
 			return false;
 		const uintptr_t rb = reinterpret_cast<uintptr_t>(mbi.BaseAddress), re = rb + mbi.RegionSize;
@@ -220,6 +227,37 @@ struct ProfileSlot { NativeFn fn; const char* name; std::atomic<uint64_t> calls,
 ProfileSlot g_profile[32];
 int g_profileCount = 0;
 }  // namespace
+
+void ProfileAdd(const char* name, uint64_t us) {
+	for (int i = 0; i < g_profileCount; ++i)
+		if (!g_profile[i].fn && g_profile[i].name == name) {
+			g_profile[i].calls.fetch_add(1, std::memory_order_relaxed);
+			g_profile[i].us.fetch_add(us, std::memory_order_relaxed);
+			return;
+		}
+	static SRWLOCK lock = SRWLOCK_INIT;
+	AcquireSRWLockExclusive(&lock);
+	if (g_profileCount < 32) {
+		g_profile[g_profileCount].name = name;
+		g_profile[g_profileCount].calls = 1;
+		g_profile[g_profileCount].us = us;
+		++g_profileCount;  // после заполнения: читатели видят слот целиком
+	}
+	ReleaseSRWLockExclusive(&lock);
+}
+
+uint64_t MicrosecondsSince(int64_t qpcStart) {
+	LARGE_INTEGER now, f;
+	QueryPerformanceCounter(&now);
+	QueryPerformanceFrequency(&f);
+	return static_cast<uint64_t>((now.QuadPart - qpcStart) * 1000000 / f.QuadPart);
+}
+
+int64_t QpcNow() {
+	LARGE_INTEGER now;
+	QueryPerformanceCounter(&now);
+	return now.QuadPart;
+}
 
 void NameNative(NativeFn fn, const char* name) {
 	if (fn && g_profileCount < 32) {
