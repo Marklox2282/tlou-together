@@ -27,7 +27,7 @@ namespace {
 
 // Номер версии мода: увеличивать при каждом выпуске (tools/release.py берёт его отсюда).
 // Игроки с разными версиями не соединяются.
-constexpr uint32_t kModVersion = 12;
+constexpr uint32_t kModVersion = 13;
 
 using engine::Locator;
 
@@ -43,6 +43,7 @@ bool KeyPressed(int vk, bool& wasDown) {
 }
 
 // ---- сеть ----------------------------------------------------------------------------------
+bool g_storySync = true;  // ini story_sync=off - не подтягиваться к чекпоинту партнёра
 // tlou1-coop.ini рядом с игрой; без peer_ip связь идёт через Steam.
 net::Config LoadConfig(std::string& name) {
 	net::Config cfg;
@@ -59,6 +60,8 @@ net::Config LoadConfig(std::string& name) {
 				"; character = how your partner sees you: auto (default: the chapter's hero, like them),\n"
 				";             companion (the chapter's companion: Tess, Ellie...), or joel, ellie, sarah, tess,\n"
 				";             tommy, bill, henry, sam, riley, marlene, maria.\n"
+				"; story_sync = on (default): when your partner reaches a new checkpoint (cutscene, car...),\n"
+				";             you load it too and stand next to them. off: each plays the story alone.\n"
 				"; enemy_sync = soft (default): enemies keep their AI, moved to the host's spot off-screen.\n"
 				";             full (experimental): the guest's enemies copy the host's moves; they don't attack yet.\n"
 				"name=\npeer_ip=\nport=7777\npeer_port=7777\ncharacter=auto\n", f);
@@ -80,6 +83,7 @@ net::Config LoadConfig(std::string& name) {
 		else if (key == "port") cfg.port = static_cast<uint16_t>(atoi(value.c_str()));
 		else if (key == "peer_port") cfg.peerPort = static_cast<uint16_t>(atoi(value.c_str()));
 		else if (key == "enemy_sync") enemies::SetFullSync(value == "full");
+		else if (key == "story_sync") g_storySync = value != "off";
 		else if (key == "character") puppet::SetMyCharacter(puppet::CharacterFromName(value));
 	}
 	fclose(f);
@@ -258,17 +262,27 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 			enemies::Receive({ p.target, p.health, (p.flags & net::kFlagDead) != 0 });
 		}
 	}
-	// Общий прогресс: хозяин ушёл в другую главу, а мы 10 с в старой - грузим его главу (как F5).
-	static ULONGLONG otherChapterSince = 0, lastAutoJoin = 0;
-	if (connected && !g_link.Authority() && theirs && mine && theirs.node != mine.node) {
-		if (!otherChapterSince) otherChapterSince = now;
-		if (now - otherChapterSince > 10000 && now - lastAutoJoin > 60000) {
-			lastAutoJoin = now;
-			Log("net: %s moved on to another chapter; following", g_link.PeerName().c_str());
-			puppet::RequestJoin(false);
+	// Общий сюжет: партнёр продвинулся (новый чекпоинт: триггер, заставка, машина) - через 3 с
+	// грузим его чекпоинт и встаём рядом (как F5). Следует тот, кто продвинулся последним; при
+	// подключении ничего не грузим; не чаще раза в 20 с (оба продвинулись разом - без пинг-понга).
+	static engine::Chapter lastTheirs;
+	static ULONGLONG followAt = 0, lastFollow = 0;
+	if (connected && theirs && mine) {
+		if (!(theirs == lastTheirs)) {
+			if (lastTheirs && !(theirs == mine)) followAt = now + 3000;
+			lastTheirs = theirs;
 		}
-	} else {
-		otherChapterSince = 0;
+		if (followAt && now >= followAt) {
+			followAt = 0;
+			if (g_storySync && !(theirs == mine) && now - lastFollow > 20000) {
+				lastFollow = now;
+				Log("net: %s reached a new checkpoint; loading it to stay together", g_link.PeerName().c_str());
+				puppet::RequestJoin(false);
+			}
+		}
+	} else if (!connected) {
+		lastTheirs = {};
+		followAt = 0;
 	}
 	if (havePlayer && now - lastSend >= 50) {  // 20 раз в секунду
 		lastSend = now;
