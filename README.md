@@ -28,7 +28,7 @@ Uninstall: delete `winmm.dll` (and `tlou1-coop.*` files) from the game folder.
 
 ## Play
 
-Both players load the same chapter, then both press **F8**; a beep means connected. **F6** disconnects.
+Both players load the same chapter, then both press **F8**; a beep means connected. **F6** disconnects, **F7** teleports you to your partner.
 For LAN play without Steam set `peer_ip` in `tlou1-coop.ini` (created next to the game on first F8).
 Log: `tlou1-coop.log` in the game folder.
 

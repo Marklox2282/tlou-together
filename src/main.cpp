@@ -118,10 +118,10 @@ NativeFn FindNative(const char* name) {
 
 struct Natives {
 	NativeFn allocVector, allocQuat, allocBoundFrame, spawnWithLook, entityExists, teleport, scriptMode,
-		setIgnore, setBlind, setDeaf, hitReactions, stun, dodges, objectLocator, moveTo;
+		setIgnore, setBlind, setDeaf, hitReactions, stun, dodges, objectLocator, moveTo, newBoxedValue, sendEvent;
 	bool Ok() const {
 		for (NativeFn f : { allocVector, allocQuat, allocBoundFrame, spawnWithLook, entityExists, teleport, scriptMode,
-				setIgnore, setBlind, setDeaf, hitReactions, stun, dodges, objectLocator, moveTo })
+				setIgnore, setBlind, setDeaf, hitReactions, stun, dodges, objectLocator, moveTo, newBoxedValue, sendEvent })
 			if (!f) return false;
 		return true;
 	}
@@ -194,6 +194,35 @@ uintptr_t FindBuddySpawner(std::string& nameOut) {
 	return best;
 }
 
+// Внешность героя текущей главы: у точек появления игрока (тип 0, "...-player-N") арт - костюм
+// героя ("t1x-joel-costume-01"). Берём ближайшую к игроку.
+std::string HeroLook(const float around[3]) {
+	const uintptr_t mgr = ReadPtr(g_base + kLevelMgrRva), levels = mgr ? ReadPtr(mgr + kMgrLevels) : 0;
+	uint32_t count = 0;
+	if (!levels || !Read(mgr + kMgrLevelCount, count) || count > 0x200) return {};
+	std::string best;
+	float bestDist = 1e30f;
+	for (uint32_t i = 0; i < count; ++i) {
+		const uintptr_t sd = ReadPtr(ReadPtr(levels + i * 8) + kLevelSpawnData), arr = sd ? ReadPtr(sd + 8) : 0;
+		int32_t n = 0;
+		if (!arr || !Read(sd + 0x10, n) || n <= 0 || n > 100000) continue;
+		for (int32_t j = 0; j < n; ++j) {
+			const uintptr_t sp = ReadPtr(arr + j * 8);
+			uint64_t type = 1;
+			float pos[3]{};
+			if (!sp || !Read(sp + kSpType, type) || type || !Read(sp, pos)) continue;
+			if (ReadName(ReadPtr(sp + kSpName)).find("-player-") == std::string::npos) continue;
+			const std::string art = ReadName(ReadPtr(sp + kSpArt));
+			const float dx = pos[0] - around[0], dy = pos[1] - around[1], dz = pos[2] - around[2], d = dx * dx + dy * dy + dz * dz;
+			if (art.rfind("t1x-", 0) == 0 && d < bestDist) {
+				bestDist = d;
+				best = art;
+			}
+		}
+	}
+	return best;
+}
+
 uint64_t BoundFrame(const float pos[3], const float rot[4]) {
 	const uint64_t v = Call(g_dc.allocVector, { F(pos[0]), F(pos[1]), F(pos[2]), F(1.0f), 0 });
 	const uint64_t q = Call(g_dc.allocQuat, { F(rot[0]), F(rot[1]), F(rot[2]), F(rot[3]), 0 });
@@ -214,7 +243,12 @@ uint64_t SpawnPuppet(const Locator& at) {
 	auto* flags1 = reinterpret_cast<uint8_t*>(sp + kSpFlags1);
 	*flags1 = static_cast<uint8_t>(f1 | kSpMultiSpawn);
 	const uint64_t frame = BoundFrame(at.pos, at.rot);
-	const uint64_t npc = frame ? Call(g_dc.spawnWithLook, { sid, frame, 0 }) : 0;
+	// Сначала с внешностью героя; если движок такой образ не примет - образ самого спавнера.
+	Locator me{};
+	const std::string look = PlayerLocator(me) ? HeroLook(me.pos) : std::string();
+	uint64_t npc = frame && !look.empty() ? Call(g_dc.spawnWithLook, { sid, frame, Sid(look.c_str()) }) : 0;
+	if (!look.empty()) Log("puppet: look %s %s", look.c_str(), npc && npc != sid ? "applied" : "refused");
+	if (!npc || npc == sid) npc = frame ? Call(g_dc.spawnWithLook, { sid, frame, 0 }) : 0;
 	*flags1 = f1;
 	if (!npc || npc == sid) {
 		Log("puppet: spawn from %s failed (npc=%016llX)", name.c_str(), static_cast<unsigned long long>(npc));
@@ -342,12 +376,31 @@ uint64_t FrameCounter() {
 // Скрипты выполняются на нескольких потоках; обновление - один раз за кадр, первым пришедшим.
 std::atomic<uint64_t> g_puppetFrame{ 0 };
 
+// F7: перенести игрока к напарнику (к марионетке), на метр в сторону. Событие "teleport-player"
+// с bound-frame в коробке, как в TLOU2-Coop (тип 18 = bound-frame в Part II).
+std::atomic<bool> g_teleportRequested{ false };
+constexpr uint64_t kBoxedBoundFrame = 18;
+
+void TeleportToPartner() {
+	Locator partner{};
+	if (!g_puppet || !NpcLocator(g_puppet, partner)) {
+		Log("F7: no partner to teleport to");
+		return;
+	}
+	partner.pos[0] += 1.0f;
+	const uint64_t frame = BoundFrame(partner.pos, partner.rot);
+	const uint64_t boxed = frame ? Call(g_dc.newBoxedValue, { kBoxedBoundFrame, frame }) : 0;
+	if (boxed) Call(g_dc.sendEvent, { Sid("teleport-player"), Sid("player"), boxed });
+	Log("F7: teleport to partner at (%.1f %.1f %.1f) %s", partner.pos[0], partner.pos[1], partner.pos[2], boxed ? "sent" : "FAILED");
+}
+
 void ScriptInvoke(safetyhook::Context&) {
-	if (!g_puppetWanted.load(std::memory_order_relaxed)) return;
+	if (!g_puppetWanted.load(std::memory_order_relaxed) && !g_teleportRequested.load(std::memory_order_relaxed)) return;
 	const uint64_t frame = FrameCounter();
 	uint64_t done = g_puppetFrame.load(std::memory_order_relaxed);
 	if (!frame || done == frame || !g_puppetFrame.compare_exchange_strong(done, frame)) return;
-	PuppetUpdate();
+	if (g_teleportRequested.exchange(false)) TeleportToPartner();
+	if (g_puppetWanted.load()) PuppetUpdate();
 }
 
 bool KeyPressed(int vk, bool& wasDown) {
@@ -434,7 +487,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 void FrameTick(safetyhook::Context&) {
 	static ULONGLONG lastLog = 0;
 	static unsigned frames = 0;
-	static bool f10Down = false, f9Down = false;
+	static bool f10Down = false, f9Down = false, f7Down = false;
 	++frames;
 	const ULONGLONG now = GetTickCount64();
 
@@ -452,6 +505,7 @@ void FrameTick(safetyhook::Context&) {
 		g_follow = !g_follow;
 		Log("F9: follow %s", g_follow ? "on" : "off");
 	}
+	if (KeyPressed(VK_F7, f7Down)) g_teleportRequested = true;
 
 	if (now - lastLog >= 2000) {
 		Locator l{};
@@ -526,7 +580,7 @@ void OpenLog() {
 
 // ---- автообновление ------------------------------------------------------------------------
 // Номер версии мода: увеличивать при каждом выпуске (tools/release.ps1 берёт его отсюда).
-constexpr uint32_t kModVersion = 7;
+constexpr uint32_t kModVersion = 8;
 
 std::wstring SelfPath() {
 	HMODULE self = nullptr;
@@ -568,7 +622,7 @@ void Init() {
 		FindNative("spawn-entity-at-with-look"), FindNative("entity-exists?"), FindNative("npc-teleport-to"),
 		FindNative("npc-set-script-mode"), FindNative("npc-set-ignore"), FindNative("npc-set-blind"),
 		FindNative("npc-set-deaf"), FindNative("npc-enable-hit-reactions"), FindNative("npc-enable-stun"),
-		FindNative("npc-enable-dodges"), FindNative("get-object-locator"), FindNative("npc-move-to") };
+		FindNative("npc-enable-dodges"), FindNative("get-object-locator"), FindNative("npc-move-to"), FindNative("new-boxed-value"), FindNative("send-event") };
 	Log("natives: %s", g_dc.Ok() ? "ok" : "MISSING");
 	auto hook = safetyhook::MidHook::create(reinterpret_cast<void*>(g_base + kFrameTickRva), FrameTick);
 	if (hook) g_frameHook = std::move(*hook);
