@@ -18,6 +18,7 @@
 #include <safetyhook.hpp>
 
 #include "net.hpp"
+#include "update.hpp"
 #include "winmm-proxy.hpp"
 
 namespace {
@@ -523,6 +524,32 @@ void OpenLog() {
 	if (wcscat_s(path, L"tlou1-coop.log") == 0) g_log = _wfsopen(path, L"w", _SH_DENYWR);
 }
 
+// ---- автообновление ------------------------------------------------------------------------
+// Номер версии мода: увеличивать при каждом выпуске (tools/release.ps1 берёт его отсюда).
+constexpr uint32_t kModVersion = 7;
+
+std::wstring SelfPath() {
+	HMODULE self = nullptr;
+	wchar_t path[MAX_PATH]{};
+	GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+		reinterpret_cast<LPCWSTR>(&SelfPath), &self);
+	const DWORD n = self ? GetModuleFileNameW(self, path, MAX_PATH) : 0;
+	return n && n < MAX_PATH ? path : L"";
+}
+
+void StartUpdateCheck() {
+	static std::wstring self = SelfPath();
+	if (self.empty()) return;
+	update::CleanupOld(self);
+	// Фоновый поток: сеть не трогаем в DllMain и не задерживаем запуск игры.
+	if (HANDLE t = CreateThread(nullptr, 0, [](LPVOID) -> DWORD {
+			Sleep(5000);
+			update::Run(kModVersion, self, update::kReleaseUrl, Log);
+			return 0;
+		}, nullptr, 0, nullptr))
+		CloseHandle(t);
+}
+
 void Init() {
 	g_base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
 	wchar_t path[MAX_PATH]{};
@@ -531,7 +558,8 @@ void Init() {
 	if (!slash || _wcsicmp(slash + 1, L"tlou-i.exe")) return;
 	OpenLog();
 	const uint32_t stamp = Nt()->FileHeader.TimeDateStamp;
-	Log("tlou1-coop v6, base=%p build=%08X", reinterpret_cast<void*>(g_base), stamp);
+	Log("tlou1-coop v%u, base=%p build=%08X", kModVersion, reinterpret_cast<void*>(g_base), stamp);
+	StartUpdateCheck();  // и на неподдерживаемой сборке игры: обновление может её поддержать
 	if (stamp != kBuildTimestamp) {
 		Log("unsupported game build, mod is off");
 		return;
