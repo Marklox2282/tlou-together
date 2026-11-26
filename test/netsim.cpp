@@ -244,6 +244,8 @@ int main() {
 		t += 11000;
 		b.Tick(t, pose);
 		Check(b.GetState() == net::State::Searching, "timeout");
+		Run(a, b, 40);  // связь вернулась
+		Check(a.GetState() == net::State::Connected && b.GetState() == net::State::Connected, "reconnects by itself after a drop");
 	}
 
 	printf(g_failed ? "%d FAILED\n" : "OK\n", g_failed);
