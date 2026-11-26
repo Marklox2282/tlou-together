@@ -396,9 +396,10 @@ struct Text {
 	int turn = 0;
 	char* Next() { return buf[turn ^= 1]; }
 };
-Text<256> g_title;
-Text<2048> g_body;
 Text<512> g_desc;
+// Текст лобби и название пункта: всегда один и тот же буфер (см. LobbyText).
+char g_bodyLive[2048], g_titleLive[256];
+std::atomic<const Lang*> g_lastLang{ nullptr };
 
 std::string Escaped(const std::string& name) {  // ник не должен стать разметкой
 	std::string out;
@@ -409,18 +410,30 @@ std::string Escaped(const std::string& name) {  // ник не должен ст
 // Название пункта: "MULTIPLAYER", "MULTIPLAYER · ЛОББИ", "MULTIPLAYER · ник".
 const char* TitleText(const Lang& l) {
 	const Lobby s = g_lobby ? g_lobby() : Lobby{};
-	if (!s.on && !s.lobby && !s.busy) return l.title;
-	char* buf = g_title.Next();
-	snprintf(buf, sizeof(g_title.buf[0]), "%s · %s", l.title,
-		s.connected ? Escaped(s.partner).c_str() : s.lobby ? l.tag : "...");
-	return buf;
+	char next[256];
+	if (!s.on && !s.lobby && !s.busy) snprintf(next, sizeof(next), "%s", l.title);
+	else
+		snprintf(next, sizeof(next), "%s · %s", l.title, s.connected ? Escaped(s.partner).c_str() : s.lobby ? l.tag : "...");
+	memcpy(g_titleLive, next, strlen(next) + 1);
+	return g_titleLive;
 }
 
+// Текст лобби и название пункта игра получает указателем. Отдаём всегда один и тот же буфер и
+// раз в полсекунды переписываем его на месте (OnFrame): если игра перечитывает строку при
+// отрисовке, открытое окно обновится само. Новый текст собираем рядом и копируем целиком.
+const char* LobbyTextInto(const Lang& l, char* buf, size_t n);
+
 const char* LobbyText(const Lang& l) {
+	g_lastLang = &l;
+	char next[sizeof(g_bodyLive)];
+	LobbyTextInto(l, next, sizeof(next));
+	memcpy(g_bodyLive, next, strlen(next) + 1);
+	return g_bodyLive;
+}
+
+const char* LobbyTextInto(const Lang& l, char* buf, size_t n) {
 	const Lobby s = g_lobby ? g_lobby() : Lobby{};
-	char* buf = g_body.Next();
-	size_t n = sizeof(g_body.buf[0]);
-	if (GetTickCount64() < g_waitUntil) {  // почему не начали игру - первой строкой
+	if (GetTickCount64() < g_waitUntil && !(g_lobby && g_lobby().connected)) {  // почему не начали игру - первой строкой
 		const int k = snprintf(buf, n, "%s<br><br>", l.waitStart);
 		if (k > 0 && static_cast<size_t>(k) < n) {
 			buf += k;
@@ -527,8 +540,9 @@ void OnPress(safetyhook::Context& ctx) {
 // с причиной (кнопки пригласить / покинуть лобби / отмена). Без лобби - как обычно.
 void OnStart(safetyhook::Context& ctx) {
 	const Lobby s = g_lobby ? g_lobby() : Lobby{};
+	Log("menu: start pressed (lobby %d, connected %d)", (s.lobby || s.busy) ? 1 : 0, s.connected ? 1 : 0);
 	if (!(s.lobby || s.busy) || s.connected) return;
-	g_waitUntil = GetTickCount64() + 1500;
+	g_waitUntil = GetTickCount64() + 30000;  // строка видна, пока окно открыто (текст живой)
 	const uintptr_t menu = ctx.r15;
 	using MainMenuFn = bool (*)(uintptr_t);
 	const auto mainMenu = reinterpret_cast<MainMenuFn>(*reinterpret_cast<uintptr_t*>(*reinterpret_cast<uintptr_t*>(menu) + kMainMenuVcall));
@@ -565,6 +579,14 @@ bool g_installed = false;
 }  // namespace
 
 void OnFrame() {
+	// Живой текст: переписать буферы, которые игра уже получила (только своя память, без вызовов
+	// игры - открытие окна отсюда роняло игру).
+	static ULONGLONG lastRefresh = 0;
+	if (const Lang* l = g_lastLang.load(); l && GetTickCount64() - lastRefresh >= 500) {
+		lastRefresh = GetTickCount64();
+		LobbyText(*l);
+		TitleText(*l);
+	}
 	static bool registered = false;
 	if (registered || !g_installed) return;
 	registered = true;
