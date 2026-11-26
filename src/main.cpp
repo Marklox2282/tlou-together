@@ -169,6 +169,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	}
 	if (action == menu::Invite) g_link.InviteToLobby();
 	if (action == menu::GoToPartner) puppet::RequestTeleport();  // как F7
+	if (action == menu::StartGame) g_link.SendStart();  // гость начнёт следом
 	if (puppet::TakeMyDeath()) g_link.SendDeath();
 	// Оружие в руках: при смене сразу и раз в 2 с (пакет мог потеряться).
 	static ULONGLONG lastWeapon = 0;
@@ -228,6 +229,8 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	if (connectedNote != wasConnected) {
 		wasConnected = connectedNote;
 		menu::Notify(connectedNote ? g_link.PeerName() + " joined" : std::string("Partner disconnected"));
+		// В главном меню (игрока ещё нет): показать лобби заново - там уже "подключено" и НАЧАТЬ ИГРУ.
+		if (connectedNote && !havePlayer && g_link.Authority()) menu::ShowLobbyAgain();  // хозяину; гость ждёт автостарта
 	}
 	if (on != wasOn) {  // сеть включилась или выключилась (клавиши, меню, лобби)
 		wasOn = on;
@@ -268,6 +271,22 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	const bool connected = g_link.GetState() == net::State::Connected;
 	const engine::Chapter theirs = connected ? engine::Chapter{ g_link.PeerChapter().first, g_link.PeerChapter().second } : engine::Chapter{};
 	puppet::SetPartnerChapter(theirs);
+	// Хозяин начал игру: у гостя в главном меню открывается меню сюжета; войдя в игру, гость
+	// один раз загружает главу хозяина (если она другая) - как F5.
+	static bool joinHostOnEntry = false;
+	if (g_link.TakePartnerStarted() && !havePlayer) {
+		Log("net: %s started the game - %s", g_link.PeerName().c_str(),
+			menu::StartGameFromPartner() ? "opening the story menu" : "open the story yourself");
+		joinHostOnEntry = true;
+	}
+	if (!connected) joinHostOnEntry = false;
+	if (joinHostOnEntry && theirs && mine) {
+		joinHostOnEntry = false;
+		if (!(theirs == mine)) {
+			Log("net: entered the game - loading %s's chapter", g_link.PeerName().c_str());
+			puppet::RequestJoin(false);
+		}
+	}
 	// Друг в другой главе - подсказка в журнал при каждой смене.
 	static engine::Chapter lastHint;
 	if (theirs && mine && !(theirs == mine) && !(theirs == lastHint)) {

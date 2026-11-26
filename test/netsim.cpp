@@ -164,6 +164,14 @@ int main() {
 		Run(a, b, 2);
 		Check(b.PeerWeapon() == 0x1234567890ABCDEFull, "weapon arrives");
 
+		puts("== start");
+		Check(!b.TakePartnerStarted(), "not started before the host starts");
+		a.SendStart();
+		Sleep(10);
+		Run(a, b, 2);
+		Check(b.TakePartnerStarted(), "host's start arrives");
+		Check(!b.TakePartnerStarted(), "start is taken once");
+
 		puts("== bye");
 		a.Stop();
 		Sleep(10);

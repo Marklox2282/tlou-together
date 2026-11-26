@@ -264,6 +264,7 @@ void Link::Stop() {
 	lastSeq_ = 0;
 	peerDifficulty_ = -1;
 	peerWeapon_ = 0;
+	partnerStarted_ = false;
 	enemyEvents_.clear();
 }
 
@@ -423,6 +424,10 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 			Disconnected("left");
 			continue;
 		}
+		if (p.type == kStart) {
+			partnerStarted_ = true;
+			continue;
+		}
 		if (p.type == kWeapon) {
 			peerWeapon_ = p.target;
 			continue;
@@ -496,6 +501,16 @@ void Link::SendSettings(uint32_t difficulty) {
 	Packet p = Make(kSettings);
 	p.target = difficulty;
 	Send(p);
+}
+
+void Link::SendStart() {
+	if (state_ == State::Connected) Send(Make(kStart), true);
+}
+
+bool Link::TakePartnerStarted() {
+	const bool s = partnerStarted_;
+	partnerStarted_ = false;
+	return s;
 }
 
 void Link::SendWeapon(uint64_t weapon) {

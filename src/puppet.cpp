@@ -405,14 +405,17 @@ void Update() {
 	}
 	// Телепорт на глазах выглядит резко: пока марионетка в кадре и отстала меньше 30 м, даём ей до
 	// 3 с догнать бегом (команда ниже), переносим - когда игрок отвернулся или время вышло.
+	// Вне кадра переносим уже при отрыве 4 м: этого никто не видит, а бегом она отстаёт.
 	static ULONGLONG snapWantedSince = 0;
-	bool snapNow = err > 15.0f || stuck;
+	const CameraView view = CurrentView();
+	const bool onScreen = Seen(view, cur.pos, 40.0f) || Seen(view, target.pos, 40.0f);
+	const bool wantSnap = err > 15.0f || stuck || (UsingNetwork() && err > 4.0f && !onScreen);
+	bool snapNow = wantSnap;
 	if (snapNow && err < 30.0f) {
 		if (!snapWantedSince) snapWantedSince = now;
-		const CameraView view = CurrentView();
-		if (now - snapWantedSince < 3000 && (Seen(view, cur.pos, 40.0f) || Seen(view, target.pos, 40.0f))) snapNow = false;
+		if (now - snapWantedSince < 3000 && onScreen) snapNow = false;
 	}
-	if (!(err > 15.0f || stuck)) snapWantedSince = 0;
+	if (!wantSnap) snapWantedSince = 0;
 	if (snapNow) {
 		snapWantedSince = 0;
 		movedAt = 0;
@@ -444,8 +447,9 @@ void Update() {
 		return;
 	}
 	if (targetSpeed < 0.5f && err < 1.5f) return;
-	const float speed = (std::max)(targetSpeed, err * 0.8f);
-	const int mode = speed < 1.8f ? 0 : (speed < 4.2f ? 1 : 2);
+	// Скорость партнёра плюс догон: чем больше отстала, тем быстрее (бег - с 1.5 м/с, спринт - с 3.5).
+	const float speed = targetSpeed + (err > 1.0f ? (err - 1.0f) * 1.2f : 0.0f);
+	const int mode = speed < 1.5f ? 0 : (speed < 3.5f ? 1 : 2);
 	// Цель с упреждением: где партнёр будет через ~0.5 с при той же скорости (дальше - чаще
 	// оказывалась за стеной на поворотах, и NPC срезал сквозь неё). Команда - только если цель
 	// ушла больше чем на 2 м, сменился режим или прошло 2.5 с: каждая новая команда
@@ -455,8 +459,8 @@ void Update() {
 	for (int i = 0; i < 3; ++i) goal[i] = target.pos[i] + (target.pos[i] - before.pos[i]) * 4.0f * lead;
 	goal[1] = target.pos[1];  // по высоте не упреждаем
 	// Партнёр остановился: прежняя цель была впереди - поправить на точное место сразу.
-	const float resend = lead > 0.0f ? 2.0f : 0.75f;
-	if (mode == lastMode && Dist(goal, lastGoal) < resend && now - lastCmdAt < 2500) return;
+	const float resend = lead > 0.0f ? 1.2f : 0.75f;
+	if (mode == lastMode && Dist(goal, lastGoal) < resend && now - lastCmdAt < 1500) return;
 	if (const uint64_t frame = BoundFrame(goal, target.rot))
 		Call(g_dc.moveTo, { puppet, frame, static_cast<uint64_t>(mode), 0, 0, 0, 0, 0 });
 	memcpy(lastGoal, goal, sizeof(lastGoal));
