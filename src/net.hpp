@@ -4,12 +4,14 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace net {
 
 constexpr uint32_t kMagic = 0x4F433154;  // "T1CO"
-constexpr uint8_t kProtocol = 2;          // 1 = v7 (без рукопожатия)
-enum : uint8_t { kHello = 1, kPose = 2, kBye = 3 };
+constexpr uint8_t kProtocol = 3;          // 1 = v7 (без рукопожатия), 2 = v8 (без врагов)
+enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4 };
+constexpr uint16_t kFlagDead = 1;  // kEnemy: враг убит
 
 #pragma pack(push, 1)
 struct Packet {
@@ -23,9 +25,11 @@ struct Packet {
 	float pos[3]{};
 	float rot[4]{};
 	char name[24]{};          // приветствие: ник отправителя
+	uint64_t target = 0;      // kEnemy: имя врага
+	float health = 0;         // kEnemy: его здоровье после удара
 };
 #pragma pack(pop)
-static_assert(sizeof(Packet) == 76);
+static_assert(sizeof(Packet) == 88);
 
 struct Config {
 	std::string peerIp;           // пусто = Steam; иначе UDP напрямую
@@ -47,6 +51,8 @@ public:
 	// Отправляет приветствия при поиске и принимает пакеты. Возвращает true, если пришла поза.
 	bool Tick(uint64_t nowMs, Packet& pose);
 	void SendPose(const float pos[3], const float rot[4]);
+	void SendEnemy(uint64_t npc, float health, bool dead);  // через Steam - с гарантией доставки
+	std::vector<Packet> TakeEnemyEvents();                  // полученные kEnemy с прошлого раза
 	void SetChapter(uint64_t chapter) { chapter_ = chapter; }
 	void SetName(const std::string& name) { name_ = name; }
 	void SetBeep(bool on) { beep_ = on; }  // звук Windows при соединении (в игре - да, в тестах - нет)
@@ -58,8 +64,8 @@ public:
 
 private:
 	Packet Make(uint8_t type) const;
-	void Send(const Packet& p);
-	void SendTo(uint64_t steamId, const Packet& p);
+	void Send(const Packet& p, bool reliable = false);
+	void SendTo(uint64_t steamId, const Packet& p, bool reliable = false);
 	bool Receive(Packet& p, uint64_t& fromSteam);
 	void OnHello(const Packet& p, uint64_t from, uint64_t nowMs);
 	void Disconnected(const char* why);
@@ -79,6 +85,7 @@ private:
 	uint64_t lastHello_ = 0, lastHeard_ = 0, lastMismatchLog_ = 0;
 	uint32_t seq_ = 0, lastSeq_ = 0;
 	bool oldProtocolLogged_ = false;
+	std::vector<Packet> enemyEvents_;
 	bool beep_ = true;
 };
 

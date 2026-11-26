@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "enemies.hpp"
 #include "log.hpp"
 #include "puppet.hpp"
 
@@ -364,6 +365,7 @@ void ScriptTick() {
 	s = QpcNow();
 	if (g_wanted) Update();
 	ProfileAdd("[update]", MicrosecondsSince(s));
+	if (g_netActive) enemies::Tick(g_puppet);
 	QueryPerformanceCounter(&b);
 	QueryPerformanceFrequency(&f);
 	g_workUs.fetch_add(static_cast<uint64_t>((b.QuadPart - a.QuadPart) * 1000000 / f.QuadPart), std::memory_order_relaxed);

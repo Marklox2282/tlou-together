@@ -196,22 +196,23 @@ uint32_t BuildTimestamp() { return Nt()->FileHeader.TimeDateStamp; }
 void NameNative(NativeFn fn, const char* name);
 
 bool InitNatives() {
-	g_dc = { FindNative("alloc-vector"), FindNative("alloc-quat"), FindNative("alloc-bound-frame"),
-		FindNative("spawn-entity-at-with-look"), FindNative("entity-exists?"), FindNative("npc-teleport-to"),
-		FindNative("npc-set-script-mode"), FindNative("npc-set-ignore"), FindNative("npc-set-blind"),
-		FindNative("npc-set-deaf"), FindNative("npc-enable-hit-reactions"), FindNative("npc-enable-stun"),
-		FindNative("npc-enable-dodges"), FindNative("get-object-locator"), FindNative("npc-move-to"),
-		FindNative("new-boxed-value"), FindNative("send-event"), FindNative("task-get-current"), FindNative("set-visible"), FindNative("set-is-unshootable") };
-	const std::pair<NativeFn, const char*> names[] = { { g_dc.allocVector, "alloc-vector" }, { g_dc.allocQuat, "alloc-quat" },
-		{ g_dc.allocBoundFrame, "alloc-bound-frame" }, { g_dc.spawnWithLook, "spawn" }, { g_dc.entityExists, "entity-exists?" },
-		{ g_dc.teleport, "npc-teleport-to" }, { g_dc.scriptMode, "script-mode" }, { g_dc.objectLocator, "get-object-locator" },
-		{ g_dc.moveTo, "npc-move-to" }, { g_dc.newBoxedValue, "new-boxed-value" }, { g_dc.sendEvent, "send-event" },
-		{ g_dc.taskGetCurrent, "task-get-current" }, { g_dc.setVisible, "set-visible" }, { g_dc.setUnshootable, "set-is-unshootable" } };
-	for (const auto& [fn, name] : names) NameNative(fn, name);
-	for (NativeFn f : { g_dc.allocVector, g_dc.allocQuat, g_dc.allocBoundFrame, g_dc.spawnWithLook, g_dc.entityExists,
-			g_dc.teleport, g_dc.scriptMode, g_dc.setIgnore, g_dc.setBlind, g_dc.setDeaf, g_dc.hitReactions, g_dc.stun,
-			g_dc.dodges, g_dc.objectLocator, g_dc.moveTo, g_dc.newBoxedValue, g_dc.sendEvent, g_dc.taskGetCurrent, g_dc.setVisible, g_dc.setUnshootable })
-		if (!f) return false;
+	const std::pair<NativeFn*, const char*> table[] = { { &g_dc.allocVector, "alloc-vector" },
+		{ &g_dc.allocQuat, "alloc-quat" }, { &g_dc.allocBoundFrame, "alloc-bound-frame" },
+		{ &g_dc.spawnWithLook, "spawn-entity-at-with-look" }, { &g_dc.entityExists, "entity-exists?" },
+		{ &g_dc.teleport, "npc-teleport-to" }, { &g_dc.scriptMode, "npc-set-script-mode" },
+		{ &g_dc.setIgnore, "npc-set-ignore" }, { &g_dc.setBlind, "npc-set-blind" }, { &g_dc.setDeaf, "npc-set-deaf" },
+		{ &g_dc.hitReactions, "npc-enable-hit-reactions" }, { &g_dc.stun, "npc-enable-stun" },
+		{ &g_dc.dodges, "npc-enable-dodges" }, { &g_dc.objectLocator, "get-object-locator" },
+		{ &g_dc.moveTo, "npc-move-to" }, { &g_dc.newBoxedValue, "new-boxed-value" }, { &g_dc.sendEvent, "send-event" },
+		{ &g_dc.taskGetCurrent, "task-get-current" }, { &g_dc.setVisible, "set-visible" },
+		{ &g_dc.setUnshootable, "set-is-unshootable" }, { &g_dc.darrayCount, "darray-count" },
+		{ &g_dc.darrayAt, "darray-at" }, { &g_dc.getHealth, "get-object-health" },
+		{ &g_dc.setHealth, "set-object-health" }, { &g_dc.isDead, "character-is-dead?" }, { &g_dc.npcDie, "npc-die" } };
+	for (const auto& [slot, name] : table) {
+		*slot = FindNative(name);
+		if (!*slot) return false;
+		NameNative(*slot, name);
+	}
 	return true;
 }
 
@@ -224,7 +225,8 @@ uint64_t F(float v) {
 // Замер: сколько вызовов и времени ушло на каждую функцию движка (для лога, раз в 2 с).
 namespace {
 struct ProfileSlot { NativeFn fn; const char* name; std::atomic<uint64_t> calls, us; };
-ProfileSlot g_profile[32];
+constexpr int kMaxProfile = 64;
+ProfileSlot g_profile[kMaxProfile];
 int g_profileCount = 0;
 }  // namespace
 
@@ -237,7 +239,7 @@ void ProfileAdd(const char* name, uint64_t us) {
 		}
 	static SRWLOCK lock = SRWLOCK_INIT;
 	AcquireSRWLockExclusive(&lock);
-	if (g_profileCount < 32) {
+	if (g_profileCount < kMaxProfile) {
 		g_profile[g_profileCount].name = name;
 		g_profile[g_profileCount].calls = 1;
 		g_profile[g_profileCount].us = us;
@@ -260,7 +262,7 @@ int64_t QpcNow() {
 }
 
 void NameNative(NativeFn fn, const char* name) {
-	if (fn && g_profileCount < 32) {
+	if (fn && g_profileCount < kMaxProfile) {
 		g_profile[g_profileCount].fn = fn;
 		g_profile[g_profileCount++].name = name;
 	}
@@ -268,7 +270,7 @@ void NameNative(NativeFn fn, const char* name) {
 
 std::string TakeProfile() {
 	std::string out;
-	int order[32];
+	int order[kMaxProfile];
 	for (int i = 0; i < g_profileCount; ++i) order[i] = i;
 	std::sort(order, order + g_profileCount, [](int a, int b) { return g_profile[a].us > g_profile[b].us; });
 	for (int k = 0; k < g_profileCount; ++k) {

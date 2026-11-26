@@ -114,6 +114,17 @@ int main() {
 		Check(received >= 90 && std::fabs(lastX - std::cos(10.0f) * 5) < 1e-4f && contents, "100 poses arrive in order");
 		Check(a.PeerChapter() == kPrologue, "chapter change carried by poses");
 
+		puts("== enemy hits and kills");
+		a.SendEnemy(0xABCDEF0123456789ull, 42.5f, false);
+		a.SendEnemy(0x1111222233334444ull, 0.0f, true);
+		Sleep(10);
+		Run(a, b, 2);
+		const std::vector<net::Packet> ev = b.TakeEnemyEvents();
+		Check(ev.size() == 2 && ev[0].target == 0xABCDEF0123456789ull && ev[0].health == 42.5f &&
+			!(ev[0].flags & net::kFlagDead) && ev[1].target == 0x1111222233334444ull && (ev[1].flags & net::kFlagDead),
+			"enemy events arrive with name, health and death");
+		Check(b.TakeEnemyEvents().empty() && a.TakeEnemyEvents().empty(), "events taken once, not echoed");
+
 		puts("== bye");
 		a.Stop();
 		Sleep(10);

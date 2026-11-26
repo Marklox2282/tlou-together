@@ -14,6 +14,7 @@
 
 #include <safetyhook.hpp>
 
+#include "enemies.hpp"
 #include "engine.hpp"
 #include "log.hpp"
 #include "net.hpp"
@@ -87,6 +88,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		std::string name;
 		const net::Config cfg = LoadConfig(name);
 		g_link.SetName(name);
+		enemies::Reset();
 		puppet::SetNetActive(g_link.Start(cfg, now));
 	}
 	if (KeyPressed(VK_F6, f6Down) && g_link.GetState() != net::State::Off) {
@@ -112,6 +114,10 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		puppet::Record(now, l);
 	}
 	puppet::SetPartnerChapter(g_link.GetState() == net::State::Connected ? g_link.PeerChapter() : 0);
+	// Общие враги: свои удары - партнёру (без подключения просто в журнал), его - в игру.
+	for (const enemies::Change& c : enemies::TakeOutgoing()) g_link.SendEnemy(c.npc, c.health, c.dead);
+	for (const net::Packet& p : g_link.TakeEnemyEvents())
+		enemies::Receive({ p.target, p.health, (p.flags & net::kFlagDead) != 0 });
 	if (havePlayer && now - lastSend >= 50) {  // 20 раз в секунду
 		lastSend = now;
 		g_link.SendPose(me.pos, me.rot);

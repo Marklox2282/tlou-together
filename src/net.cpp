@@ -37,6 +37,7 @@ struct Ident { uint8_t raw[136]; };  // SteamNetworkingIdentity
 struct FriendGameInfo { uint64_t gameId; uint32_t ip; uint16_t gamePort, queryPort; uint64_t lobby; };
 constexpr int kFriendFlagImmediate = 0x04;
 constexpr int kSendFlags = 1 | 32;  // UnreliableNoNagle | AutoRestartBrokenSession
+constexpr int kSendReliable = 8 | 32;  // Reliable | AutoRestartBrokenSession
 constexpr int kChannel = 7;
 
 template <typename T>
@@ -182,6 +183,7 @@ void Link::Stop() {
 	peerSteam_ = 0;
 	peerChapter_ = 0;
 	lastSeq_ = 0;
+	enemyEvents_.clear();
 }
 
 Packet Link::Make(uint8_t type) const {
@@ -193,10 +195,10 @@ Packet Link::Make(uint8_t type) const {
 	return p;
 }
 
-void Link::SendTo(uint64_t steamId, const Packet& p) {
+void Link::SendTo(uint64_t steamId, const Packet& p, bool reliable) {
 	if (steam_) {
 		const Ident id = MakeIdent(steamId);
-		g_steam.SendToUser(g_steam.msgs, id.raw, &p, sizeof(p), kSendFlags, kChannel);
+		g_steam.SendToUser(g_steam.msgs, id.raw, &p, sizeof(p), reliable ? kSendReliable : kSendFlags, kChannel);
 	} else {
 		sockaddr_in to{};
 		to.sin_family = AF_INET;
@@ -207,8 +209,8 @@ void Link::SendTo(uint64_t steamId, const Packet& p) {
 	}
 }
 
-void Link::Send(const Packet& p) {
-	if (!steam_ || peerSteam_) SendTo(peerSteam_, p);
+void Link::Send(const Packet& p, bool reliable) {
+	if (!steam_ || peerSteam_) SendTo(peerSteam_, p, reliable);
 }
 
 bool Link::Receive(Packet& p, uint64_t& fromSteam) {
@@ -305,6 +307,10 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 			Disconnected("left");
 			continue;
 		}
+		if (p.type == kEnemy) {
+			if (enemyEvents_.size() < 1024) enemyEvents_.push_back(p);
+			continue;
+		}
 		// Без надёжной доставки пакеты могут прийти не по порядку: старые позы отбрасываем.
 		if (p.type == kPose && static_cast<int32_t>(p.seq - lastSeq_) > 0) {
 			lastSeq_ = p.seq;
@@ -324,6 +330,21 @@ void Link::SendPose(const float pos[3], const float rot[4]) {
 	memcpy(p.pos, pos, sizeof(p.pos));
 	memcpy(p.rot, rot, sizeof(p.rot));
 	Send(p);
+}
+
+void Link::SendEnemy(uint64_t npc, float health, bool dead) {
+	if (state_ != State::Connected) return;
+	Packet p = Make(kEnemy);
+	p.target = npc;
+	p.health = health;
+	p.flags = dead ? kFlagDead : 0;
+	Send(p, true);
+}
+
+std::vector<Packet> Link::TakeEnemyEvents() {
+	std::vector<Packet> out;
+	out.swap(enemyEvents_);
+	return out;
 }
 
 }  // namespace net
