@@ -2,6 +2,7 @@
 #define NOMINMAX
 #include <windows.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -242,11 +243,13 @@ std::string HeroName(const std::string& art) {
 	return art.substr(4, end == std::string::npos ? std::string::npos : end - 4);
 }
 
-uintptr_t FindBuddySpawner(const std::string& hero, std::string& nameOut) {
+uintptr_t FindBuddySpawner(const std::string& hero, const std::vector<uintptr_t>& exclude, std::string& nameOut) {
 	uintptr_t best = 0;
 	int bestRank = 0;
 	ForEachSpawner([&](uintptr_t sp, const SpawnerHead& h) {
 		if (!h.type || (h.flags0 & kSpDisabled)) return true;
+		for (uintptr_t bad : exclude)
+			if (bad == sp) return true;
 		const std::string art = ReadName(h.art);
 		int rank = SpawnerRank(art, hero) * 2;
 		if (!rank) return true;

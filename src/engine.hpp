@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <string>
+#include <vector>
 
 namespace engine {
 
@@ -81,8 +82,9 @@ static_assert(offsetof(SpawnerHead, sid) == kSpSid && offsetof(SpawnerHead, name
 	offsetof(SpawnerHead, type) == kSpType && offsetof(SpawnerHead, art) == kSpArt &&
 	offsetof(SpawnerHead, flags0) == kSpFlags0 && offsetof(SpawnerHead, flags1) == kSpFlags1);
 
-// Человек-NPC для партнёра, под пол и имя героя (hero - "joel", пусто = любой).
-uintptr_t FindBuddySpawner(const std::string& hero, std::string& nameOut);
+// Человек-NPC для партнёра, под пол и имя героя (hero - "joel", пусто = любой); exclude -
+// спавнеры, которые уже не сработали.
+uintptr_t FindBuddySpawner(const std::string& hero, const std::vector<uintptr_t>& exclude, std::string& nameOut);
 // Костюм героя главы: арт ближайшей к точке точки появления игрока ("t1x-joel-costume-01").
 std::string HeroLook(const float around[3]);
 std::string HeroName(const std::string& art);  // "t1x-joel-costume-01" -> "joel"

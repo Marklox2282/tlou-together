@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "log.hpp"
 #include "puppet.hpp"
@@ -57,14 +58,26 @@ float Dist(const float a[3], const float b[3]) {
 // ---- состояние -----------------------------------------------------------------------------
 std::atomic<bool> g_wanted{ false }, g_follow{ false }, g_teleport{ false }, g_netActive{ false };
 std::atomic<uint64_t> g_myChapter{ 0 }, g_partnerChapter{ 0 }, g_puppet{ 0 }, g_doneFrame{ 0 };
-ULONGLONG g_lastSpawnTry = 0;
+// Повторные попытки: спавнер, чья марионетка сразу исчезла (сюжетный NPC, которого скрипт
+// убирает, - npc-robert-1 в Бостоне), больше не берём; пауза растёт после неудач подряд, иначе
+// пересоздание каждые 3 с проседало FPS. Список сбрасывается при смене задания сюжета.
+ULONGLONG g_lastSpawnTry = 0, g_spawnedAt = 0;
+uintptr_t g_lastSpawner = 0;
+std::vector<uintptr_t> g_badSpawners;
+int g_failures = 0;
+uint64_t g_badForChapter = 0;
 
 // Копия NPC без собственной воли: тот же набор, что у марионетки в TLOU2-Coop.
 uint64_t Spawn(const Locator& at) {
 	Locator me{};
 	const std::string look = PlayerLocator(me) ? HeroLook(me.pos) : std::string();
 	std::string name;
-	const uintptr_t sp = FindBuddySpawner(HeroName(look), name);
+	if (g_badForChapter != g_myChapter) {
+		g_badSpawners.clear();
+		g_badForChapter = g_myChapter;
+	}
+	const uintptr_t sp = FindBuddySpawner(HeroName(look), g_badSpawners, name);
+	g_lastSpawner = sp;
 	uint64_t sid = 0;
 	uint8_t f1 = 0;
 	if (!sp || !Read(sp + kSpSid, sid) || !Read(sp + kSpFlags1, f1)) {
@@ -114,19 +127,27 @@ void Update() {
 	const ULONGLONG now = GetTickCount64();
 	uint64_t puppet = g_puppet;
 	if (puppet && !Call(g_dc.entityExists, { puppet })) {
-		Log("puppet %016llX is gone (death or checkpoint reload)", static_cast<unsigned long long>(puppet));
+		const bool instant = now - g_spawnedAt < 2000;
+		Log("puppet %016llX is gone %s", static_cast<unsigned long long>(puppet),
+			instant ? "right after spawning: the level removes it, trying another spawner" : "(death or checkpoint reload)");
+		if (instant && g_lastSpawner) {
+			g_badSpawners.push_back(g_lastSpawner);
+			++g_failures;
+		}
 		g_puppet = puppet = 0;
 	}
 	Locator target{};
 	if (ChapterMismatch() || !DelayedTarget(now, target)) return;
 	if (!puppet) {
-		if (now - g_lastSpawnTry < 3000) return;
-		g_puppet = Spawn(target);
+		if (now - g_lastSpawnTry < (g_failures >= 3 ? 15000u : 3000u)) return;
+		g_puppet = puppet = Spawn(target);
 		const ULONGLONG took = GetTickCount64() - now;
 		if (took > 20) Log("puppet: spawn attempt took %llu ms", took);
-		g_lastSpawnTry = GetTickCount64();
+		g_lastSpawnTry = g_spawnedAt = GetTickCount64();
+		if (!puppet) ++g_failures;
 		return;
 	}
+	if (now - g_spawnedAt > 2000) g_failures = 0;
 	// Марионетка идёт сама своей анимацией: npc-move-to(npc, frame, режим, 0...), где режим
 	// 0 шаг, 1 бег, 2 спринт (замерено в TLOU2-Coop). Телепорт - только при сильном отставании:
 	// телепорт на каждом кадре ронял игру в Fsm::StateMachineBase::SwitchToNewState.
