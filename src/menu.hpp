@@ -18,11 +18,13 @@ struct Lobby {
 	bool host = false;        // своё лобби
 	bool busy = false;        // лобби создаётся или мы в него входим
 	std::string owner;        // хозяин чужого лобби
+	std::string code;         // код своего лобби ("K7QX-92F")
+	bool codeError = false;   // пробовали войти по коду, а в буфере обмена не код
 	bool iAmHero = true;      // роли: я герой главы или его спутник
 	std::string heroName, companionName;  // "joel", "tess"; пусто - неизвестно
 };
 
-enum Action { None, CreateLobby, Invite, Leave, SwapRoles };
+enum Action { None, CreateLobby, Invite, Leave, SwapRoles, JoinByCode };
 
 using LobbyFn = Lobby (*)();  // состояние для текста лобби (вызывается из потока меню)
 using ActionFn = void (*)(Action);  // кнопка лобби (вызывается из потока меню)

@@ -83,6 +83,9 @@ public:
 	std::string LobbyOwnerName() const;
 	// Приглашение, принятое в Steam (событие Steam или "+connect_lobby" в командной строке).
 	static uint64_t TakeInvite();
+	// Код лобби для входа без списка друзей: "K7QX-92F" (32-битный номер лобби в base32 Крокфорда).
+	static std::string LobbyCode(uint64_t lobby);
+	static uint64_t LobbyFromCode(const std::string& code);  // 0 - не код
 	using Chapter = std::pair<uint64_t, uint64_t>;  // узел и задание (engine::Chapter)
 	void SetChapter(Chapter c) { chapter_ = c; }
 	void SetName(const std::string& name) { name_ = name; }

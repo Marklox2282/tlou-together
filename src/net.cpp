@@ -5,6 +5,7 @@
 #include <windows.h>
 
 #include <atomic>
+#include <cctype>
 #include <cstring>
 #include <cstdlib>
 #include <vector>
@@ -37,6 +38,8 @@ struct Steam {
 	uint64_t (*JoinLobby)(void*, uint64_t) = nullptr;
 	void (*LeaveLobby)(void*, uint64_t) = nullptr;
 	uint64_t (*GetLobbyOwner)(void*, uint64_t) = nullptr;
+	int (*GetNumLobbyMembers)(void*, uint64_t) = nullptr;
+	uint64_t (*GetLobbyMember)(void*, uint64_t, int) = nullptr;
 	bool (*SetLobbyData)(void*, uint64_t, const char*, const char*) = nullptr;
 	void (*InviteDialog)(void*, uint64_t) = nullptr;
 	bool (*CallDone)(void*, uint64_t, bool*) = nullptr;
@@ -98,6 +101,8 @@ bool SteamInit(Link::LogFn log) {
 	Sym(m, "SteamAPI_ISteamMatchmaking_JoinLobby", s.JoinLobby);
 	Sym(m, "SteamAPI_ISteamMatchmaking_LeaveLobby", s.LeaveLobby);
 	Sym(m, "SteamAPI_ISteamMatchmaking_GetLobbyOwner", s.GetLobbyOwner);
+	Sym(m, "SteamAPI_ISteamMatchmaking_GetNumLobbyMembers", s.GetNumLobbyMembers);
+	Sym(m, "SteamAPI_ISteamMatchmaking_GetLobbyMemberByIndex", s.GetLobbyMember);
 	Sym(m, "SteamAPI_ISteamMatchmaking_SetLobbyData", s.SetLobbyData);
 	Sym(m, "SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialog", s.InviteDialog);
 	Sym(m, "SteamAPI_ISteamUtils_IsAPICallCompleted", s.CallDone);
@@ -134,7 +139,8 @@ bool SteamInit(Link::LogFn log) {
 		return false;
 	}
 	s.appId = s.GetAppID(s.utils);
-	if (mm && s.CreateLobby && s.JoinLobby && s.LeaveLobby && s.GetLobbyOwner && s.SetLobbyData && s.InviteDialog &&
+	if (mm && s.CreateLobby && s.JoinLobby && s.LeaveLobby && s.GetLobbyOwner && s.GetNumLobbyMembers && s.GetLobbyMember &&
+		s.SetLobbyData && s.InviteDialog &&
 		s.CallDone && s.CallResult)
 		s.mm = mm();
 	if (!s.mm) log("net: Steam lobbies unavailable");
@@ -367,6 +373,14 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 		const Packet hello = Make(kHello);
 		if (steam_ && target_)
 			SendTo(target_, hello);  // гость лобби: только хозяину
+		else if (steam_ && lobby_ && lobbyHost_) {
+			// Хозяин - всем в лобби: гость может быть не другом в Steam, а сообщения от незнакомых
+			// Steam принимает, только если мы написали им первыми.
+			const uint64_t me = g_steam.GetSteamID(g_steam.user);
+			const int n = g_steam.GetNumLobbyMembers(g_steam.mm, lobby_);
+			for (int i = 0; i < n && i < 4; ++i)
+				if (const uint64_t id = g_steam.GetLobbyMember(g_steam.mm, lobby_, i); id && id != me) SendTo(id, hello);
+		}
 		else if (steam_)
 			for (uint64_t id : FriendsInThisGame()) SendTo(id, hello);
 		else
@@ -472,6 +486,36 @@ bool Link::TakeSwapRequest() {
 }
 
 // ---- лобби ---------------------------------------------------------------------------------
+// Id лобби Steam: 0x01860000 в старшей половине, номер - в младшей.
+constexpr uint64_t kLobbyHigh = 0x0186000000000000ull;
+constexpr char kCodeAlphabet[] = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";  // base32 Крокфорда
+
+std::string Link::LobbyCode(uint64_t lobby) {
+	if ((lobby & 0xFFFFFFFF00000000ull) != kLobbyHigh) return {};
+	uint64_t v = lobby & 0xFFFFFFFFull;
+	char c[7];
+	for (int i = 6; i >= 0; --i, v >>= 5) c[i] = kCodeAlphabet[v & 31];
+	return std::string(c, 4) + "-" + std::string(c + 4, 3);
+}
+
+uint64_t Link::LobbyFromCode(const std::string& code) {
+	uint64_t v = 0;
+	int n = 0;
+	for (char ch : code) {
+		ch = static_cast<char>(toupper(static_cast<unsigned char>(ch)));
+		if (ch == 'O') ch = '0';
+		if (ch == 'I' || ch == 'L') ch = '1';
+		const char* p = ch ? strchr(kCodeAlphabet, ch) : nullptr;
+		if (!p) {
+			if (ch == '-' || ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') continue;
+			return 0;  // чужой текст в буфере обмена
+		}
+		v = (v << 5) | static_cast<uint64_t>(p - kCodeAlphabet);
+		if (++n > 7) return 0;
+	}
+	return n == 7 && v <= 0xFFFFFFFFull && v ? kLobbyHigh | v : 0;
+}
+
 uint64_t Link::TakeInvite() {
 	static bool commandLineChecked = false;
 	if (!commandLineChecked) {
@@ -484,7 +528,7 @@ uint64_t Link::TakeInvite() {
 void Link::CreateLobby(uint64_t nowMs) {
 	if (!SteamInit(log_) || !g_steam.mm || lobby_ || lobbyCall_) return;
 	if (state_ == State::Off) Start(Config{}, nowMs);
-	lobbyCall_ = g_steam.CreateLobby(g_steam.mm, 1 /* только друзья */, 2);
+	lobbyCall_ = g_steam.CreateLobby(g_steam.mm, 2 /* публичное: войти по коду может и не друг */, 2);
 	lobbyCallKind_ = 1;
 	log_("net: creating a lobby");
 }

@@ -27,7 +27,7 @@ namespace {
 
 // Номер версии мода: увеличивать при каждом выпуске (tools/release.py берёт его отсюда).
 // Игроки с разными версиями не соединяются.
-constexpr uint32_t kModVersion = 10;
+constexpr uint32_t kModVersion = 11;
 
 using engine::Locator;
 
@@ -86,6 +86,31 @@ net::Link g_link(Log, kModVersion);
 
 // Лобби в меню игры: состояние для его текста (меню читает из своего потока) и "Да".
 std::atomic<int> g_menuAction{ 0 };  // menu::Action из меню игры
+bool g_codeError = false;            // "войти по коду", а в буфере обмена не код
+
+// Буфер обмена: код лобби у хозяина кладём туда сами, гость берёт оттуда (в меню игры нет ввода).
+std::string ClipboardText() {
+	std::string out;
+	if (!OpenClipboard(nullptr)) return out;
+	if (HANDLE h = GetClipboardData(CF_UNICODETEXT))
+		if (const auto* w = static_cast<const wchar_t*>(GlobalLock(h))) {
+			for (size_t i = 0; w[i] && i < 64; ++i) out += w[i] < 128 ? static_cast<char>(w[i]) : '?';
+			GlobalUnlock(h);
+		}
+	CloseClipboard();
+	return out;
+}
+
+void SetClipboardText(const std::string& text) {
+	if (!OpenClipboard(nullptr)) return;
+	EmptyClipboard();
+	if (HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, text.size() + 1)) {
+		memcpy(GlobalLock(h), text.c_str(), text.size() + 1);
+		GlobalUnlock(h);
+		if (!SetClipboardData(CF_TEXT, h)) GlobalFree(h);
+	}
+	CloseClipboard();
+}
 SRWLOCK g_lobbyLock = SRWLOCK_INIT;
 menu::Lobby g_lobbyState;
 
@@ -103,6 +128,8 @@ void PublishLobby(ULONGLONG now) {
 	s.host = g_link.LobbyHost();
 	s.busy = g_link.LobbyBusy();
 	if (s.lobby && !s.host) s.owner = g_link.LobbyOwnerName();
+	s.code = net::Link::LobbyCode(g_link.Lobby());
+	s.codeError = g_codeError;
 	s.iAmHero = puppet::GetRole() == puppet::Role::Hero;
 	s.heroName = puppet::HeroCharacter();
 	s.companionName = puppet::CompanionCharacter();
@@ -142,6 +169,25 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		g_link.CreateLobby(now);
 	}
 	if (action == menu::Invite) g_link.InviteToLobby();
+	if (action == menu::JoinByCode) {
+		const std::string text = ClipboardText();
+		const uint64_t lobby = net::Link::LobbyFromCode(text);
+		g_codeError = !lobby;
+		Log("net: join by code \"%s\" -> %s", text.c_str(), lobby ? "lobby found" : "not a lobby code");
+		if (lobby) {
+			LoadConfig(name);
+			g_link.SetName(name);
+			g_link.JoinLobby(lobby, now);
+		}
+	}
+	if (action == menu::CreateLobby) g_codeError = false;
+	// Своё новое лобби: код сразу в буфер обмена - остаётся вставить другу в чат.
+	static uint64_t copiedLobby = 0;
+	if (g_link.Lobby() && g_link.LobbyHost() && g_link.Lobby() != copiedLobby) {
+		copiedLobby = g_link.Lobby();
+		SetClipboardText(net::Link::LobbyCode(copiedLobby));
+		Log("net: lobby code %s copied to the clipboard", net::Link::LobbyCode(copiedLobby).c_str());
+	}
 	// Роли: решает одна сторона (Link::Authority), вторая берёт противоположную роль из поз.
 	static bool heroSwapped = false, partnerHero = true;
 	if (action == menu::SwapRoles) {
@@ -289,6 +335,17 @@ void FrameTick(safetyhook::Context&) {
 
 void ScriptInvoke(safetyhook::Context&) { puppet::ScriptTick(); }
 
+// Диагностика (временно): внутри npc-fire-weapon перед вызовом метода NPC [vtable+0x18F0] -
+// какая функция стреляет у NPC (для перехвата выстрелов врагов).
+safetyhook::MidHook g_fireDiag;
+void FireDiag(safetyhook::Context& c) {
+	static int n = 0;
+	if (n >= 3) return;
+	++n;
+	const uintptr_t vt = c.r10, fn = vt ? *reinterpret_cast<const uintptr_t*>(vt + 0x18F0) : 0;
+	Log("fire diag: npc=%llX vtable=tlou+%llX fire=tlou+%llX edx=%llX", c.rcx, vt - engine::g_base, fn - engine::g_base, c.rdx);
+}
+
 // ---- журнал падений ------------------------------------------------------------------------
 // Windows пишет дамп не на каждое падение, поэтому при ошибке доступа мод сам пишет в
 // tlou1-coop-crash.log адрес, регистры и адреса возврата со стека. Обработку ошибки не меняет.
@@ -386,6 +443,7 @@ void Init() {
 	auto script = safetyhook::MidHook::create(reinterpret_cast<void*>(engine::g_base + engine::kScriptInvokeRva), ScriptInvoke);
 	if (script) g_scriptHook = std::move(*script);
 	Log("script hook: %s", g_scriptHook ? "ok" : "FAILED");
+	if (auto h = safetyhook::MidHook::create(reinterpret_cast<void*>(engine::g_base + 0x152EF1F), FireDiag)) g_fireDiag = std::move(*h);
 	menu::Install(ReadLobby, [](menu::Action a) { g_menuAction = a; });
 	InstallCrashLog();
 }

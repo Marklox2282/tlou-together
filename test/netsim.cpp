@@ -155,6 +155,19 @@ int main() {
 		Check(b.GetState() == net::State::Searching, "partner leaving -> searching");
 	}
 
+	puts("== lobby codes");
+	{
+		const uint64_t lobby = 109775241354494813ull;  // настоящий id лобби из игры
+		const std::string code = net::Link::LobbyCode(lobby);
+		Check(code.size() == 8 && code[4] == '-', "code looks like XXXX-XXX");
+		Check(net::Link::LobbyFromCode(code) == lobby, "code -> lobby id");
+		std::string messy = " " + code + "\r\n";
+		for (char& c : messy) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+		Check(net::Link::LobbyFromCode(messy) == lobby, "lower case and spaces are fine");
+		Check(!net::Link::LobbyFromCode("hello world") && !net::Link::LobbyFromCode("") &&
+			!net::Link::LobbyFromCode("ABCD-EFGH"), "other text is not a code");
+	}
+
 	puts("== different mod versions do not connect");
 	{
 		g_log.clear();
