@@ -158,15 +158,35 @@ bool PlayerLocator(Locator& l) {
 }
 
 // ---- тестовый партнёр: копия человека-NPC с загруженного уровня ----------------------------
-// Лучше всего сюжетный персонаж (арт "t1x-<имя>-costume-NN"), иначе обычный гражданский.
-// Заражённых и собак не берём: у них другой скелет.
-int SpawnerRank(const std::string& art) {
-	if (art.rfind("t1x-", 0) == 0 && art.find("-costume") != std::string::npos) return 2;
-	if (art.rfind("survivor-", 0) == 0 || art.rfind("smuggler-", 0) == 0) return 1;
-	return 0;
+// Образ героя надевается на скелет и анимации спавнера, поэтому спавнер подбирается под героя:
+// мужской образ на женском скелете (Джоэл на Марлин) бегал криво. Заражённых и собак не берём.
+// Сюжетные арты: "t1x-<имя>[-costume-NN]"; обычные: "survivor-m-02", "military-f-01"...
+std::string HeroName(const std::string& art) {
+	if (art.rfind("t1x-", 0) != 0) return {};
+	const size_t end = art.find('-', 4);
+	return art.substr(4, end == std::string::npos ? std::string::npos : end - 4);
 }
 
-uintptr_t FindBuddySpawner(std::string& nameOut) {
+bool IsFemaleHero(const std::string& name) {
+	for (const char* f : { "ellie", "sarah", "tess", "marlene", "riley", "maria" })
+		if (name == f) return true;
+	return false;
+}
+
+// 0 - не годится; больше - лучше. hero пустой = герой неизвестен, берём любого человека.
+int SpawnerRank(const std::string& art, const std::string& hero) {
+	const bool heroFemale = IsFemaleHero(hero);
+	if (const std::string name = HeroName(art); !name.empty()) {
+		if (!hero.empty() && name == hero) return 5;
+		return hero.empty() || IsFemaleHero(name) == heroFemale ? 4 : 1;
+	}
+	if (art.rfind("survivor-", 0) && art.rfind("smuggler-", 0) && art.rfind("military-", 0)) return 0;
+	const bool male = art.find("-m-") != std::string::npos, female = art.find("-f-") != std::string::npos;
+	if (hero.empty()) return 2;
+	return (heroFemale ? female : male) ? 3 : 1;
+}
+
+uintptr_t FindBuddySpawner(const std::string& hero, std::string& nameOut) {
 	const uintptr_t mgr = ReadPtr(g_base + kLevelMgrRva), levels = mgr ? ReadPtr(mgr + kMgrLevels) : 0;
 	uint32_t count = 0;
 	if (!levels || !Read(mgr + kMgrLevelCount, count) || count > 0x200) return 0;
@@ -182,12 +202,12 @@ uintptr_t FindBuddySpawner(std::string& nameOut) {
 			uint8_t f0 = 0;
 			if (!sp || !Read(sp + kSpType, type) || !type || !Read(sp + kSpFlags0, f0) || (f0 & kSpDisabled)) continue;
 			const std::string art = ReadName(ReadPtr(sp + kSpArt));
-			const int rank = SpawnerRank(art);
+			const int rank = SpawnerRank(art, hero);
 			if (rank > bestRank) {
 				best = sp;
 				bestRank = rank;
 				nameOut = ReadName(ReadPtr(sp + kSpName)) + " (" + art + ")";
-				if (rank == 2) return best;
+				if (rank == 5) return best;
 			}
 		}
 	}
@@ -231,8 +251,10 @@ uint64_t BoundFrame(const float pos[3], const float rot[4]) {
 
 // Копия NPC без собственной воли: тот же набор, что у марионетки в TLOU2-Coop.
 uint64_t SpawnPuppet(const Locator& at) {
+	Locator me{};
+	const std::string look = PlayerLocator(me) ? HeroLook(me.pos) : std::string();
 	std::string name;
-	const uintptr_t sp = FindBuddySpawner(name);
+	const uintptr_t sp = FindBuddySpawner(HeroName(look), name);
 	uint64_t sid = 0;
 	uint8_t f1 = 0;
 	if (!sp || !Read(sp + kSpSid, sid) || !Read(sp + kSpFlags1, f1)) {
@@ -244,8 +266,6 @@ uint64_t SpawnPuppet(const Locator& at) {
 	*flags1 = static_cast<uint8_t>(f1 | kSpMultiSpawn);
 	const uint64_t frame = BoundFrame(at.pos, at.rot);
 	// Сначала с внешностью героя; если движок такой образ не примет - образ самого спавнера.
-	Locator me{};
-	const std::string look = PlayerLocator(me) ? HeroLook(me.pos) : std::string();
 	uint64_t npc = frame && !look.empty() ? Call(g_dc.spawnWithLook, { sid, frame, Sid(look.c_str()) }) : 0;
 	if (!look.empty()) Log("puppet: look %s %s", look.c_str(), npc && npc != sid ? "applied" : "refused");
 	if (!npc || npc == sid) npc = frame ? Call(g_dc.spawnWithLook, { sid, frame, 0 }) : 0;
@@ -337,7 +357,18 @@ void PuppetUpdate() {
 	static ULONGLONG lastCmdAt = 0, lastSnapAt = 0;
 	static float lastGoal[3]{};
 	static int lastMode = -1;
-	if (!g_follow || now - lastCmdAt < 100) return;
+	static bool wasFollowing = false;
+	if (!g_follow) {
+		// Последний npc-move-to иначе дорабатывает до цели: даём новую цель - там, где стоит.
+		Locator here{};
+		if (wasFollowing && NpcLocator(g_puppet, here))
+			if (const uint64_t frame = BoundFrame(here.pos, here.rot)) Call(g_dc.moveTo, { g_puppet, frame, 0, 0, 0, 0, 0, 0 });
+		wasFollowing = false;
+		lastMode = -1;
+		return;
+	}
+	wasFollowing = true;
+	if (now - lastCmdAt < 100) return;
 	Locator cur{}, before{};
 	if (!NpcLocator(g_puppet, cur) || !DelayedTarget(now, before, 250)) {
 		static ULONGLONG lastWarn = 0;
