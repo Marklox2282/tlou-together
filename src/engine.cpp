@@ -218,7 +218,8 @@ bool InitNatives() {
 		{ &g_dc.setDemeanor, "npc-set-demeanor" }, { &g_dc.weaponUp, "npc-weapon-up" }, { &g_dc.weaponDown, "npc-weapon-down" },
 		{ &g_dc.getFaction, "npc-get-faction-id" }, { &g_dc.setFaction, "set-object-faction" },
 		{ &g_dc.highlight, "character-highlight" }, { &g_dc.allocColor, "alloc-color" },
-		{ &g_dc.getDifficulty, "get-difficulty" }, { &g_dc.setDifficulty, "set-difficulty" } };
+		{ &g_dc.getDifficulty, "get-difficulty" }, { &g_dc.setDifficulty, "set-difficulty" },
+		{ &g_dc.hudMessage, "hud-show-cipher-message" } };
 	for (const auto& [slot, name] : table) {
 		*slot = FindNative(name);
 		if (!*slot) return false;

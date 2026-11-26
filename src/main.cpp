@@ -28,7 +28,7 @@ namespace {
 
 // Номер версии мода: увеличивать при каждом выпуске (tools/release.py берёт его отсюда).
 // Игроки с разными версиями не соединяются.
-constexpr uint32_t kModVersion = 27;
+constexpr uint32_t kModVersion = 28;
 
 using engine::Locator;
 
@@ -180,6 +180,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	puppet::FollowDifficulty(linked && !g_link.Authority() ? g_link.PeerDifficulty() : -1);
 	if (g_link.TakePartnerDeath()) {
 		Log("death: %s died", g_link.PeerName().c_str());
+		menu::Notify(g_link.PeerName() + " died - restarting the checkpoint together");
 		if (g_sharedDeath) puppet::PartnerDied();
 	}
 	if (action == menu::JoinByCode) {
@@ -213,9 +214,17 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	net::Packet pose;
 	const bool gotPose = g_link.Tick(now, pose);  // и ответы Steam по лобби, даже когда сеть выключена
 	const bool on = g_link.GetState() != net::State::Off;
+	// Сообщения на экране о подключении и отключении партнёра.
+	static bool wasConnected = false;
+	const bool connectedNote = g_link.GetState() == net::State::Connected;
+	if (connectedNote != wasConnected) {
+		wasConnected = connectedNote;
+		menu::Notify(connectedNote ? g_link.PeerName() + " joined" : std::string("Partner disconnected"));
+	}
 	if (on != wasOn) {  // сеть включилась или выключилась (клавиши, меню, лобби)
 		wasOn = on;
 		if (on) enemies::Reset();
+		if (on) menu::Notify("Multiplayer: searching for your partner");
 		puppet::SetNetActive(on);
 		if (!on) {
 			puppet::SetPartnerChapter({});

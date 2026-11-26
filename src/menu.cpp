@@ -17,6 +17,7 @@
 
 using engine::Sid;
 using engine::Call;
+using engine::F;
 using engine::g_dc;
 
 namespace menu {
@@ -45,6 +46,7 @@ constexpr size_t kMainMenuVcall = 0x458;  // меню->вызов: true в гл�
 constexpr uint64_t kLibraryText = Sid("MENU_OPTION_QUIT_TO_LIBRARY_PC");
 constexpr uint64_t kLobbyText = Sid("TLOU1COOP_LOBBY"), kLobbyText2 = Sid("TLOU1COOP_LOBBY2");  // чередуются: новый ключ - игра точно перечитает текст
 constexpr uint64_t kDescText = Sid("TLOU1COOP_DESCRIPTION");
+constexpr uint64_t kNoteText = Sid("TLOU1COOP_NOTE");  // текст сообщения на экране
 constexpr uint64_t kLobbyBox = Sid("tlou1coop-lobby");
 constexpr uint64_t kQuitLibrary = Sid("quit-library");
 constexpr uint64_t kMessageBoxOk = Sid("messageBoxOk"), kMessageBoxCancel = Sid("messageBoxCancel");
@@ -483,6 +485,11 @@ const Lang& LangFor(const char* library) {
 	return kLangs[0];
 }
 
+// Сообщение на экране: очередь (любой поток) и показанный текст (живёт, пока его показывают).
+SRWLOCK g_noteLock = SRWLOCK_INIT;
+std::vector<std::string> g_notes;
+char g_noteText[256] = "";
+
 LobbyFn g_lobby = nullptr;
 ActionFn g_action = nullptr;
 CodeFn g_clipboardCode = nullptr;
@@ -603,6 +610,10 @@ std::atomic<bool> g_mainMenu{ true };  // окно открыто из глав�
 
 const char* TextLookup(void* db, uint64_t key, bool* found) {
 	const bool labels = (key == kYesText || key == kNoText) && GetTickCount64() < g_labelsUntil;
+	if (key == kNoteText) {
+		if (found) *found = true;
+		return g_noteText;
+	}
 	if (key == kLibraryText || key == kLobbyText || key == kLobbyText2 || key == kDescText || labels) {
 		const Lang& l = LangFor(g_textHook.call<const char*>(db, kLibraryText, nullptr));
 		if (found) *found = true;
@@ -749,6 +760,23 @@ void OnFrame() {
 constexpr uintptr_t kMenuEventsRva = 0x1C83174;
 
 void ScriptTick() {
+	// Сообщения на экране: по одному, раз в 4 с, на основном потоке (это скриптовая функция HUD).
+	static ULONGLONG lastNote = 0;
+	if (GetCurrentThreadId() == g_mainThread.load(std::memory_order_relaxed) && GetTickCount64() - lastNote >= 4000) {
+		std::string next;
+		AcquireSRWLockExclusive(&g_noteLock);
+		if (!g_notes.empty()) {
+			next = g_notes.front();
+			g_notes.erase(g_notes.begin());
+		}
+		ReleaseSRWLockExclusive(&g_noteLock);
+		if (!next.empty()) {
+			lastNote = GetTickCount64();
+			snprintf(g_noteText, sizeof(g_noteText), "%s", next.c_str());
+			Call(g_dc.hudMessage, { 0, kNoteText, F(4.0f), 2, Sid("none"), F(0.5f) });
+			Log("note: %s", next.c_str());
+		}
+	}
 	if (g_startGame.load(std::memory_order_relaxed) && !g_boxOpen.load(std::memory_order_relaxed) &&
 		GetCurrentThreadId() == g_mainThread.load(std::memory_order_relaxed)) {
 		bool want = true;
@@ -765,6 +793,12 @@ void ScriptTick() {
 	bool want = true;
 	if (GetTickCount64() >= g_reopenAfter && g_reopen.compare_exchange_strong(want, false))
 		Log("menu: lobby reopened %s", OpenLobby(g_mainMenu) ? "ok" : "FAILED");
+}
+
+void Notify(const std::string& text) {
+	AcquireSRWLockExclusive(&g_noteLock);
+	if (g_notes.size() < 8) g_notes.push_back(text);
+	ReleaseSRWLockExclusive(&g_noteLock);
 }
 
 bool Install(LobbyFn lobby, ActionFn action, CodeFn clipboardCode) {
