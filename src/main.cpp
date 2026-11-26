@@ -28,7 +28,7 @@ namespace {
 
 // Номер версии мода: увеличивать при каждом выпуске (tools/release.py берёт его отсюда).
 // Игроки с разными версиями не соединяются.
-constexpr uint32_t kModVersion = 20;
+constexpr uint32_t kModVersion = 21;
 
 using engine::Locator;
 
@@ -161,6 +161,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		g_link.CreateLobby(now);
 	}
 	if (action == menu::Invite) g_link.InviteToLobby();
+	if (action == menu::GoToPartner) puppet::RequestTeleport();  // как F7
 	if (action == menu::JoinByCode) {
 		const std::string text = clipboard::Text();
 		const net::Link::LobbyKey key = net::Link::LobbyFromCode(text);

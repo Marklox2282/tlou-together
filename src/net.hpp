@@ -139,6 +139,7 @@ private:
 	int lobbyFailure_ = 0;
 	uint32_t secret_ = 0, joinSecret_ = 0;  // свой секрет (хозяин) и из кода (гость)
 	uint64_t lastRejectLog_ = 0;
+	bool leaveAfterTick_ = false;
 	uint16_t port_ = 0;
 	bool beep_ = true;
 };

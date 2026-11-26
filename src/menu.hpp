@@ -26,7 +26,7 @@ struct Lobby {
 	unsigned version = 0;     // версия мода (внизу окна)
 };
 
-enum Action { None, CreateLobby, Invite, Leave, SwapRoles, JoinByCode, StartGame };
+enum Action { None, CreateLobby, Invite, Leave, SwapRoles, JoinByCode, StartGame, GoToPartner };
 
 using LobbyFn = Lobby (*)();  // состояние для текста лобби (вызывается из потока меню)
 using ActionFn = void (*)(Action);  // кнопка лобби (вызывается из потока меню)

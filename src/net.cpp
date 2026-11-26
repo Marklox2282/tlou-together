@@ -374,6 +374,8 @@ void Link::OnHello(const Packet& p, uint64_t from, uint64_t nowMs) {
 
 void Link::Disconnected(const char* why) {
 	log_("net: %s %s, searching again", peerName_.c_str(), why);
+	// Ушёл хозяин чужого лобби: ждать в пустом лобби незачем - выходим и мы (после разбора пакетов).
+	if (lobby_ && !lobbyHost_ && peerSteam_ && peerSteam_ == target_) leaveAfterTick_ = true;
 	state_ = State::Searching;
 	peerSteam_ = 0;
 	peerChapter_ = {};
@@ -431,6 +433,11 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 		}
 	}
 	if (state_ == State::Connected && nowMs - lastHeard_ > 10000) Disconnected("sent nothing for 10 s");
+	if (leaveAfterTick_) {
+		leaveAfterTick_ = false;
+		log_("net: the lobby host left, leaving the lobby too");
+		LeaveLobby();
+	}
 	return gotPose;
 }
 
