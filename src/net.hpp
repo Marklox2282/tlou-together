@@ -40,6 +40,12 @@ struct Config {
 
 enum class State { Off, Searching, Connected };
 
+// Друг из Steam в этой игре (для лобби).
+struct Friend {
+	enum Status { InGame, Ready, OtherVersion } status = InGame;  // Ready: тоже ищет, та же версия мода
+	std::string name;
+};
+
 // Не потокобезопасно: все вызовы из одного потока (у мода - игровой кадр).
 class Link {
 public:
@@ -54,6 +60,9 @@ public:
 	void SendPose(const float pos[3], const float rot[4]);
 	void SendEnemy(uint64_t npc, float health, bool dead);  // через Steam - с гарантией доставки
 	std::vector<Packet> TakeEnemyEvents();                  // полученные kEnemy с прошлого раза
+	// Друзья в этой игре (только Steam; включает Steam при первом вызове). Готовность - по
+	// приветствиям за последние 3 с, поэтому видна, пока ищем.
+	std::vector<Friend> Friends(uint64_t nowMs);
 	using Chapter = std::pair<uint64_t, uint64_t>;  // узел и задание (engine::Chapter)
 	void SetChapter(Chapter c) { chapter_ = c; }
 	void SetName(const std::string& name) { name_ = name; }
@@ -88,6 +97,8 @@ private:
 	uint32_t seq_ = 0, lastSeq_ = 0;
 	bool oldProtocolLogged_ = false;
 	std::vector<Packet> enemyEvents_;
+	struct Heard { uint64_t steamId; uint32_t modVersion; uint64_t atMs; };
+	std::vector<Heard> heard_;  // последние приветствия от друзей
 	bool beep_ = true;
 };
 

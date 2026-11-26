@@ -32,10 +32,14 @@ constexpr uintptr_t kAnswerRva = 0x1C86022;
 // (менеджер, страница, текст, id ответа, 0, 2).
 // После создания окна - заголовок (окно, ключ текста); без него окно не показывалось.
 constexpr uintptr_t kPageStackRva = 0x236EA68, kMessageBoxRva = 0x127B700, kBoxTitleRva = 0x253ECC0;
+// Реестр "источников данных" пунктов главного меню: (реестр, класс, имя пункта, текст, описание, 0).
+// Так игра даёт описание под списком ("Play the main story..."); наш пункт добавляем туда же.
+constexpr uintptr_t kDataSourcesRva = 0x8089550, kAddDataSourceRva = 0x25D6390;
 constexpr size_t kMainMenuVcall = 0x458;  // меню->вызов: true в главном меню (стек "main"), false в паузе ("ingame")
 
 constexpr uint64_t kLibraryText = Sid("MENU_OPTION_QUIT_TO_LIBRARY_PC");
 constexpr uint64_t kLobbyText = Sid("TLOU1COOP_LOBBY");
+constexpr uint64_t kDescText = Sid("TLOU1COOP_DESCRIPTION");
 constexpr uint64_t kLobbyBox = Sid("tlou1coop-lobby");
 constexpr uint64_t kQuitLibrary = Sid("quit-library");
 constexpr uint64_t kMessageBoxOk = Sid("messageBoxOk");
@@ -49,6 +53,10 @@ struct Lang {
 	const char* searching;    // лобби: ищем
 	const char* connected;    // лобби: подключены, %s - ник
 	const char* status;       // в названии пункта, пока ищем
+	const char* friends;      // заголовок списка друзей в этой игре
+	const char* noFriends;    // никого из друзей в игре
+	const char* ready;        // друг тоже ищет, версия та же
+	const char* otherVersion; // у друга другая версия мода
 };
 
 const Lang kLangs[] = {
@@ -56,117 +64,140 @@ const Lang kLangs[] = {
 		"Play the story together with a Steam friend who has this mod.<br>Both of you open Multiplayer and choose Yes.<br><br>Start searching?",
 		"Searching for a Steam friend in this game...<br><br>Stop searching?",
 		"Connected to %s.<br>In game: F7 - go to your partner, F5 - load your partner's chapter.<br><br>Disconnect?",
-		"SEARCHING..." },
+		"SEARCHING...",
+		"Steam friends in this game:", "No Steam friends are in this game right now.", "ready", "different mod version" },
 	{ "ВЫХОД В БИБЛИОТЕКУ", "МУЛЬТИПЛЕЕР",
 		"Проходите сюжет вместе с другом из Steam, у которого тоже стоит мод.<br>Оба откройте «Мультиплеер» и выберите «Да».<br><br>Начать поиск?",
 		"Ищем друга из Steam в этой игре...<br><br>Остановить поиск?",
 		"Подключено: %s.<br>В игре: F7 - к напарнику, F5 - загрузить главу напарника.<br><br>Отключиться?",
-		"ПОИСК..." },
+		"ПОИСК...",
+		"Друзья из Steam в этой игре:", "Сейчас никого из друзей Steam нет в этой игре.", "готов", "другая версия мода" },
 	{ "RETOUR VERS LA BIBLIOTHÈQUE", "MULTIJOUEUR",
 		"Jouez l'histoire avec un ami Steam qui a ce mod.<br>Ouvrez tous les deux Multijoueur et choisissez Oui.<br><br>Lancer la recherche ?",
 		"Recherche d'un ami Steam dans ce jeu...<br><br>Arrêter la recherche ?",
 		"Connecté à %s.<br>En jeu : F7 - rejoindre votre partenaire, F5 - charger son chapitre.<br><br>Se déconnecter ?",
-		"RECHERCHE..." },
+		"RECHERCHE...",
+		"Amis Steam dans ce jeu :", "Aucun ami Steam ne joue à ce jeu en ce moment.", "prêt", "autre version du mod" },
 	{ "BEENDEN UND ZUR BIBLIOTHEK", "MEHRSPIELER",
 		"Spielt die Geschichte zusammen mit einem Steam-Freund, der diese Mod hat.<br>Öffnet beide Mehrspieler und wählt Ja.<br><br>Suche starten?",
 		"Suche nach einem Steam-Freund in diesem Spiel...<br><br>Suche beenden?",
 		"Verbunden mit %s.<br>Im Spiel: F7 - zum Partner, F5 - Kapitel des Partners laden.<br><br>Verbindung trennen?",
-		"SUCHE..." },
+		"SUCHE...",
+		"Steam-Freunde in diesem Spiel:", "Gerade spielt kein Steam-Freund dieses Spiel.", "bereit", "andere Mod-Version" },
 	{ "TORNA ALLA LIBRERIA", "MULTIGIOCATORE",
 		"Gioca la storia insieme a un amico di Steam che ha questa mod.<br>Aprite entrambi Multigiocatore e scegliete Sì.<br><br>Avviare la ricerca?",
 		"Ricerca di un amico di Steam in questo gioco...<br><br>Interrompere la ricerca?",
 		"Connesso a %s.<br>In gioco: F7 - raggiungi il compagno, F5 - carica il suo capitolo.<br><br>Disconnettersi?",
-		"RICERCA..." },
+		"RICERCA...",
+		"Amici di Steam in questo gioco:", "Nessun amico di Steam sta giocando ora.", "pronto", "altra versione della mod" },
 	{ "SALIR A LA BIBLIOTECA", "MULTIJUGADOR",
 		"Juega la historia con un amigo de Steam que tenga este mod.<br>Abrid los dos Multijugador y elegid Sí.<br><br>¿Empezar a buscar?",
 		"Buscando a un amigo de Steam en este juego...<br><br>¿Dejar de buscar?",
 		"Conectado con %s.<br>En el juego: F7 - ir con tu compañero, F5 - cargar su capítulo.<br><br>¿Desconectar?",
-		"BUSCANDO..." },
+		"BUSCANDO...",
+		"Amigos de Steam en este juego:", "Ningún amigo de Steam está jugando ahora.", "listo", "otra versión del mod" },
 	{ "SAIR PARA A BIBLIOTECA", "MULTIJOGADOR",
 		"Jogue a história com um amigo da Steam que tenha este mod.<br>Os dois abrem Multijogador e escolhem Sim.<br><br>Começar a procurar?",
 		"Procurando um amigo da Steam neste jogo...<br><br>Parar de procurar?",
 		"Conectado a %s.<br>No jogo: F7 - ir até o parceiro, F5 - carregar o capítulo dele.<br><br>Desconectar?",
-		"PROCURANDO..." },
+		"PROCURANDO...",
+		"Amigos da Steam neste jogo:", "Nenhum amigo da Steam está jogando agora.", "pronto", "outra versão do mod" },
 	{ "WYJDŹ DO BIBLIOTEKI", "TRYB WIELOOSOBOWY",
 		"Przejdź fabułę razem ze znajomym ze Steam, który ma ten mod.<br>Obaj otwórzcie Tryb wieloosobowy i wybierzcie Tak.<br><br>Rozpocząć wyszukiwanie?",
 		"Szukanie znajomego ze Steam w tej grze...<br><br>Przerwać wyszukiwanie?",
 		"Połączono z: %s.<br>W grze: F7 - do partnera, F5 - wczytaj rozdział partnera.<br><br>Rozłączyć?",
-		"SZUKANIE..." },
+		"SZUKANIE...",
+		"Znajomi ze Steam w tej grze:", "Żaden znajomy ze Steam teraz nie gra.", "gotowy", "inna wersja moda" },
 	{ "KÜTÜPHANEYE ÇIK", "ÇOK OYUNCULU",
 		"Hikâyeyi bu moda sahip bir Steam arkadaşınla birlikte oyna.<br>İkiniz de Çok Oyunculu'yu açıp Evet'i seçin.<br><br>Aramaya başlansın mı?",
 		"Bu oyunda bir Steam arkadaşı aranıyor...<br><br>Arama durdurulsun mu?",
 		"%s ile bağlanıldı.<br>Oyunda: F7 - ortağına git, F5 - ortağının bölümünü yükle.<br><br>Bağlantı kesilsin mi?",
-		"ARANIYOR..." },
+		"ARANIYOR...",
+		"Bu oyundaki Steam arkadaşları:", "Şu anda bu oyunda Steam arkadaşın yok.", "hazır", "farklı mod sürümü" },
 	{ "ODEJÍT DO KNIHOVNY", "HRA VÍCE HRÁČŮ",
 		"Hrajte příběh společně s přítelem ze Steamu, který má tento mód.<br>Oba otevřete Hru více hráčů a zvolte Ano.<br><br>Začít hledat?",
 		"Hledání přítele ze Steamu v této hře...<br><br>Přestat hledat?",
 		"Připojeno k: %s.<br>Ve hře: F7 - k parťákovi, F5 - načíst jeho kapitolu.<br><br>Odpojit?",
-		"HLEDÁNÍ..." },
+		"HLEDÁNÍ...",
+		"Přátelé ze Steamu v této hře:", "Teď tuto hru nehraje žádný přítel ze Steamu.", "připraven", "jiná verze módu" },
 	{ "KILÉPÉS A KÖNYVTÁRBA", "TÖBBJÁTÉKOS",
 		"Játsszátok végig a történetet egy Steam-baráttal, akinél szintén megvan ez a mod.<br>Mindketten nyissátok meg a Többjátékos menüt, és válasszátok az Igent.<br><br>Indulhat a keresés?",
 		"Steam-barát keresése ebben a játékban...<br><br>Leállítod a keresést?",
 		"Csatlakozva: %s.<br>Játékban: F7 - a társadhoz, F5 - a társad fejezetének betöltése.<br><br>Lecsatlakozol?",
-		"KERESÉS..." },
+		"KERESÉS...",
+		"Steam-barátok ebben a játékban:", "Most egy Steam-barátod sem játszik ezzel a játékkal.", "kész", "más modverzió" },
 	{ "ΕΞΟΔΟΣ ΣΤΗ ΒΙΒΛΙΟΘΗΚΗ", "ΠΟΛΛΟΙ ΠΑΙΚΤΕΣ",
 		"Παίξτε την ιστορία μαζί με έναν φίλο από το Steam που έχει αυτό το mod.<br>Ανοίξτε και οι δύο το Πολλοί παίκτες και επιλέξτε Ναι.<br><br>Έναρξη αναζήτησης;",
 		"Αναζήτηση φίλου από το Steam σε αυτό το παιχνίδι...<br><br>Διακοπή αναζήτησης;",
 		"Συνδέθηκες με: %s.<br>Στο παιχνίδι: F7 - στον συμπαίκτη, F5 - φόρτωση του κεφαλαίου του.<br><br>Αποσύνδεση;",
-		"ΑΝΑΖΗΤΗΣΗ..." },
+		"ΑΝΑΖΗΤΗΣΗ...",
+		"Φίλοι Steam σε αυτό το παιχνίδι:", "Κανένας φίλος Steam δεν παίζει τώρα.", "έτοιμος", "άλλη έκδοση του mod" },
 	{ "STOPPEN EN NAAR BIBLIOTHEEK", "MULTIPLAYER",
 		"Speel het verhaal samen met een Steam-vriend die deze mod heeft.<br>Open allebei Multiplayer en kies Ja.<br><br>Beginnen met zoeken?",
 		"Zoeken naar een Steam-vriend in dit spel...<br><br>Stoppen met zoeken?",
 		"Verbonden met %s.<br>In het spel: F7 - naar je partner, F5 - hoofdstuk van je partner laden.<br><br>Verbinding verbreken?",
-		"ZOEKEN..." },
+		"ZOEKEN...",
+		"Steam-vrienden in dit spel:", "Er speelt nu geen Steam-vriend dit spel.", "klaar", "andere modversie" },
 	{ "AFSLUT TIL BIBLIOTEK", "MULTIPLAYER",
 		"Spil historien sammen med en Steam-ven, der har dette mod.<br>Åbn begge Multiplayer, og vælg Ja.<br><br>Start søgning?",
 		"Søger efter en Steam-ven i dette spil...<br><br>Stop søgning?",
 		"Forbundet til %s.<br>I spillet: F7 - gå til din makker, F5 - indlæs din makkers kapitel.<br><br>Afbryd forbindelsen?",
-		"SØGER..." },
+		"SØGER...",
+		"Steam-venner i dette spil:", "Ingen Steam-venner spiller dette spil lige nu.", "klar", "anden mod-version" },
 	{ "POISTU KIRJASTOON", "MONINPELI",
 		"Pelaa tarina yhdessä Steam-kaverin kanssa, jolla on tämä modi.<br>Avatkaa kumpikin Moninpeli ja valitkaa Kyllä.<br><br>Aloitetaanko haku?",
 		"Etsitään Steam-kaveria tästä pelistä...<br><br>Lopetetaanko haku?",
 		"Yhdistetty: %s.<br>Pelissä: F7 - pelikaverin luo, F5 - lataa pelikaverin luku.<br><br>Katkaistaanko yhteys?",
-		"HAETAAN..." },
+		"HAETAAN...",
+		"Steam-kaverit tässä pelissä:", "Yksikään Steam-kaveri ei pelaa tätä peliä nyt.", "valmis", "eri modiversio" },
 	{ "GÅ TIL BIBLIOTEKET", "FLERSPILLER",
 		"Spill historien sammen med en Steam-venn som har denne moden.<br>Åpne begge Flerspiller og velg Ja.<br><br>Starte søket?",
 		"Søker etter en Steam-venn i dette spillet...<br><br>Stoppe søket?",
 		"Koblet til %s.<br>I spillet: F7 - gå til partneren, F5 - last inn partnerens kapittel.<br><br>Koble fra?",
-		"SØKER..." },
+		"SØKER...",
+		"Steam-venner i dette spillet:", "Ingen Steam-venner spiller dette spillet nå.", "klar", "annen modversjon" },
 	{ "AVSLUTA TILL BIBLIOTEKET", "FLERSPELARLÄGE",
 		"Spela berättelsen tillsammans med en Steam-vän som har den här modden.<br>Öppna båda Flerspelarläge och välj Ja.<br><br>Börja söka?",
 		"Söker efter en Steam-vän i det här spelet...<br><br>Sluta söka?",
 		"Ansluten till %s.<br>I spelet: F7 - gå till din partner, F5 - ladda din partners kapitel.<br><br>Koppla från?",
-		"SÖKER..." },
+		"SÖKER...",
+		"Steam-vänner i det här spelet:", "Inga Steam-vänner spelar det här spelet just nu.", "redo", "annan modversion" },
 	{ "VRATI SE U LIBRARY", "VIŠE IGRAČA",
 		"Igrajte priču zajedno s prijateljem sa Steama koji ima ovaj mod.<br>Obojica otvorite Više igrača i odaberite Da.<br><br>Započeti traženje?",
 		"Traženje prijatelja sa Steama u ovoj igri...<br><br>Zaustaviti traženje?",
 		"Povezano s: %s.<br>U igri: F7 - do partnera, F5 - učitaj partnerovo poglavlje.<br><br>Prekinuti vezu?",
-		"TRAŽENJE..." },
+		"TRAŽENJE...",
+		"Prijatelji sa Steama u ovoj igri:", "Trenutačno nijedan prijatelj sa Steama ne igra ovu igru.", "spreman", "druga verzija moda" },
 	{ "ライブラリに戻る", "マルチプレイ",
 		"このMODを入れたSteamのフレンドと一緒にストーリーを遊べます。<br>2人とも「マルチプレイ」を開いて「はい」を選んでください。<br><br>検索を開始しますか？",
 		"このゲームをプレイ中のSteamフレンドを検索中...<br><br>検索をやめますか？",
 		"%s と接続しました。<br>ゲーム中: F7 - パートナーの所へ、F5 - パートナーのチャプターをロード。<br><br>切断しますか？",
-		"検索中..." },
+		"検索中...",
+		"このゲームをプレイ中のSteamフレンド:", "今このゲームをプレイ中のSteamフレンドはいません。", "準備完了", "MODのバージョン違い" },
 	{ "라이브러리로 나가기", "멀티플레이",
 		"이 모드를 설치한 Steam 친구와 함께 스토리를 플레이하세요.<br>두 사람 모두 멀티플레이를 열고 예를 선택하세요.<br><br>검색을 시작할까요?",
 		"이 게임을 하는 Steam 친구를 찾는 중...<br><br>검색을 중지할까요?",
 		"%s 님과 연결되었습니다.<br>게임 중: F7 - 파트너에게 이동, F5 - 파트너의 챕터 불러오기.<br><br>연결을 끊을까요?",
-		"검색 중..." },
+		"검색 중...",
+		"이 게임을 하는 Steam 친구:", "지금 이 게임을 하는 Steam 친구가 없습니다.", "준비됨", "다른 모드 버전" },
 	{ "退出至游戏库", "多人游戏",
 		"与同样安装了此模组的 Steam 好友一起体验剧情。<br>双方都打开“多人游戏”并选择“是”。<br><br>开始搜索？",
 		"正在搜索此游戏中的 Steam 好友...<br><br>停止搜索？",
 		"已连接到 %s。<br>游戏中：F7 - 前往同伴处，F5 - 载入同伴的章节。<br><br>断开连接？",
-		"搜索中..." },
+		"搜索中...",
+		"正在玩此游戏的 Steam 好友：", "目前没有 Steam 好友在玩此游戏。", "已就绪", "模组版本不同" },
 	{ "返回收藏庫", "多人遊戲",
 		"與同樣安裝了此模組的 Steam 好友一起體驗劇情。<br>雙方都打開「多人遊戲」並選擇「是」。<br><br>開始搜尋？",
 		"正在搜尋此遊戲中的 Steam 好友...<br><br>停止搜尋？",
 		"已連線至 %s。<br>遊戲中：F7 - 前往夥伴處，F5 - 載入夥伴的章節。<br><br>中斷連線？",
-		"搜尋中..." },
+		"搜尋中...",
+		"正在玩此遊戲的 Steam 好友：", "目前沒有 Steam 好友在玩此遊戲。", "已就緒", "模組版本不同" },
 	{ "ออกไปยังคลังเกม", "ผู้เล่นหลายคน",
 		"เล่นเนื้อเรื่องร่วมกับเพื่อนใน Steam ที่ติดตั้งม็อดนี้<br>ทั้งสองคนเปิดผู้เล่นหลายคนแล้วเลือกใช่<br><br>เริ่มค้นหาหรือไม่",
 		"กำลังค้นหาเพื่อนใน Steam ที่เล่นเกมนี้...<br><br>หยุดค้นหาหรือไม่",
 		"เชื่อมต่อกับ %s แล้ว<br>ในเกม: F7 - ไปหาคู่หู, F5 - โหลดบทของคู่หู<br><br>ตัดการเชื่อมต่อหรือไม่",
-		"กำลังค้นหา..." },
+		"กำลังค้นหา...",
+		"เพื่อนใน Steam ที่เล่นเกมนี้:", "ตอนนี้ไม่มีเพื่อนใน Steam เล่นเกมนี้", "พร้อม", "ม็อดคนละเวอร์ชัน" },
 };
 
 const Lang& LangFor(const char* library) {
@@ -194,22 +225,52 @@ const char* TitleText(const Lang& l) {
 }
 
 // Строка лобби должна жить, пока игра её показывает: два буфера по очереди.
-char g_lobbyText[2][1024];
+char g_lobbyText[2][2048];
 int g_lobbyTurn = 0;
 
 const char* LobbyText(const Lang& l) {
 	const Lobby s = g_lobby ? g_lobby() : Lobby{};
 	char* buf = g_lobbyText[g_lobbyTurn ^= 1];
-	if (s.connected) snprintf(buf, sizeof(g_lobbyText[0]), l.connected, s.partner.c_str());
-	else snprintf(buf, sizeof(g_lobbyText[0]), "%s", s.on ? l.searching : l.off);
+	if (s.connected) {
+		snprintf(buf, sizeof(g_lobbyText[0]), l.connected, s.partner.c_str());
+		return buf;
+	}
+	// Друзья в этой игре - перед вопросом в конце текста ("Начать поиск?").
+	const char* text = s.on ? l.searching : l.off;
+	const char* question = strstr(text, "<br><br>");
+	std::string list = s.friends.empty() ? l.noFriends : l.friends;
+	for (size_t i = 0; i < s.friends.size() && i < 6; ++i) {
+		const auto& f = s.friends[i];
+		list += "<br>  ";
+		for (char c : f.name) list += c == '<' ? '(' : c == '>' ? ')' : c;  // ник не должен стать разметкой
+		if (f.status == 1) list += std::string(" - ") + l.ready;
+		if (f.status == 2) list += std::string(" - ") + l.otherVersion;
+	}
+	if (question)
+		snprintf(buf, sizeof(g_lobbyText[0]), "%.*s<br><br>%s%s", static_cast<int>(question - text), text, list.c_str(), question);
+	else
+		snprintf(buf, sizeof(g_lobbyText[0]), "%s<br><br>%s", text, list.c_str());
+	return buf;
+}
+
+// Описание под меню: первая строка текста лобби (что это и в каком состоянии сеть).
+char g_descText[2][512];
+int g_descTurn = 0;
+
+const char* DescText(const Lang& l) {
+	const char* full = LobbyText(l);
+	char* buf = g_descText[g_descTurn ^= 1];
+	const char* br = strstr(full, "<br>");
+	const size_t n = br ? static_cast<size_t>(br - full) : strlen(full);
+	snprintf(buf, sizeof(g_descText[0]), "%.*s", static_cast<int>(n), full);
 	return buf;
 }
 
 const char* TextLookup(void* db, uint64_t key, bool* found) {
-	if (key == kLibraryText || key == kLobbyText) {
+	if (key == kLibraryText || key == kLobbyText || key == kDescText) {
 		const Lang& l = LangFor(g_textHook.call<const char*>(db, kLibraryText, nullptr));
 		if (found) *found = true;
-		return key == kLobbyText ? LobbyText(l) : TitleText(l);
+		return key == kLobbyText ? LobbyText(l) : key == kDescText ? DescText(l) : TitleText(l);
 	}
 	return g_textHook.call<const char*>(db, key, found);
 }
@@ -251,7 +312,19 @@ bool Make(Hook& out, uintptr_t rva, Fn fn, const char* what) {
 	return static_cast<bool>(h);
 }
 
+bool g_installed = false;
+
 }  // namespace
+
+void OnFrame() {
+	static bool registered = false;
+	if (registered || !g_installed) return;
+	registered = true;
+	using AddFn = uintptr_t (*)(uintptr_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+	const uintptr_t src = reinterpret_cast<AddFn>(engine::g_base + kAddDataSourceRva)(engine::g_base + kDataSourcesRva,
+		Sid("Menu2::DataSourceActionAvailableButton"), kQuitLibrary, kLibraryText, kDescText, 0);
+	Log("menu: description %s", src ? "registered" : "FAILED");
+}
 
 bool Install(LobbyFn lobby, ToggleFn toggle) {
 	g_lobby = lobby;
@@ -266,6 +339,7 @@ bool Install(LobbyFn lobby, ToggleFn toggle) {
 		g_answerHook = {};
 		g_pressHook = {};
 	}
+	g_installed = ok;
 	Log("menu: %s", ok ? "multiplayer item on" : "multiplayer item off");
 	return ok;
 }

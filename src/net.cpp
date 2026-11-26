@@ -249,6 +249,12 @@ bool Link::Receive(Packet& p, uint64_t& fromSteam) {
 void Link::OnHello(const Packet& p, uint64_t from, uint64_t nowMs) {
 	char name[sizeof(p.name) + 1]{};
 	memcpy(name, p.name, sizeof(p.name));
+	if (from) {
+		bool known = false;
+		for (Heard& h : heard_)
+			if (h.steamId == from) h = { from, p.modVersion, nowMs }, known = true;
+		if (!known && heard_.size() < 64) heard_.push_back({ from, p.modVersion, nowMs });
+	}
 	if (p.modVersion != modVersion_) {
 		// Разные версии мода не соединяем: структуры и смещения могут отличаться.
 		if (!lastMismatchLog_ || nowMs - lastMismatchLog_ >= 10000) {
@@ -345,6 +351,20 @@ void Link::SendEnemy(uint64_t npc, float health, bool dead) {
 std::vector<Packet> Link::TakeEnemyEvents() {
 	std::vector<Packet> out;
 	out.swap(enemyEvents_);
+	return out;
+}
+
+std::vector<Friend> Link::Friends(uint64_t nowMs) {
+	std::vector<Friend> out;
+	if (!SteamInit(log_)) return out;
+	for (uint64_t id : FriendsInThisGame()) {
+		Friend f;
+		f.name = g_steam.GetFriendPersonaName(g_steam.friends, id);
+		for (const Heard& h : heard_)
+			if (h.steamId == id && nowMs - h.atMs < 3000)
+				f.status = h.modVersion == modVersion_ ? Friend::Ready : Friend::OtherVersion;
+		out.push_back(f);
+	}
 	return out;
 }
 

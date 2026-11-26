@@ -86,8 +86,16 @@ std::atomic<bool> g_menuToggle{ false };
 SRWLOCK g_lobbyLock = SRWLOCK_INIT;
 menu::Lobby g_lobbyState;
 
-void PublishLobby() {
+void PublishLobby(ULONGLONG now) {
+	static ULONGLONG lastFriends = 0;
+	static std::vector<menu::Lobby::Friend> friends;
+	if (!lastFriends || now - lastFriends >= 2000) {  // список друзей Steam - раз в 2 с
+		lastFriends = now;
+		friends.clear();
+		for (const net::Friend& f : g_link.Friends(now)) friends.push_back({ f.name, static_cast<int>(f.status) });
+	}
 	menu::Lobby s;
+	s.friends = friends;
 	s.on = g_link.GetState() != net::State::Off;
 	s.connected = g_link.GetState() == net::State::Connected;
 	if (s.connected) s.partner = g_link.PeerName();
@@ -121,7 +129,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		puppet::SetPartnerChapter({});
 		puppet::UseNetwork(false);
 	}
-	PublishLobby();
+	PublishLobby(now);
 	if (g_link.GetState() == net::State::Off) return;
 
 	const engine::Chapter mine = puppet::MyChapter();
@@ -167,6 +175,7 @@ void FrameTick(safetyhook::Context&) {
 	QueryPerformanceCounter(&start);
 	++frames;
 	puppet::OnFrame();
+	menu::OnFrame();
 	const ULONGLONG now = GetTickCount64();
 
 	Locator me{};
