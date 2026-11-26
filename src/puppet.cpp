@@ -86,6 +86,7 @@ uint64_t g_badForChapter = 0;
 
 // ---- роли ----------------------------------------------------------------------------------
 std::atomic<int> g_role{ static_cast<int>(Role::Hero) };
+std::atomic<bool> g_meFiring{ false }, g_partnerFiring{ false };
 bool g_puppetIsBuddy = false;  // марионетка - настоящий спутник главы (у героя)
 uint64_t g_buddyMode = 0;      // его режим скрипта до нас - вернуть при отпускании
 SRWLOCK g_namesLock = SRWLOCK_INIT;
@@ -538,8 +539,7 @@ uint64_t Current() { return g_puppet; }
 // за кадр на всех потоках), и проверка там должна стоить одно сравнение. Раньше здесь читался
 // счётчик кадров игры через проверяемое чтение памяти, и FPS заметно проседал.
 std::atomic<uint64_t> g_frame{ 0 };
-std::atomic<bool> g_hiddenBuddyAtomic{ false };
-std::atomic<bool> g_meFiring{ false }, g_partnerFiring{ false };  // спрятан спутник: тик нужен, чтобы вернуть его
+std::atomic<bool> g_hiddenBuddyAtomic{ false };  // спрятан спутник: тик нужен, чтобы вернуть его
 std::atomic<uint64_t> g_workUs{ 0 };
 
 void OnFrame() { g_frame.fetch_add(1, std::memory_order_relaxed); }
