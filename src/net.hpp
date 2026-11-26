@@ -14,6 +14,7 @@ constexpr uint8_t kProtocol = 3;          // 1 = v7 (без рукопожати
 enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kSwap = 5 };
 constexpr uint16_t kFlagDead = 1;  // kEnemy: враг убит
 constexpr uint16_t kFlagHero = 2;  // kPose: отправитель играет за героя главы
+constexpr uint16_t kFlagFiring = 4;  // kPose: отправитель стреляет
 
 #pragma pack(push, 1)
 struct Packet {
@@ -58,7 +59,7 @@ public:
 	void Stop();
 	// Отправляет приветствия при поиске и принимает пакеты. Возвращает true, если пришла поза.
 	bool Tick(uint64_t nowMs, Packet& pose);
-	void SendPose(const float pos[3], const float rot[4], bool hero = true);
+	void SendPose(const float pos[3], const float rot[4], bool hero = true, bool firing = false);
 	// Роли решает одна сторона: хозяин лобби; без лобби - больший Steam ID (по UDP - меньший порт).
 	bool Authority() const;
 	void SendSwap();             // просьба поменяться ролями (от второй стороны)

@@ -169,7 +169,10 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 
 	const engine::Chapter mine = puppet::MyChapter();
 	g_link.SetChapter({ mine.node, mine.task });
-	if (gotPose) partnerHero = (pose.flags & net::kFlagHero) != 0;
+	if (gotPose) {
+		partnerHero = (pose.flags & net::kFlagHero) != 0;
+		puppet::SetPartnerFiring((pose.flags & net::kFlagFiring) != 0);
+	}
 	const bool connectedNow = g_link.GetState() == net::State::Connected;
 	if (connectedNow)
 		puppet::SetRole(g_link.Authority() ? (heroSwapped ? puppet::Role::Companion : puppet::Role::Hero)
@@ -201,7 +204,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		enemies::Receive({ p.target, p.health, (p.flags & net::kFlagDead) != 0 });
 	if (havePlayer && now - lastSend >= 50) {  // 20 раз в секунду
 		lastSend = now;
-		g_link.SendPose(me.pos, me.rot, puppet::GetRole() == puppet::Role::Hero);
+		g_link.SendPose(me.pos, me.rot, puppet::GetRole() == puppet::Role::Hero, puppet::MeFiring());
 	}
 }
 

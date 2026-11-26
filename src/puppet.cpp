@@ -518,6 +518,8 @@ void SetRole(Role r) {
 		Log("roles: I am the %s", r == Role::Hero ? "hero" : "companion");
 }
 Role GetRole() { return static_cast<Role>(g_role.load()); }
+bool MeFiring() { return g_meFiring; }
+void SetPartnerFiring(bool on) { g_partnerFiring = on; }
 std::string HeroCharacter() {
 	AcquireSRWLockShared(&g_namesLock);
 	std::string s = g_heroName;
@@ -536,7 +538,8 @@ uint64_t Current() { return g_puppet; }
 // за кадр на всех потоках), и проверка там должна стоить одно сравнение. Раньше здесь читался
 // счётчик кадров игры через проверяемое чтение памяти, и FPS заметно проседал.
 std::atomic<uint64_t> g_frame{ 0 };
-std::atomic<bool> g_hiddenBuddyAtomic{ false };  // спрятан спутник: тик нужен, чтобы вернуть его
+std::atomic<bool> g_hiddenBuddyAtomic{ false };
+std::atomic<bool> g_meFiring{ false }, g_partnerFiring{ false };  // спрятан спутник: тик нужен, чтобы вернуть его
 std::atomic<uint64_t> g_workUs{ 0 };
 
 void OnFrame() { g_frame.fetch_add(1, std::memory_order_relaxed); }
@@ -571,6 +574,15 @@ void ScriptTick() {
 	CompanionTick(companion);
 	g_hiddenBuddyAtomic = g_hiddenBuddy != 0;
 	if (g_wanted || g_netActive) NamesTick();
+	g_meFiring = (Call(g_dc.isFiring, {}) & 1) != 0;
+	// Партнёр стреляет (по сети; без сети - свой игрок, для проверки): стреляет и марионетка.
+	// Только настоящий спутник главы: он союзник и в игрока не попадает; копия NPC - нет.
+	static ULONGLONG lastShot = 0;
+	const bool shoot = UsingNetwork() ? g_partnerFiring.load() : g_meFiring.load();
+	if (shoot && g_puppetIsBuddy && g_puppet && !g_hidden && GetTickCount64() - lastShot >= 180) {
+		lastShot = GetTickCount64();
+		Call(g_dc.fireWeapon, { g_puppet });
+	}
 	s = QpcNow();
 	if (g_wanted) Update();
 	ProfileAdd("[update]", MicrosecondsSince(s));
