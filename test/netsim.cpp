@@ -144,6 +144,12 @@ int main() {
 		}
 		Check(seen && !(got.flags & net::kFlagHero), "pose carries the sender's role");
 
+		puts("== deaths");
+		a.SendDeath();
+		Sleep(10);
+		Run(a, b, 2);
+		Check(b.TakePartnerDeath() && !b.TakePartnerDeath() && !a.TakePartnerDeath(), "partner death arrives once");
+
 		puts("== bye");
 		a.Stop();
 		Sleep(10);

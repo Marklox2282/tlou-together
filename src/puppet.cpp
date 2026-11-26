@@ -628,6 +628,11 @@ void SetNetActive(bool on) { g_netActive = on; }
 void SetPartnerChapter(const Chapter& c) { StoreChapter(g_partnerChapter, c); }
 Chapter MyChapter() { return LoadChapter(g_myChapter); }
 void RequestJoin(bool own) { g_joinRequest = own ? 2 : 1; }
+
+std::atomic<bool> g_myDeath{ false };
+std::atomic<ULONGLONG> g_partnerDiedAt{ 0 };
+bool TakeMyDeath() { return g_myDeath.exchange(false); }
+void PartnerDied() { g_partnerDiedAt = GetTickCount64(); }
 const char* const kCharacters[kCharacterCount] = { "auto", "companion", "joel", "ellie", "sarah", "tess", "tommy",
 	"bill", "henry", "sam", "riley", "marlene", "maria" };
 const char* CharacterName(int c) { return c >= 0 && c < kCharacterCount ? kCharacters[c] : kCharacters[0]; }
@@ -688,7 +693,7 @@ uint64_t TakeWorkMicroseconds() { return g_workUs.exchange(0); }
 // Скрипты выполняются на нескольких потоках; работа - один раз за кадр, первым пришедшим.
 void ScriptTick() {
 	if (!g_wanted.load(std::memory_order_relaxed) && !g_teleport.load(std::memory_order_relaxed) &&
-		!g_joinRequest.load(std::memory_order_relaxed) && !g_joinAt && !g_hiddenBuddyAtomic.load(std::memory_order_relaxed) &&
+		!g_joinRequest.load(std::memory_order_relaxed) && !g_joinAt && !g_partnerDiedAt && !g_hiddenBuddyAtomic.load(std::memory_order_relaxed) &&
 		g_myChar.load(std::memory_order_relaxed) == 0 &&
 		!g_netActive.load(std::memory_order_relaxed) && !g_puppet.load(std::memory_order_relaxed))
 		return;
@@ -706,6 +711,40 @@ void ScriptTick() {
 	ProfileAdd("[chapter]", MicrosecondsSince(s));
 	if (g_teleport.exchange(false)) TeleportToPartner();
 	if (const int join = g_joinRequest.exchange(0)) StartJoin(join == 2);
+	// Своя смерть: здоровье упало до 0 (раз за жизнь; снова живы - снова следим).
+	static ULONGLONG lastHealth = 0;
+	static bool deadNow = false;
+	if (g_netActive && GetTickCount64() - lastHealth >= 200) {
+		lastHealth = GetTickCount64();
+		Locator me{};
+		if (PlayerLocator(me)) {
+			const int health = static_cast<int>(Call(g_dc.playerHealth, {}));
+			static bool seenAlive = false, logged = false;
+			if (!logged && health > 0) {
+				logged = true;
+				Log("death: player health reads %d", health);  // что get-player-health отдаёт живому
+			}
+			// Смерть - только после того, как видели живого: иначе неверное чтение (всегда 0) слало бы
+			// "погиб" без конца и перезагружало партнёра.
+			if (health > 0) seenAlive = true;
+			if (health <= 0 && seenAlive && !deadNow) {
+				deadNow = true;
+				g_myDeath = true;
+				Log("death: I died - telling the partner");
+			} else if (health > 0) {
+				deadNow = false;
+			}
+		}
+	}
+	// Партнёр погиб: через 2 с перезагружаем свой чекпоинт (не во время своей загрузки и не мёртвыми -
+	// своя смерть игра перезагрузит сама).
+	if (const ULONGLONG at = g_partnerDiedAt; at && GetTickCount64() - at >= 2000) {
+		g_partnerDiedAt = 0;
+		if (!g_joinAt && !deadNow) {
+			Log("death: partner died - reloading the checkpoint to restart together");
+			StartJoin(true);
+		}
+	}
 	FinishJoin();
 	// Роль сменилась на напарника, а партнёра изображал наш спутник: отдать его ИИ (дальше он спрятан).
 	// Партнёр больше не спутник, а его изображал наш спутник - отдать того ИИ.

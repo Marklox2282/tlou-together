@@ -21,6 +21,10 @@ void RequestTeleport();         // F7
 // F5: загрузить главу и чекпоинт партнёра и после загрузки встать рядом с ним;
 // own (Shift+F5) - перезагрузить свою, проверка без партнёра.
 void RequestJoin(bool own);
+// Общая смерть: свой игрок погиб (для отправки) и "партнёр погиб" - через 2 с перезагрузить свой
+// чекпоинт, чтобы оба начали с одного места.
+bool TakeMyDeath();
+void PartnerDied();
 void SetNetActive(bool on);     // сеть включена: читать свою главу для отправки
 void SetPartnerChapter(const engine::Chapter& c);
 engine::Chapter MyChapter();

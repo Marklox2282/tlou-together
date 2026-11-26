@@ -212,7 +212,8 @@ bool InitNatives() {
 		{ &g_dc.taskPlay, "task-play-debug!" }, { &g_dc.getScriptMode, "npc-get-script-mode" },
 		{ &g_dc.swapLook, "player-swap-look-id" }, { &g_dc.isFiring, "player-is-firing?" },
 		{ &g_dc.fireWeapon, "npc-fire-weapon" }, { &g_dc.cameraLocator, "camera-locator" },
-		{ &g_dc.artGroup, "get-art-group" } };
+		{ &g_dc.artGroup, "get-art-group" },
+		{ &g_dc.playerHealth, "get-player-health" } };
 	for (const auto& [slot, name] : table) {
 		*slot = FindNative(name);
 		if (!*slot) return false;

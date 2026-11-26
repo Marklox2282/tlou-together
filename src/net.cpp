@@ -420,6 +420,10 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 			Disconnected("left");
 			continue;
 		}
+		if (p.type == kDeath) {
+			partnerDied_ = true;
+			continue;
+		}
 		if (p.type == kEnemy || p.type == kEnemyPos) {
 			if (enemyEvents_.size() < 1024) enemyEvents_.push_back(p);
 			continue;
@@ -469,6 +473,16 @@ void Link::SendEnemyPos(uint64_t npc, const float pos[3], const float rot[4]) {
 	memcpy(p.pos, pos, sizeof(p.pos));
 	memcpy(p.rot, rot, sizeof(p.rot));
 	Send(p);
+}
+
+void Link::SendDeath() {
+	if (state_ == State::Connected) Send(Make(kDeath), true);
+}
+
+bool Link::TakePartnerDeath() {
+	const bool d = partnerDied_;
+	partnerDied_ = false;
+	return d;
 }
 
 std::vector<Packet> Link::TakeEnemyEvents() {

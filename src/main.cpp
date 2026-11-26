@@ -28,7 +28,7 @@ namespace {
 
 // Номер версии мода: увеличивать при каждом выпуске (tools/release.py берёт его отсюда).
 // Игроки с разными версиями не соединяются.
-constexpr uint32_t kModVersion = 21;
+constexpr uint32_t kModVersion = 22;
 
 using engine::Locator;
 
@@ -45,6 +45,7 @@ bool KeyPressed(int vk, bool& wasDown) {
 
 // ---- сеть ----------------------------------------------------------------------------------
 bool g_storySync = true;  // ini story_sync=off - не подтягиваться к чекпоинту партнёра
+bool g_sharedDeath = true;  // ini shared_death=off - смерть партнёра не перезагружает нас
 // tlou-together.ini рядом с игрой; без peer_ip связь идёт через Steam.
 net::Config LoadConfig(std::string& name) {
 	net::Config cfg;
@@ -66,6 +67,7 @@ net::Config LoadConfig(std::string& name) {
 				";             tommy, bill, henry, sam, riley, marlene, maria.\n"
 				"; story_sync = on (default): when your partner reaches a new checkpoint (cutscene, car...),\n"
 				";             you load it too and stand next to them. off: each plays the story alone.\n"
+				"; shared_death = on (default): when one of you dies, the other reloads the checkpoint too.\n"
 				"; enemy_sync = soft (default): enemies keep their AI, moved to the host's spot off-screen.\n"
 				";             full (experimental): the guest's enemies copy the host's moves; they don't attack yet.\n"
 				"name=\npeer_ip=\nport=7777\npeer_port=7777\ncharacter=auto\n", f);
@@ -88,6 +90,7 @@ net::Config LoadConfig(std::string& name) {
 		else if (key == "peer_port") cfg.peerPort = static_cast<uint16_t>(atoi(value.c_str()));
 		else if (key == "enemy_sync") enemies::SetFullSync(value == "full");
 		else if (key == "story_sync") g_storySync = value != "off";
+		else if (key == "shared_death") g_sharedDeath = value != "off";
 		else if (key == "character") puppet::SetMyCharacter(puppet::CharacterFromName(value));
 	}
 	fclose(f);
@@ -162,6 +165,11 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	}
 	if (action == menu::Invite) g_link.InviteToLobby();
 	if (action == menu::GoToPartner) puppet::RequestTeleport();  // как F7
+	if (puppet::TakeMyDeath()) g_link.SendDeath();
+	if (g_link.TakePartnerDeath()) {
+		Log("death: %s died", g_link.PeerName().c_str());
+		if (g_sharedDeath) puppet::PartnerDied();
+	}
 	if (action == menu::JoinByCode) {
 		const std::string text = clipboard::Text();
 		const net::Link::LobbyKey key = net::Link::LobbyFromCode(text);
