@@ -4,6 +4,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
+#include <cstdio>
+#include <atomic>
 #include <cstring>
 
 #include "engine.hpp"
@@ -183,6 +186,8 @@ std::string ReadName(uintptr_t p) {
 
 uint32_t BuildTimestamp() { return Nt()->FileHeader.TimeDateStamp; }
 
+void NameNative(NativeFn fn, const char* name);
+
 bool InitNatives() {
 	g_dc = { FindNative("alloc-vector"), FindNative("alloc-quat"), FindNative("alloc-bound-frame"),
 		FindNative("spawn-entity-at-with-look"), FindNative("entity-exists?"), FindNative("npc-teleport-to"),
@@ -190,6 +195,12 @@ bool InitNatives() {
 		FindNative("npc-set-deaf"), FindNative("npc-enable-hit-reactions"), FindNative("npc-enable-stun"),
 		FindNative("npc-enable-dodges"), FindNative("get-object-locator"), FindNative("npc-move-to"),
 		FindNative("new-boxed-value"), FindNative("send-event"), FindNative("task-get-current") };
+	const std::pair<NativeFn, const char*> names[] = { { g_dc.allocVector, "alloc-vector" }, { g_dc.allocQuat, "alloc-quat" },
+		{ g_dc.allocBoundFrame, "alloc-bound-frame" }, { g_dc.spawnWithLook, "spawn" }, { g_dc.entityExists, "entity-exists?" },
+		{ g_dc.teleport, "npc-teleport-to" }, { g_dc.scriptMode, "script-mode" }, { g_dc.objectLocator, "get-object-locator" },
+		{ g_dc.moveTo, "npc-move-to" }, { g_dc.newBoxedValue, "new-boxed-value" }, { g_dc.sendEvent, "send-event" },
+		{ g_dc.taskGetCurrent, "task-get-current" } };
+	for (const auto& [fn, name] : names) NameNative(fn, name);
 	for (NativeFn f : { g_dc.allocVector, g_dc.allocQuat, g_dc.allocBoundFrame, g_dc.spawnWithLook, g_dc.entityExists,
 			g_dc.teleport, g_dc.scriptMode, g_dc.setIgnore, g_dc.setBlind, g_dc.setDeaf, g_dc.hitReactions, g_dc.stun,
 			g_dc.dodges, g_dc.objectLocator, g_dc.moveTo, g_dc.newBoxedValue, g_dc.sendEvent, g_dc.taskGetCurrent })
@@ -203,11 +214,52 @@ uint64_t F(float v) {
 	return bits;
 }
 
+// Замер: сколько вызовов и времени ушло на каждую функцию движка (для лога, раз в 2 с).
+namespace {
+struct ProfileSlot { NativeFn fn; const char* name; std::atomic<uint64_t> calls, us; };
+ProfileSlot g_profile[32];
+int g_profileCount = 0;
+}  // namespace
+
+void NameNative(NativeFn fn, const char* name) {
+	if (fn && g_profileCount < 32) {
+		g_profile[g_profileCount].fn = fn;
+		g_profile[g_profileCount++].name = name;
+	}
+}
+
+std::string TakeProfile() {
+	std::string out;
+	int order[32];
+	for (int i = 0; i < g_profileCount; ++i) order[i] = i;
+	std::sort(order, order + g_profileCount, [](int a, int b) { return g_profile[a].us > g_profile[b].us; });
+	for (int k = 0; k < g_profileCount; ++k) {
+		ProfileSlot& s = g_profile[order[k]];
+		const uint64_t calls = s.calls.exchange(0), us = s.us.exchange(0);
+		if (!calls) continue;
+		char buf[96];
+		snprintf(buf, sizeof(buf), "%s%s %llux %.1fms", out.empty() ? "" : ", ", s.name,
+			static_cast<unsigned long long>(calls), us / 1000.0);
+		out += buf;
+	}
+	return out;
+}
+
 uint64_t Call(NativeFn fn, std::initializer_list<uint64_t> args) {
 	uint64_t argv[16]{}, ret[8]{};
 	int argc = 0;
 	for (uint64_t a : args) argv[argc++] = a;
+	LARGE_INTEGER a, b, f;
+	QueryPerformanceCounter(&a);
 	fn(ret, argc, argv, 0);
+	QueryPerformanceCounter(&b);
+	QueryPerformanceFrequency(&f);
+	for (int i = 0; i < g_profileCount; ++i)
+		if (g_profile[i].fn == fn) {
+			g_profile[i].calls.fetch_add(1, std::memory_order_relaxed);
+			g_profile[i].us.fetch_add(static_cast<uint64_t>((b.QuadPart - a.QuadPart) * 1000000 / f.QuadPart), std::memory_order_relaxed);
+			break;
+		}
 	return ret[0];
 }
 

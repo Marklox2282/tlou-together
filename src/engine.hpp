@@ -51,6 +51,8 @@ bool InitNatives();  // false, если какой-то не найден
 
 uint64_t F(float v);
 uint64_t Call(NativeFn fn, std::initializer_list<uint64_t> args);
+// Вызовы и время по функциям движка с прошлого раза ("npc-move-to 20x 3.1ms, ...").
+std::string TakeProfile();
 
 // ---- объекты -------------------------------------------------------------------------------
 struct Locator { float pos[4], rot[4]; };

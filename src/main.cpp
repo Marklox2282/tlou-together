@@ -148,9 +148,11 @@ void FrameTick(safetyhook::Context&) {
 	if (now - lastLog >= 2000) {
 		// Сколько мод тратит на кадр: в основном потоке и в скриптовом (среднее за 2 с).
 		const uint64_t scriptUs = puppet::TakeWorkMicroseconds();
+		const std::string profile = engine::TakeProfile();
 		if (havePlayer && frames)
-			Log("player pos=(%.2f %.2f %.2f) fps=%.0f mod=%llu+%llu us/frame", me.pos[0], me.pos[1], me.pos[2],
-				frames * 1000.0 / (now - lastLog), frameUs / frames, scriptUs / frames);
+			Log("player pos=(%.2f %.2f %.2f) fps=%.0f mod=%llu+%llu us/frame%s%s", me.pos[0], me.pos[1], me.pos[2],
+				frames * 1000.0 / (now - lastLog), frameUs / frames, scriptUs / frames, profile.empty() ? "" : " | ",
+				profile.c_str());
 		lastLog = now;
 		frames = 0;
 		frameUs = 0;
