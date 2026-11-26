@@ -177,12 +177,23 @@ void Update() {
 	}
 	const float err = Dist(cur.pos, target.pos);
 	const float targetSpeed = Dist(before.pos, target.pos) / 0.25f;
-	if (err > 4.0f) {
+	// Отстала - догоняет бегом/спринтом (режим растёт с отрывом, см. ниже). Телепорт - только
+	// если отрыв больше 15 м или она застряла: 2 с отстаёт больше чем на 3 м и не приближается
+	// (прыжки, лестницы, обрывы - туда npc-move-to её не ведёт).
+	static float bestErr = 0;
+	static ULONGLONG progressAt = 0;
+	if (err < bestErr - 0.5f || err < 3.0f || !progressAt) {
+		bestErr = err;
+		progressAt = now;
+	}
+	const bool stuck = err > 3.0f && now - progressAt > 2000;
+	if (err > 15.0f || stuck) {
+		progressAt = 0;
 		if (now - lastSnapAt < 1000) return;
 		lastSnapAt = lastCmdAt = now;
 		lastMode = -1;
 		if (const uint64_t frame = BoundFrame(target.pos, target.rot)) Call(g_dc.teleport, { puppet, frame });
-		Log("puppet: snapped (%.1f m behind)", err);
+		Log("puppet: snapped (%.1f m behind%s)", err, stuck ? ", stuck" : "");
 		return;
 	}
 	if (targetSpeed < 0.4f && err < 1.0f) return;  // стоим рядом - ничего не делаем
