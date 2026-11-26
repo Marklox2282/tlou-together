@@ -9,7 +9,7 @@ import glob, os, pathlib, re, subprocess, sys, tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 KEY = pathlib.Path(os.environ["USERPROFILE"]) / ".tlou1-coop" / "signing.key"
-REPO = "Marklox2282/tlou1-coop"
+REPO = "Marklox2282/tlou-together"
 
 
 def run(*cmd, **kw):
@@ -45,7 +45,7 @@ def main():
         run(str(ROOT / "build/signer.exe"), "sign", str(KEY), str(dll), str(version), str(tmp / "winmm.dll.sig"))
         (tmp / "version.txt").write_text(f"{version}\n")
         run("git", "push", "origin", "HEAD", cwd=ROOT)
-        run("gh", "release", "create", tag, "--repo", REPO, "--title", f"tlou1-coop {tag}",
+        run("gh", "release", "create", tag, "--repo", REPO, "--title", f"tlou-together {tag}",
             "--notes", "Test build. Install once: copy winmm.dll into the game folder; later versions update themselves.",
             str(dll), str(tmp / "winmm.dll.sig"), str(tmp / "version.txt"))
     print(f"готово: {tag}")

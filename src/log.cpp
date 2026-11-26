@@ -21,7 +21,7 @@ std::wstring GameDirFile(const wchar_t* name) {
 }
 
 void OpenLog() {
-	const std::wstring path = GameDirFile(L"tlou1-coop.log");
+	const std::wstring path = GameDirFile(L"tlou-together.log");
 	if (!path.empty()) g_log = _wfsopen(path.c_str(), L"w", _SH_DENYWR);
 }
 

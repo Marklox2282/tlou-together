@@ -26,7 +26,7 @@ bool Get(const std::wstring& url, signing::Bytes& out, size_t limit) {
 	parts.dwUrlPathLength = ARRAYSIZE(path);
 	if (!WinHttpCrackUrl(url.c_str(), 0, 0, &parts)) return false;
 	const bool https = parts.nScheme == INTERNET_SCHEME_HTTPS;
-	HINTERNET session = WinHttpOpen(L"tlou1-coop-updater", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, nullptr, nullptr, 0);
+	HINTERNET session = WinHttpOpen(L"tlou-together-updater", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, nullptr, nullptr, 0);
 	HINTERNET conn = session ? WinHttpConnect(session, host, parts.nPort, 0) : nullptr;
 	HINTERNET req = conn ? WinHttpOpenRequest(conn, L"GET", path, nullptr, nullptr, nullptr, https ? WINHTTP_FLAG_SECURE : 0) : nullptr;
 	bool ok = false;

@@ -27,7 +27,7 @@ namespace {
 
 // Номер версии мода: увеличивать при каждом выпуске (tools/release.py берёт его отсюда).
 // Игроки с разными версиями не соединяются.
-constexpr uint32_t kModVersion = 18;
+constexpr uint32_t kModVersion = 19;
 
 using engine::Locator;
 
@@ -44,15 +44,18 @@ bool KeyPressed(int vk, bool& wasDown) {
 
 // ---- сеть ----------------------------------------------------------------------------------
 bool g_storySync = true;  // ini story_sync=off - не подтягиваться к чекпоинту партнёра
-// tlou1-coop.ini рядом с игрой; без peer_ip связь идёт через Steam.
+// tlou-together.ini рядом с игрой; без peer_ip связь идёт через Steam.
 net::Config LoadConfig(std::string& name) {
 	net::Config cfg;
-	const std::wstring path = GameDirFile(L"tlou1-coop.ini");
+	const std::wstring path = GameDirFile(L"tlou-together.ini");
+	// Мод назывался tlou1-coop: настройки из старого файла переносим один раз.
+	if (const std::wstring old = GameDirFile(L"tlou1-coop.ini"); !path.empty() && !old.empty())
+		MoveFileExW(old.c_str(), path.c_str(), 0);  // не затирает новый, если он уже есть
 	if (path.empty()) return cfg;
 	FILE* f = nullptr;
 	if (_wfopen_s(&f, path.c_str(), L"r") || !f) {
 		if (!_wfopen_s(&f, path.c_str(), L"w") && f) {
-			fputs("; TLOU Part I co-op. Lines starting with ; are comments.\n"
+			fputs("; tlou-together: co-op for The Last of Us Part I. Lines starting with ; are comments.\n"
 				"; name      = shown to your partner; empty = your Steam name.\n"
 				"; peer_ip   = empty: F8 connects to a Steam friend who is in this game and also pressed F8.\n"
 				";             An IP (LAN): connect directly over UDP instead of Steam.\n"
@@ -355,7 +358,7 @@ void ScriptInvoke(safetyhook::Context&) {
 
 // ---- журнал падений ------------------------------------------------------------------------
 // Windows пишет дамп не на каждое падение, поэтому при ошибке доступа мод сам пишет в
-// tlou1-coop-crash.log адрес, регистры и адреса возврата со стека. Обработку ошибки не меняет.
+// tlou-together-crash.log адрес, регистры и адреса возврата со стека. Обработку ошибки не меняет.
 // Только WriteFile и snprintf: блокировки CRT в момент падения могут быть заняты.
 HANDLE g_crashFile = INVALID_HANDLE_VALUE;
 std::atomic<int> g_crashCount{ 0 };
@@ -396,7 +399,7 @@ LONG CALLBACK OnException(EXCEPTION_POINTERS* e) {
 }
 
 void InstallCrashLog() {
-	const std::wstring path = GameDirFile(L"tlou1-coop-crash.log");
+	const std::wstring path = GameDirFile(L"tlou-together-crash.log");
 	if (path.empty()) return;
 	g_crashFile = CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 	if (g_crashFile != INVALID_HANDLE_VALUE && AddVectoredExceptionHandler(1, OnException)) Log("crash log: on");
@@ -433,7 +436,7 @@ void Init() {
 	if (!slash || _wcsicmp(slash + 1, L"tlou-i.exe")) return;
 	OpenLog();
 	const uint32_t stamp = engine::BuildTimestamp();
-	Log("tlou1-coop v%u, base=%p build=%08X", kModVersion, reinterpret_cast<void*>(engine::g_base), stamp);
+	Log("tlou-together v%u, base=%p build=%08X", kModVersion, reinterpret_cast<void*>(engine::g_base), stamp);
 	StartUpdateCheck();  // и на неподдерживаемой сборке игры: обновление может её поддержать
 	if (stamp != engine::kBuildTimestamp) {
 		Log("unsupported game build, mod is off");

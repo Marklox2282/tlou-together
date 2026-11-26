@@ -1,4 +1,4 @@
-# tlou1-coop
+# tlou-together
 
 Experimental two-player co-op for **The Last of Us Part I** (PC, Steam). Unofficial fan project, not
 affiliated with Sony Interactive Entertainment or Naughty Dog. You need your own copy of the game.
@@ -27,7 +27,7 @@ Not yet: shared enemy movement, doors, items, automatic chapter sync, cutscenes,
 2. Steam > Library > The Last of Us Part I > Manage > Browse local files. Put `winmm.dll` there.
 3. Later versions download themselves at game start and take effect on the next launch.
 
-Uninstall: delete `winmm.dll` (and `tlou1-coop.*` files) from the game folder.
+Uninstall: delete `winmm.dll` (and `tlou-together.*` files; older versions used `tlou1-coop.*`) from the game folder.
 
 ## Play
 
@@ -38,12 +38,12 @@ No Steam friendship needed: the lobby code (e.g. `K7QX-92F`) is shown in the lob
 your clipboard; your partner copies it and picks **Join by code**.
 Without the menu: both press **F8** to connect to any friend who also pressed it. **F6** disconnects, **F7** teleports you to your partner,
 **F5** loads your partner's chapter and checkpoint and puts you next to them (Shift+F5 reloads your own, to test it).
-For LAN play without Steam set `peer_ip` in `tlou1-coop.ini` (created next to the game on first F8).
-Log: `tlou1-coop.log` in the game folder.
+For LAN play without Steam set `peer_ip` in `tlou-together.ini` (created next to the game on first F8).
+Log: `tlou-together.log` in the game folder.
 
 Characters: by default your partner sees you as the chapter's hero, like themselves (Sarah and
 Sarah, Joel and Joel). Pick another in the lobby (**Change character**) or with `character=` in
-`tlou1-coop.ini`: `companion` (the chapter's companion; on the partner's side the real companion NPC
+`tlou-together.ini`: `companion` (the chapter's companion; on the partner's side the real companion NPC
 follows you, and your own AI companion is hidden) or a name: joel, ellie, sarah, tess, tommy...
 
 Test keys without a partner: **F10** spawns a test NPC, **F9** makes it follow you with a 1 s delay

@@ -204,7 +204,7 @@ bool Link::Start(const Config& cfg, uint64_t nowMs) {
 	steam_ = cfg.peerIp.empty();
 	if (steam_) {
 		if (!SteamInit(log_)) {
-			log_("net: Steam is unavailable; set peer_ip in tlou1-coop.ini for LAN play");
+			log_("net: Steam is unavailable; set peer_ip in tlou-together.ini for LAN play");
 			return false;
 		}
 		if (name_.empty()) name_ = g_steam.GetPersonaName(g_steam.friends);

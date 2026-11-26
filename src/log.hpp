@@ -1,7 +1,7 @@
 #pragma once
 #include <string>
 
-// Лог мода: tlou1-coop.log рядом с игрой.
+// Лог мода: tlou-together.log рядом с игрой.
 void Log(const char* fmt, ...);
 void OpenLog();
 // Полный путь к файлу рядом с tlou-i.exe (пусто, если путь не получить).
