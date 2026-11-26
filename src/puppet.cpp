@@ -128,7 +128,13 @@ bool ChapterMismatch() {
 void Update() {
 	const ULONGLONG now = GetTickCount64();
 	uint64_t puppet = g_puppet;
-	if (puppet && !Call(g_dc.entityExists, { puppet })) {
+	// entity-exists? ищет объект по имени среди всех объектов уровня: каждый кадр это стоило
+	// миллисекунды скриптового потока. Сразу после появления - часто (уровень может тут же
+	// удалить сюжетного NPC), потом раз в полсекунды.
+	static ULONGLONG lastExistsCheck = 0;
+	const bool checkNow = now - g_spawnedAt < 500 || now - lastExistsCheck >= 500;
+	if (checkNow) lastExistsCheck = now;
+	if (puppet && checkNow && !Call(g_dc.entityExists, { puppet })) {
 		const bool instant = now - g_spawnedAt < 2000;
 		Log("puppet %016llX is gone %s", static_cast<unsigned long long>(puppet),
 			instant ? "right after spawning: the level removes it, trying another spawner" : "(death or checkpoint reload)");
@@ -180,15 +186,17 @@ void Update() {
 	// Отстала - догоняет бегом/спринтом (режим растёт с отрывом, см. ниже). Телепорт - только
 	// если отрыв больше 15 м или она застряла: 2 с отстаёт больше чем на 3 м и не приближается
 	// (прыжки, лестницы, обрывы - туда npc-move-to её не ведёт).
-	static float bestErr = 0;
-	static ULONGLONG progressAt = 0;
-	if (err < bestErr - 0.5f || err < 3.0f || !progressAt) {
-		bestErr = err;
-		progressAt = now;
+	// Застряла: 2 с сама почти не сдвинулась (меньше 0.5 м), хотя отстаёт больше чем на 3 м.
+	// Сокращение отрыва не годится: когда игрок бежит быстрее, отрыв растёт и у бегущей.
+	static float movedFrom[3]{};
+	static ULONGLONG movedAt = 0;
+	if (Dist(cur.pos, movedFrom) > 0.5f || err < 3.0f || !movedAt) {
+		memcpy(movedFrom, cur.pos, sizeof(movedFrom));
+		movedAt = now;
 	}
-	const bool stuck = err > 3.0f && now - progressAt > 2000;
+	const bool stuck = err > 3.0f && now - movedAt > 2000;
 	if (err > 15.0f || stuck) {
-		progressAt = 0;
+		movedAt = 0;
 		if (now - lastSnapAt < 1000) return;
 		lastSnapAt = lastCmdAt = now;
 		lastMode = -1;
