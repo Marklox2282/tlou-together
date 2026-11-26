@@ -14,7 +14,7 @@ Based on the reverse-engineering and approach of [TLOU2-Coop](https://github.com
 - Each player sees the other as an NPC that walks, runs and sprints where the partner is
   (snaps to them over jumps and drops).
 - Connection through Steam friends (no port forwarding) or a LAN IP. Players with different mod
-  versions are told so and not connected; a partner in another part of the story is not spawned.
+  versions are told so and not connected; a partner more than 300 m away is not spawned.
 - The mod updates itself from this repository's releases; every update is signed and checked.
 
 Not yet: shared enemies, doors, items, chapter sync, cutscenes, real partner animations and look.

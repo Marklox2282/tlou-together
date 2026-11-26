@@ -118,21 +118,24 @@ uint64_t Spawn(const Locator& at) {
 	return npc;
 }
 
-// Друг в другой главе: его координаты относятся к другому уровню. Марионетку не создаём и не
-// двигаем (снап туда утащил бы её в незагруженное место).
-bool ChapterMismatch() {
-	const uint64_t mine = g_myChapter, theirs = g_partnerChapter;
-	const bool mismatch = mine && theirs && mine != theirs;
+// Друг далеко (другая глава или другой конец уровня): его координаты могут быть в
+// незагруженной части мира. Марионетку не создаём и не двигаем, иначе снап утащил бы её туда.
+// Сверка по заданию сюжета не годится: id задания меняется каждые несколько секунд (подзадачи),
+// и отставший на полминуты друг считался бы "в другой главе".
+bool PartnerTooFar(const Locator& target) {
+	constexpr float kFar = 300.0f;
+	Locator me{};
+	const bool tooFar = UsingNetwork() && PlayerLocator(me) && Dist(me.pos, target.pos) > kFar;
 	static bool logged = false;
-	if (mismatch != logged) {
-		logged = mismatch;
-		if (mismatch)
-			Log("puppet: partner is in another part of the story (task %016llX, mine %016llX); waiting",
-				static_cast<unsigned long long>(theirs), static_cast<unsigned long long>(mine));
+	if (tooFar != logged) {
+		logged = tooFar;
+		if (tooFar)
+			Log("puppet: partner is more than %.0f m away (task %016llX, mine %016llX); waiting", kFar,
+				static_cast<unsigned long long>(g_partnerChapter.load()), static_cast<unsigned long long>(g_myChapter.load()));
 		else
-			Log("puppet: partner is in the same part of the story now");
+			Log("puppet: partner is near again");
 	}
-	return mismatch;
+	return tooFar;
 }
 
 void Update() {
@@ -155,7 +158,7 @@ void Update() {
 		g_puppet = puppet = 0;
 	}
 	Locator target{};
-	if (ChapterMismatch() || !DelayedTarget(now, target)) return;
+	if (!DelayedTarget(now, target) || PartnerTooFar(target)) return;
 	if (!puppet) {
 		if (now - g_lastSpawnTry < (g_failures >= 3 ? 15000u : 3000u)) return;
 		g_puppet = puppet = Spawn(target);
