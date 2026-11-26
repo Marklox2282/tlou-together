@@ -49,6 +49,8 @@ int CharacterFromSid(uint64_t sid);         // 0, если неизвестен
 void SetMyCharacter(int c);
 int MyCharacter();
 void SetPartnerCharacter(int c);
+std::string MyLook();                       // свой облик для партнёра (арт), пусто - не знаем
+void SetPartnerLook(const std::string& art);  // облик партнёра от него самого
 int PartnerCharacter();
 enum class Role { Hero, Companion };
 bool MeFiring();                   // свой игрок стреляет (читается в скриптовом потоке)

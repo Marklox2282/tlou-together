@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include "engine.hpp"
+#include "log.hpp"
 
 namespace engine {
 
@@ -210,7 +211,8 @@ bool InitNatives() {
 		{ &g_dc.taskNode, "task-get-current-node-id" }, { &g_dc.taskSubnode, "task-get-current-subnode-id" },
 		{ &g_dc.taskPlay, "task-play-debug!" }, { &g_dc.getScriptMode, "npc-get-script-mode" },
 		{ &g_dc.swapLook, "player-swap-look-id" }, { &g_dc.isFiring, "player-is-firing?" },
-		{ &g_dc.fireWeapon, "npc-fire-weapon" }, { &g_dc.cameraLocator, "camera-locator" } };
+		{ &g_dc.fireWeapon, "npc-fire-weapon" }, { &g_dc.cameraLocator, "camera-locator" },
+		{ &g_dc.artGroup, "get-art-group" } };
 	for (const auto& [slot, name] : table) {
 		*slot = FindNative(name);
 		if (!*slot) return false;
@@ -410,6 +412,28 @@ std::string ArtOfNpc(uint64_t npc) {
 		return false;
 	});
 	return art;
+}
+
+std::string PlayerLook(const float around[3]) {
+	const uint64_t group = Call(g_dc.artGroup, { Sid("player") });
+	std::string art;
+	if (group)
+		ForEachSpawner([&](uintptr_t, const SpawnerHead& h) {
+			std::string a = ReadName(h.art);
+			if (a.empty() || Sid(a.c_str()) != group) return true;
+			art = std::move(a);
+			return false;
+		});
+	static uint64_t loggedGroup = 0;
+	if (group != loggedGroup) {
+		loggedGroup = group;
+		// В лог один раз на облик: видно, сработало ли сопоставление.
+		char buf[96];
+		snprintf(buf, sizeof(buf), "look: player art group %016llX -> %s", static_cast<unsigned long long>(group),
+			art.empty() ? "(no match, nearest player start)" : art.c_str());
+		Log("%s", buf);
+	}
+	return art.empty() ? HeroLook(around) : art;
 }
 
 std::string HeroLook(const float around[3]) {

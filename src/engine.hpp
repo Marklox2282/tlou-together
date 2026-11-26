@@ -44,7 +44,7 @@ using NativeFn = void (*)(uint64_t* ret, int argc, const uint64_t* argv, uint64_
 struct Natives {
 	NativeFn allocVector, allocQuat, allocBoundFrame, spawnWithLook, entityExists, teleport, scriptMode,
 		setIgnore, setBlind, setDeaf, hitReactions, stun, dodges, objectLocator, moveTo, newBoxedValue, sendEvent,
-		setVisible, setUnshootable, darrayCount, darrayAt, getHealth, setHealth, isDead, npcDie, taskNode, taskSubnode, taskPlay, getScriptMode, swapLook, isFiring, fireWeapon, cameraLocator;
+		setVisible, setUnshootable, darrayCount, darrayAt, getHealth, setHealth, isDead, npcDie, taskNode, taskSubnode, taskPlay, getScriptMode, swapLook, isFiring, fireWeapon, cameraLocator, artGroup;
 };
 extern Natives g_dc;
 bool InitNatives();  // false, если какой-то не найден
@@ -109,6 +109,9 @@ std::string ArtOfCharacter(const std::string& character);
 std::string ArtOfNpc(uint64_t npc);
 // Костюм героя главы: арт ближайшей к точке точки появления игрока ("t1x-joel-costume-01").
 std::string HeroLook(const float around[3]);
+// Облик самого игрока ("t1x-sarah-costume-01"): get-art-group игрока, сверенный с артами
+// спавнеров; не нашлось - HeroLook (ближайшая точка появления игрока). Скриптовый контекст.
+std::string PlayerLook(const float around[3]);
 std::string HeroName(const std::string& art);  // "t1x-joel-costume-01" -> "joel"
 bool IsFemaleHero(const std::string& name);
 // Пригодность спавнера с артом art для партнёра героя hero: 0 - не годится, больше - лучше.

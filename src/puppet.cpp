@@ -87,6 +87,15 @@ uint64_t g_badForChapter = 0;
 // ---- роли ----------------------------------------------------------------------------------
 std::atomic<int> g_myChar{ 0 }, g_partnerChar{ 0 };
 int g_puppetChar = -1;  // для какого выбора партнёра создана копия NPC
+SRWLOCK g_lookLock = SRWLOCK_INIT;
+std::string g_myLook, g_partnerLook, g_puppetLook;  // свой облик, присланный партнёром, у копии
+
+std::string Locked(const std::string& s) {
+	AcquireSRWLockShared(&g_lookLock);
+	std::string out = s;
+	ReleaseSRWLockShared(&g_lookLock);
+	return out;
+}
 std::atomic<bool> g_meFiring{ false }, g_partnerFiring{ false };
 bool g_puppetIsBuddy = false;  // марионетка - настоящий спутник главы (у героя)
 uint64_t g_buddyMode = 0;      // его режим скрипта до нас - вернуть при отпускании
@@ -125,8 +134,12 @@ uint64_t Spawn(const Locator& at) {
 	// Облик - выбор партнёра: auto (и спутник без спутника) - герой главы, иначе его персонаж.
 	std::string look = PlayerLocator(me) ? HeroLook(me.pos) : std::string();
 	g_puppetChar = PartnerCharacter();
+	// Партнёр сам сообщает свой облик - он точнее нашей догадки (у друга в прологе мы угадывали
+	// Джоэла вместо Сары по ближайшей точке появления).
+	if (std::string sent = Locked(g_partnerLook); !sent.empty() && g_puppetChar != 1) look = std::move(sent);
 	if (g_puppetChar >= 2)
 		if (std::string art = ArtOfCharacter(CharacterName(g_puppetChar)); !art.empty()) look = std::move(art);
+	g_puppetLook = look;
 	std::string name;
 	if (g_badForChapter != LoadChapter(g_myChapter).task) {
 		g_badSpawners.clear();
@@ -583,6 +596,14 @@ void SetPartnerCharacter(int c) {
 	if (c != g_partnerChar.exchange(c)) Log("character: partner plays as %s", CharacterName(c));
 }
 int PartnerCharacter() { return g_partnerChar; }
+std::string MyLook() { return Locked(g_myLook); }
+void SetPartnerLook(const std::string& art) {
+	AcquireSRWLockExclusive(&g_lookLock);
+	const bool changed = art != g_partnerLook;
+	g_partnerLook = art;
+	ReleaseSRWLockExclusive(&g_lookLock);
+	if (changed && !art.empty()) Log("character: partner looks like %s", art.c_str());
+}
 Role GetRole() { return MyCharacter() == 1 ? Role::Companion : Role::Hero; }
 bool MeFiring() { return g_meFiring; }
 void SetPartnerFiring(bool on) { g_partnerFiring = on; }
@@ -636,8 +657,19 @@ void ScriptTick() {
 	// Партнёр больше не спутник, а его изображал наш спутник - отдать того ИИ.
 	if (PartnerCharacter() != 1 && g_puppetIsBuddy) Hide();
 	// Партнёр выбрал другого персонажа - копию NPC пересоздать в новом облике.
-	if (g_puppet && !g_puppetIsBuddy && g_puppetChar >= 0 && g_puppetChar != PartnerCharacter()) {
+	const bool lookChanged = g_puppetChar >= 0 && g_puppetChar != 1 && !Locked(g_partnerLook).empty() &&
+		g_puppetLook != Locked(g_partnerLook) && PartnerCharacter() < 2;
+	if (g_puppet && !g_puppetIsBuddy && g_puppetChar >= 0 && (g_puppetChar != PartnerCharacter() || lookChanged)) {
+		// Старую копию не удалить (kill посреди кадра ронял игру), а спрятанная иногда снова
+		// показывалась рядом с новой: прячем и уносим на 1 км под уровень.
+		const uint64_t old = g_puppet;
+		Locator at{};
 		Hide();
+		if (NpcLocator(old, at)) {
+			at.pos[1] -= 1000.0f;
+			if (const uint64_t frame = BoundFrame(at.pos, at.rot)) Call(g_dc.teleport, { old, frame });
+		}
+		Log("puppet: old copy %016llX put away, making a new one", static_cast<unsigned long long>(old));
 		g_puppet = 0;
 		g_hidden = false;
 		g_lastSpawnTry = 0;
@@ -646,6 +678,28 @@ void ScriptTick() {
 	CompanionTick(g_wanted || g_netActive);
 	g_hiddenBuddyAtomic = g_hiddenBuddy != 0;
 	if (g_wanted || g_netActive) NamesTick();
+	// Свой облик для партнёра: раз в 3 с (перебор спавнеров только при смене группы арта).
+	static ULONGLONG lastLook = 0;
+	if (g_netActive && GetTickCount64() - lastLook >= 3000) {
+		lastLook = GetTickCount64();
+		Locator me{};
+		if (PlayerLocator(me)) {
+			std::string look = MyCharacter() >= 2 ? ArtOfCharacter(CharacterName(MyCharacter())) : std::string();
+			if (look.empty()) {
+				static uint64_t lastGroup = 0;
+				static std::string lastArt;
+				const uint64_t group = Call(g_dc.artGroup, { Sid("player") });
+				if (group != lastGroup || lastArt.empty()) {
+					lastGroup = group;
+					lastArt = PlayerLook(me.pos);
+				}
+				look = lastArt;
+			}
+			AcquireSRWLockExclusive(&g_lookLock);
+			g_myLook = look;
+			ReleaseSRWLockExclusive(&g_lookLock);
+		}
+	}
 	g_meFiring = (Call(g_dc.isFiring, {}) & 1) != 0;
 	// Партнёр стреляет (по сети; без сети - свой игрок, для проверки): стреляет и марионетка.
 	// Только настоящий спутник главы: он союзник и в игрока не попадает; копия NPC - нет.
