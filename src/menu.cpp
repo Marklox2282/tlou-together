@@ -430,8 +430,17 @@ const char* LobbyText(const Lang& l) {
 	return g_bodyLive;
 }
 
+extern std::atomic<ULONGLONG> g_waitUntil;
+
 const char* LobbyTextInto(const Lang& l, char* buf, size_t n) {
 	const Lobby s = g_lobby ? g_lobby() : Lobby{};
+	if (GetTickCount64() < g_waitUntil && !s.connected) {  // почему не начали игру - первой строкой
+		const int k = snprintf(buf, n, "%s<br><br>", l.waitStart);
+		if (k > 0 && static_cast<size_t>(k) < n) {
+			buf += k;
+			n -= k;
+		}
+	}
 	if (s.connected) {
 		// "Подключено: Вася... <br><br>Вы: Sarah · Вася: Tess (напарник)".
 		auto who = [&](const std::string& c) {
@@ -539,16 +548,26 @@ bool OpenLobby(bool mainMenu) {
 }
 
 
-// Диагностика (временно): события меню с параметрами, кроме шумных (озвучка, наведение, подсказки).
-safetyhook::MidHook g_eventDiag;
-void EventDiag(safetyhook::Context& ctx) {
-	const uint64_t ev = ctx.rax;
-	if (ev == 0xF547B6E8D4BA3345ull || ev == 0x95FCC1E38DFAF1FFull || ev == 0x00527D7399AAAFF6ull || ev == 0x21E66780486CFD77ull)
-		return;
-	uint64_t a[6]{};
-	for (int i = 0; i < 6; ++i) engine::Read(ctx.rbx + 0x30 + i * 8, a[i]);
-	Log("menu diag: event %016llX menu %llX args %016llX %016llX %016llX %016llX %016llX %016llX", static_cast<unsigned long long>(ev),
-		static_cast<unsigned long long>(ctx.r15), a[0], a[1], a[2], a[3], a[4], a[5]);
+// Готовность. В начале обработчика событий меню (0x1C831C7, функция 0x1C83174) в rax - имя
+// события или нажатой кнопки: THE LAST OF US приходит как buttonCampaignTLOU (проверено в игре:
+// одиночный щелчок кнопку лишь выделяет, нажатие - пробел/Enter/второй щелчок). В лобби без
+// напарника вместо меню сюжета открываем лобби с причиной и уходим в конец обработчика.
+constexpr uintptr_t kMenuEventRva = 0x1C831C7;
+constexpr uint64_t kStartTlou = Sid("buttonCampaignTLOU"), kStartLeftBehind = Sid("buttonCampaignSPDLC1");
+safetyhook::MidHook g_startHook;
+std::atomic<ULONGLONG> g_waitUntil{ 0 };  // текст лобби начинается с "напарник ещё подключается"
+
+void OnMenuEvent(safetyhook::Context& ctx) {
+	if (ctx.rax != kStartTlou && ctx.rax != kStartLeftBehind) return;
+	const Lobby s = g_lobby ? g_lobby() : Lobby{};
+	if (!(s.lobby || s.busy) || s.connected) return;
+	g_waitUntil = GetTickCount64() + 30000;
+	const uintptr_t menu = ctx.r15;
+	using MainMenuFn = bool (*)(uintptr_t);
+	const auto mainMenu = reinterpret_cast<MainMenuFn>(*reinterpret_cast<uintptr_t*>(*reinterpret_cast<uintptr_t*>(menu) + kMainMenuVcall));
+	g_mainMenu = mainMenu(menu);
+	Log("menu: story start while the partner is connecting - lobby %s", OpenLobby(g_mainMenu) ? "shown" : "FAILED");
+	ctx.rip = engine::g_base + kPressDoneRva;
 }
 
 void OnPress(safetyhook::Context& ctx) {
@@ -620,11 +639,12 @@ bool Install(LobbyFn lobby, ActionFn action) {
 	g_action = action;
 	// Порядок важен: сначала нажатие и ответ, видимость - последней. Если что-то не встало,
 	// снимаем всё: иначе видимый пункт выходил бы в библиотеку.
-	Make(g_eventDiag, 0x1C831C7, EventDiag, "event diag");  // rax - событие, rbx - его параметры
 	const bool ok = Make(g_pressHook, kPressRva, OnPress, "press") && Make(g_answerHook, kAnswerRva, OnAnswer, "answer") &&
+		Make(g_startHook, kMenuEventRva, OnMenuEvent, "story start") &&
 		Make(g_textHook, kTextLookupRva, TextLookup, "text") && Make(g_visibleHook, kVisibleRva, Visible, "visibility");
 	if (!ok) {
 		g_visibleHook = {};
+		g_startHook = {};
 		g_textHook = {};
 		g_answerHook = {};
 		g_pressHook = {};
