@@ -43,8 +43,10 @@ Needs CMake, Ninja, LLVM (clang-cl) and MSVC build tools with the Windows SDK.
 cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl
 cmake --build build
 build\netsim.exe
+build\enginetest.exe
 ```
 
-`build\netsim.exe` tests the network layer (two peers over UDP on one PC). Releases are made with
+`netsim` tests the network layer (two peers over UDP on one PC), `enginetest` the game-free parts of
+the engine layer (guarded memory reads, name parsing). Releases are made with
 `python tools/release.py` after raising `kModVersion` in `src/main.cpp`; it signs with the
 maintainer's private key, which is never in this repository.
