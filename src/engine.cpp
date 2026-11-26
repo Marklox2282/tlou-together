@@ -314,6 +314,25 @@ bool CameraLocator(Locator& l) {
 	return p && Read(p, l) && std::isfinite(l.pos[0]) && std::isfinite(l.rot[3]);
 }
 
+CameraView CurrentView() {
+	CameraView v{};
+	v.ok = CameraLocator(v.cam);
+	const float* q = v.cam.rot;  // (0,0,1), повёрнутый кватернионом камеры
+	v.fwd[0] = 2.0f * (q[0] * q[2] + q[3] * q[1]);
+	v.fwd[1] = 2.0f * (q[1] * q[2] - q[3] * q[0]);
+	v.fwd[2] = 1.0f - 2.0f * (q[0] * q[0] + q[1] * q[1]);
+	return v;
+}
+
+bool Seen(const CameraView& v, const float p[3], float maxDist) {
+	if (!v.ok) return true;
+	const float d[3] = { p[0] - v.cam.pos[0], p[1] - v.cam.pos[1], p[2] - v.cam.pos[2] };
+	const float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+	if (len > maxDist) return false;
+	if (len < 2.0f) return true;
+	return (d[0] * v.fwd[0] + d[1] * v.fwd[1] + d[2] * v.fwd[2]) > len * 0.34f;  // cos 70°
+}
+
 bool PlayerLocator(Locator& l) {
 	const uintptr_t p = Player();
 	return p && Read(p + kLocatorOffset, l) && std::isfinite(l.pos[0]) && std::isfinite(l.pos[2]);

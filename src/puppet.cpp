@@ -365,7 +365,18 @@ void Update() {
 		uselessSnaps = err > errAtSnap - 1.0f ? uselessSnaps + 1 : 0;
 		if (uselessSnaps == 2) Log("puppet: teleport does not bring it closer, retrying every 10 s");
 	}
-	if (err > 15.0f || stuck) {
+	// Телепорт на глазах выглядит резко: пока марионетка в кадре и отстала меньше 30 м, даём ей до
+	// 3 с догнать бегом (команда ниже), переносим - когда игрок отвернулся или время вышло.
+	static ULONGLONG snapWantedSince = 0;
+	bool snapNow = err > 15.0f || stuck;
+	if (snapNow && err < 30.0f) {
+		if (!snapWantedSince) snapWantedSince = now;
+		const CameraView view = CurrentView();
+		if (now - snapWantedSince < 3000 && (Seen(view, cur.pos, 40.0f) || Seen(view, target.pos, 40.0f))) snapNow = false;
+	}
+	if (!(err > 15.0f || stuck)) snapWantedSince = 0;
+	if (snapNow) {
+		snapWantedSince = 0;
 		movedAt = 0;
 		if (now - lastSnapAt < (uselessSnaps >= 2 ? 10000u : 1000u)) return;
 		errAtSnap = err;

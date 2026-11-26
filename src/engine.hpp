@@ -63,6 +63,11 @@ struct Locator { float pos[4], rot[4]; };
 
 bool PlayerLocator(Locator& l);            // без скриптового контекста, только чтение
 bool CameraLocator(Locator& l);            // камера игрока (вперёд - +Z), скриптовый контекст
+// Видно ли точку на экране: ближе maxDist и в конусе ~70° от взгляда камеры (с запасом на
+// широкий FOV). Камеры нет - считаем, что видно: лучше не перенести, чем перенести на глазах.
+struct CameraView { bool ok; Locator cam; float fwd[3]; };
+CameraView CurrentView();                  // скриптовый контекст
+bool Seen(const CameraView& v, const float p[3], float maxDist = 25.0f);
 bool NpcLocator(uint64_t npc, Locator& out);
 uint64_t BoundFrame(const float pos[3], const float rot[4]);
 // Место в сюжете: узел графа заданий (глава) и задание в нём (чекпоинт). Скриптовый контекст.
