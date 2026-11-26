@@ -348,7 +348,10 @@ void FrameTick(safetyhook::Context&) {
 	frameUs += static_cast<uint64_t>((end.QuadPart - start.QuadPart) * 1000000 / freq.QuadPart);
 }
 
-void ScriptInvoke(safetyhook::Context&) { puppet::ScriptTick(); }
+void ScriptInvoke(safetyhook::Context&) {
+	puppet::ScriptTick();
+	menu::ScriptTick();
+}
 
 // Диагностика (временно): внутри npc-fire-weapon перед вызовом метода NPC [vtable+0x18F0] -
 // какая функция стреляет у NPC (для перехвата выстрелов врагов).

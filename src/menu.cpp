@@ -15,6 +15,8 @@
 #include "menu.hpp"
 
 using engine::Sid;
+using engine::Call;
+using engine::g_dc;
 
 namespace menu {
 
@@ -500,9 +502,30 @@ const char* TextLookup(void* db, uint64_t key, bool* found) {
 	return g_textHook.call<const char*>(db, key, found);
 }
 
+std::atomic<bool> g_mainMenu{ true };
+// Обновление окна лобби: игра копирует текст при открытии, поэтому при смене состояния окно
+// закрываем (ScriptTick, menu2-pop-page) и открываем заново из кода меню (Visible - его игра
+// вызывает каждый кадр, пока меню на экране; открытие из обработчика кадра роняло игру).
+std::atomic<bool> g_boxOpen{ false }, g_popRequest{ false }, g_reopen{ false };
+std::atomic<ULONGLONG> g_reopenAfter{ 0 };
+std::atomic<uint64_t> g_boxPage{ 0 };  // имя страницы окна в стеке (узнаём после открытия)
+
+void RequestReopen(ULONGLONG delayMs) {
+	g_reopenAfter = GetTickCount64() + delayMs;
+	g_reopen = true;
+}
+
+bool OpenLobby(bool mainMenu);
+
 // Вызывается на каждый пункт меню каждый кадр: читаем прямо (указатель дала сама игра).
 bool Visible(uintptr_t condition, uintptr_t a2, uintptr_t a3, uintptr_t a4) {
-	if (condition && *reinterpret_cast<const uint64_t*>(condition + 8) == kQuitLibrary) return false;
+	if (condition && *reinterpret_cast<const uint64_t*>(condition + 8) == kQuitLibrary) {
+		// Меню на экране и окна нет - открыть отложенное лобби (здесь мы внутри кода меню).
+		bool want = true;
+		if (g_reopen && !g_boxOpen && GetTickCount64() >= g_reopenAfter && g_reopen.compare_exchange_strong(want, false))
+			Log("menu: lobby reopened %s", OpenLobby(g_mainMenu) ? "ok" : "FAILED");
+		return false;
+	}
 	return g_visibleHook.call<bool>(condition, a2, a3, a4);
 }
 
@@ -522,10 +545,13 @@ bool OpenLobby(bool mainMenu) {
 	const char* page = "menu/message-box-yes-no-cancel";
 	const uintptr_t box = stack ? reinterpret_cast<BoxFn>(base + kMessageBoxRva)(stack, page, kLobbyText, kLobbyBox, 0, 2) : 0;
 	if (box) reinterpret_cast<void (*)(uintptr_t, uint64_t)>(base + kBoxTitleRva)(box, kLibraryText);
+	if (box) {
+		g_boxPage = 0;
+		g_boxOpen = true;
+	}
 	return box != 0;
 }
 
-std::atomic<bool> g_mainMenu{ true };
 
 void OnPress(safetyhook::Context& ctx) {
 	const uintptr_t menu = ctx.r15;
@@ -555,6 +581,7 @@ void OnStart(safetyhook::Context& ctx) {
 // Кнопки: messageBoxOk - первая, messageBoxCancel - вторая, messageBoxPop - "отмена"/назад.
 void OnAnswer(safetyhook::Context& ctx) {
 	if (ctx.rdi != kLobbyBox) return;
+	g_boxOpen = false;  // любое событие нашего окна - оно закрылось
 	const uint64_t button = *reinterpret_cast<const uint64_t*>(ctx.rsp + 0x30);
 	Action a = None;
 	if (button == kMessageBoxOk) a = g_boxConnected ? SwapRoles : g_boxInLobby ? Invite : CreateLobby;
@@ -562,6 +589,7 @@ void OnAnswer(safetyhook::Context& ctx) {
 	if (a != None) {
 		Log("menu: lobby button %s", a == CreateLobby ? "create" : a == Invite ? "invite" : a == SwapRoles ? "change character" : a == JoinByCode ? "join by code" : "leave");
 		if (g_action) g_action(a);
+		if (a != Leave) RequestReopen(a == CreateLobby ? 2500 : 1000);  // показать, что вышло
 	}
 	ctx.rdi = 1;
 }
@@ -579,6 +607,21 @@ bool g_installed = false;
 }  // namespace
 
 void OnFrame() {
+	// Состояние лобби сменилось, а окно открыто - закрыть его (ScriptTick) и открыть заново.
+	static ULONGLONG lastCheck = 0;
+	static std::string lastState;
+	if (g_lobby && GetTickCount64() - lastCheck >= 500) {
+		lastCheck = GetTickCount64();
+		const Lobby s = g_lobby();
+		const auto b = [](bool v) { return v ? '1' : '0'; };
+		const std::string state = std::string{ b(s.on), b(s.lobby), b(s.busy), b(s.connected), b(s.codeError) } + s.partner + s.code +
+			s.myCharacter + s.partnerCharacter;
+		if (state != lastState) {
+			const bool first = lastState.empty();
+			lastState = state;
+			if (!first && g_boxOpen) g_popRequest = true;
+		}
+	}
 	// Живой текст: переписать буферы, которые игра уже получила (только своя память, без вызовов
 	// игры - открытие окна отсюда роняло игру).
 	static ULONGLONG lastRefresh = 0;
@@ -594,6 +637,30 @@ void OnFrame() {
 	const uintptr_t src = reinterpret_cast<AddFn>(engine::g_base + kAddDataSourceRva)(engine::g_base + kDataSourcesRva,
 		Sid("Menu2::DataSourceActionAvailableButton"), kQuitLibrary, kLibraryText, kDescText, 0);
 	Log("menu: description %s", src ? "registered" : "FAILED");
+}
+
+void ScriptTick() {
+	if (!g_boxOpen.load(std::memory_order_relaxed)) return;
+	const uint64_t stack = g_mainMenu ? Sid("main") : Sid("ingame");
+	// Страницу окна запоминаем сразу после открытия: сверху стека будет она.
+	if (!g_boxPage.load(std::memory_order_relaxed)) {
+		static std::atomic_flag busy = ATOMIC_FLAG_INIT;
+		if (busy.test_and_set()) return;
+		if (!g_boxPage) {
+			const uint64_t top = Call(g_dc.topPage, { stack, 0 });
+			g_boxPage = top;
+			Log("menu: lobby box page %016llX", static_cast<unsigned long long>(top));
+		}
+		busy.clear();
+	}
+	bool want = true;
+	if (!g_popRequest.load(std::memory_order_relaxed) || !g_popRequest.compare_exchange_strong(want, false)) return;
+	if (const uint64_t page = g_boxPage) {
+		Call(g_dc.popPage, { stack, page });
+		g_boxOpen = false;
+		RequestReopen(300);
+		Log("menu: lobby changed - box closed to show it again");
+	}
 }
 
 bool Install(LobbyFn lobby, ActionFn action) {
