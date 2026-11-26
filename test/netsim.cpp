@@ -150,6 +150,13 @@ int main() {
 		Run(a, b, 2);
 		Check(b.TakePartnerDeath() && !b.TakePartnerDeath() && !a.TakePartnerDeath(), "partner death arrives once");
 
+		puts("== settings");
+		Check(b.PeerDifficulty() == -1, "difficulty unknown before settings");
+		a.SendSettings(3);
+		Sleep(10);
+		Run(a, b, 2);
+		Check(b.PeerDifficulty() == 3, "difficulty arrives");
+
 		puts("== bye");
 		a.Stop();
 		Sleep(10);

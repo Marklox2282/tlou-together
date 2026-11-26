@@ -107,6 +107,8 @@ std::string Locked(const std::string& s) {
 }
 std::atomic<bool> g_meFiring{ false }, g_partnerFiring{ false };
 std::atomic<bool> g_enemiesSee{ true }, g_outline{ true };
+std::atomic<int> g_myDifficulty{ -1 }, g_wantDifficulty{ -1 };
+std::atomic<int> g_ownDifficulty{ -1 };  // своя сложность до хоста - вернуть при отключении
 uint64_t g_buddyFaction = 0;  // фракция спутника до нас - вернуть при отпускании
 std::atomic<bool> g_meCrouched{ false }, g_meAiming{ false }, g_partnerCrouched{ false }, g_partnerAiming{ false };
 bool g_puppetIsBuddy = false;  // марионетка - настоящий спутник главы (у героя)
@@ -682,6 +684,8 @@ bool MeCrouched() { return g_meCrouched; }
 bool MeAiming() { return g_meAiming; }
 void SetEnemiesSeePartner(bool on) { g_enemiesSee = on; }
 void SetPartnerOutline(bool on) { g_outline = on; }
+int MyDifficulty() { return g_myDifficulty; }
+void FollowDifficulty(int difficulty) { g_wantDifficulty = difficulty; }
 void SetPartnerStance(bool crouched, bool aiming) {
 	g_partnerCrouched = crouched;
 	g_partnerAiming = aiming;
@@ -714,7 +718,7 @@ uint64_t TakeWorkMicroseconds() { return g_workUs.exchange(0); }
 // Скрипты выполняются на нескольких потоках; работа - один раз за кадр, первым пришедшим.
 void ScriptTick() {
 	if (!g_wanted.load(std::memory_order_relaxed) && !g_teleport.load(std::memory_order_relaxed) &&
-		!g_joinRequest.load(std::memory_order_relaxed) && !g_joinAt && !g_partnerDiedAt && !g_hiddenBuddyAtomic.load(std::memory_order_relaxed) &&
+		!g_joinRequest.load(std::memory_order_relaxed) && !g_joinAt && !g_partnerDiedAt && g_ownDifficulty < 0 && !g_hiddenBuddyAtomic.load(std::memory_order_relaxed) &&
 		g_myChar.load(std::memory_order_relaxed) == 0 &&
 		!g_netActive.load(std::memory_order_relaxed) && !g_puppet.load(std::memory_order_relaxed))
 		return;
@@ -850,6 +854,26 @@ void ScriptTick() {
 		if (partnerFar)
 			if (const uint64_t color = Call(g_dc.allocColor, { F(0.55f), F(0.8f), F(1.0f), F(1.0f), 0 }))
 				Call(g_dc.highlight, { g_puppet, 0, color });
+	}
+	// Сложность: читаем свою; гость переходит на сложность хоста, а без хоста возвращает свою.
+	static ULONGLONG lastDifficulty = 0;
+	if (GetTickCount64() - lastDifficulty >= 2000) {
+		lastDifficulty = GetTickCount64();
+		Locator me{};
+		if (PlayerLocator(me)) {
+			const int mine = static_cast<int>(Call(g_dc.getDifficulty, {}));
+			g_myDifficulty = mine;
+			const int want = g_wantDifficulty;
+			if (want >= 0 && want < 16 && want != mine) {
+				if (g_ownDifficulty < 0) g_ownDifficulty = mine;
+				Call(g_dc.setDifficulty, { static_cast<uint64_t>(want) });
+				Log("difficulty: %d -> host's %d", mine, want);
+			} else if (want < 0 && g_ownDifficulty >= 0) {
+				if (g_ownDifficulty != mine) Call(g_dc.setDifficulty, { static_cast<uint64_t>(g_ownDifficulty.load()) });
+				Log("difficulty: back to my own %d", g_ownDifficulty.load());
+				g_ownDifficulty = -1;
+			}
+		}
 	}
 	static ULONGLONG lastStance = 0;
 	if (GetTickCount64() - lastStance >= 200) {

@@ -68,6 +68,9 @@ void SetPartnerStance(bool crouched, bool aiming);
 void SetEnemiesSeePartner(bool on);
 // Контур партнёра сквозь стены, когда он дальше 12 м (ini partner_outline, по умолчанию да).
 void SetPartnerOutline(bool on);
+// Сложность: своя (для ведущей стороны) и "играть на сложности хоста" (гость); -1 - вернуть свою.
+int MyDifficulty();
+void FollowDifficulty(int difficulty);
 Role GetRole();                             // Companion, если мой персонаж - спутник
 // Имена персонажей текущей главы для лобби ("joel", "tess"); пусто - неизвестно.
 std::string HeroCharacter();

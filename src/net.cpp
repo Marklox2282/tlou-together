@@ -262,6 +262,7 @@ void Link::Stop() {
 	peerSteam_ = 0;
 	peerChapter_ = {};
 	lastSeq_ = 0;
+	peerDifficulty_ = -1;
 	enemyEvents_.clear();
 }
 
@@ -420,6 +421,10 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 			Disconnected("left");
 			continue;
 		}
+		if (p.type == kSettings) {
+			peerDifficulty_ = static_cast<int>(p.target);
+			continue;
+		}
 		if (p.type == kDeath) {
 			partnerDied_ = true;
 			continue;
@@ -478,6 +483,13 @@ void Link::SendEnemyPos(uint64_t npc, const float pos[3], const float rot[4]) {
 
 void Link::SendDeath() {
 	if (state_ == State::Connected) Send(Make(kDeath), true);
+}
+
+void Link::SendSettings(uint32_t difficulty) {
+	if (state_ != State::Connected) return;
+	Packet p = Make(kSettings);
+	p.target = difficulty;
+	Send(p);
 }
 
 bool Link::TakePartnerDeath() {

@@ -28,7 +28,7 @@ namespace {
 
 // Номер версии мода: увеличивать при каждом выпуске (tools/release.py берёт его отсюда).
 // Игроки с разными версиями не соединяются.
-constexpr uint32_t kModVersion = 25;
+constexpr uint32_t kModVersion = 26;
 
 using engine::Locator;
 
@@ -170,6 +170,14 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	if (action == menu::Invite) g_link.InviteToLobby();
 	if (action == menu::GoToPartner) puppet::RequestTeleport();  // как F7
 	if (puppet::TakeMyDeath()) g_link.SendDeath();
+	// Сложность: ведущая сторона (хозяин лобби) шлёт свою раз в 3 с, гость играет на ней.
+	static ULONGLONG lastSettings = 0;
+	const bool linked = g_link.GetState() == net::State::Connected;
+	if (linked && g_link.Authority() && now - lastSettings >= 3000 && puppet::MyDifficulty() >= 0) {
+		lastSettings = now;
+		g_link.SendSettings(static_cast<uint32_t>(puppet::MyDifficulty()));
+	}
+	puppet::FollowDifficulty(linked && !g_link.Authority() ? g_link.PeerDifficulty() : -1);
 	if (g_link.TakePartnerDeath()) {
 		Log("death: %s died", g_link.PeerName().c_str());
 		if (g_sharedDeath) puppet::PartnerDied();
