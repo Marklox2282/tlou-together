@@ -32,7 +32,15 @@ SRWLOCK g_lock = SRWLOCK_INIT;  // очереди между сетью и ск�
 std::vector<Change> g_out, g_in;
 std::vector<Position> g_posOut;
 std::atomic<bool> g_sendPositions{ false };
-struct Remote { Position p; ULONGLONG at, snappedAt; };
+struct Remote {
+	Position p;
+	ULONGLONG at, snappedAt;
+	float speed = 0;           // скорость врага у хозяина, м/с
+	bool aiOff = false;        // полная синхронизация: ИИ уже выключен
+	int mode = -1;             // последняя команда npc-move-to
+	ULONGLONG cmdAt = 0;
+};
+std::atomic<bool> g_fullSync{ false };
 std::unordered_map<uint64_t, Remote> g_remote;  // гость: позиции хозяина (под g_lock)
 constexpr ULONGLONG kPosMs = 200, kSnapEveryMs = 3000;
 constexpr float kSnapDist = 6.0f;
@@ -114,6 +122,54 @@ bool Seen(const View& v, const float p[3]) {
 	if (len > 25.0f) return false;
 	if (len < 2.0f) return true;
 	return (d[0] * v.fwd[0] + d[1] * v.fwd[1] + d[2] * v.fwd[2]) > len * 0.34f;  // cos 70°
+}
+
+// Полная синхронизация: враг у гостя без ИИ идёт за врагом хозяина (как марионетка: шаг/бег/
+// спринт по скорости, телепорт при отставании больше 4 м).
+void FollowHost(uint64_t puppet) {
+	const ULONGLONG now = GetTickCount64();
+	std::vector<std::pair<uint64_t, Remote>> list;
+	AcquireSRWLockExclusive(&g_lock);
+	for (auto it = g_remote.begin(); it != g_remote.end();) {
+		if (now - it->second.at > 2000) { it = g_remote.erase(it); continue; }
+		list.push_back({ it->first, it->second });
+		++it;
+	}
+	ReleaseSRWLockExclusive(&g_lock);
+	for (auto& [npc, r] : list) {
+		if (npc == puppet || !Exists(npc) || Dead(npc)) continue;
+		if (!r.aiOff) {
+			Call(g_dc.scriptMode, { npc, 2, 1 });
+			Call(g_dc.setBlind, { npc, 1 });
+			Call(g_dc.setDeaf, { npc, 1 });
+			r.aiOff = true;
+			Log("[enemies] %016llX follows the host's copy (AI off)", static_cast<unsigned long long>(npc));
+		}
+		Locator cur{};
+		if (!NpcLocator(npc, cur)) continue;
+		const float err = std::sqrt(Dist2(cur.pos, r.p.pos));
+		const uint64_t frame = BoundFrame(r.p.pos, r.p.rot);
+		if (!frame) continue;
+		if (err > 4.0f) {
+			Call(g_dc.teleport, { npc, frame });
+			r.mode = -1;
+		} else if (r.speed > 0.4f || err > 1.0f) {
+			const float speed = (std::max)(r.speed, err * 0.8f);
+			const int mode = speed < 1.8f ? 0 : (speed < 4.2f ? 1 : 2);
+			if (mode != r.mode || now - r.cmdAt > 600) {
+				Call(g_dc.moveTo, { npc, frame, static_cast<uint64_t>(mode), 0, 0, 0, 0, 0 });
+				r.mode = mode;
+				r.cmdAt = now;
+			}
+		}
+		AcquireSRWLockExclusive(&g_lock);
+		if (auto it = g_remote.find(npc); it != g_remote.end()) {
+			it->second.aiOff = r.aiOff;
+			it->second.mode = r.mode;
+			it->second.cmdAt = r.cmdAt;
+		}
+		ReleaseSRWLockExclusive(&g_lock);
+	}
 }
 
 // Гость: враг ушёл далеко от позиции у хозяина - перенести (ИИ не трогаем), но только если ни
@@ -230,6 +286,7 @@ void Tick(uint64_t puppet) {
 		lastPos = now;
 		const int64_t p0 = QpcNow();
 		if (g_sendPositions) SendPositions(puppet);
+		else if (g_fullSync) FollowHost(puppet);
 		else CorrectPositions(puppet);
 		ProfileAdd("[enemy pos]", MicrosecondsSince(p0));
 	}
@@ -251,6 +308,7 @@ std::vector<Change> TakeOutgoing() {
 void Receive(const Change& c) { Push(g_in, c); }
 
 void SetSendPositions(bool on) { g_sendPositions = on; }
+void SetFullSync(bool on) { g_fullSync = on; }
 
 std::vector<Position> TakePositions() {
 	std::vector<Position> out;
@@ -264,8 +322,13 @@ void ReceivePosition(const Position& p) {
 	if (!p.npc || !std::isfinite(p.pos[0]) || !std::isfinite(p.pos[1]) || !std::isfinite(p.pos[2])) return;
 	AcquireSRWLockExclusive(&g_lock);
 	Remote& r = g_remote[p.npc];
+	const ULONGLONG now = GetTickCount64();
+	if (r.at && now > r.at && now - r.at < 1000) {  // скорость по двум последним позициям (по горизонтали)
+		const float dx = p.pos[0] - r.p.pos[0], dz = p.pos[2] - r.p.pos[2];
+		r.speed = r.speed * 0.5f + std::sqrt(dx * dx + dz * dz) / ((now - r.at) / 1000.0f) * 0.5f;
+	}
 	r.p = p;
-	r.at = GetTickCount64();
+	r.at = now;
 	ReleaseSRWLockExclusive(&g_lock);
 }
 void Reset() { g_reset = true; }

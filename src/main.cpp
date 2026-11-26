@@ -56,6 +56,8 @@ net::Config LoadConfig(std::string& name) {
 				"; peer_ip   = empty: F8 connects to a Steam friend who is in this game and also pressed F8.\n"
 				";             An IP (LAN): connect directly over UDP instead of Steam.\n"
 				"; port      = your UDP port for peer_ip mode; peer_port = your friend's.\n"
+				"; enemy_sync = soft (default): enemies keep their AI, moved to the host's spot off-screen.\n"
+				";             full (experimental): the guest's enemies copy the host's moves; they don't attack yet.\n"
 				"name=\npeer_ip=\nport=7777\npeer_port=7777\n", f);
 			fclose(f);
 		}
@@ -74,6 +76,7 @@ net::Config LoadConfig(std::string& name) {
 		else if (key == "name") name = value;
 		else if (key == "port") cfg.port = static_cast<uint16_t>(atoi(value.c_str()));
 		else if (key == "peer_port") cfg.peerPort = static_cast<uint16_t>(atoi(value.c_str()));
+		else if (key == "enemy_sync") enemies::SetFullSync(value == "full");
 	}
 	fclose(f);
 	return cfg;

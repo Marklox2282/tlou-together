@@ -22,6 +22,9 @@ void Tick(uint64_t puppet);
 // нападают как обычно.
 struct Position { uint64_t npc; float pos[3], rot[4]; };
 void SetSendPositions(bool on);
+// Полная синхронизация (ini enemy_sync=full, пока опыт): у гостя ИИ врагов выключен, они идут за
+// врагами хозяина своей анимацией. Атаки врагов ещё не копируются - гостя они не трогают.
+void SetFullSync(bool on);
 std::vector<Position> TakePositions();     // хозяин: для отправки
 void ReceivePosition(const Position& p);   // гость: от хозяина
 
