@@ -533,6 +533,7 @@ bool OpenLobby(bool mainMenu) {
 	if (box) reinterpret_cast<void (*)(uintptr_t, uint64_t)>(base + kBoxTitleRva)(box, kLibraryText);
 	if (box) {
 		g_boxOpen = true;
+		g_reopen = false;  // уже показано: отложенный показ после него открыл бы устаревшее окно
 	}
 	return box != 0;
 }
