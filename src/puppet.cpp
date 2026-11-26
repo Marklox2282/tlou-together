@@ -106,6 +106,8 @@ std::string Locked(const std::string& s) {
 	return out;
 }
 std::atomic<bool> g_meFiring{ false }, g_partnerFiring{ false };
+std::atomic<bool> g_enemiesSee{ true };
+uint64_t g_buddyFaction = 0;  // фракция спутника до нас - вернуть при отпускании
 std::atomic<bool> g_meCrouched{ false }, g_meAiming{ false }, g_partnerCrouched{ false }, g_partnerAiming{ false };
 bool g_puppetIsBuddy = false;  // марионетка - настоящий спутник главы (у героя)
 uint64_t g_buddyMode = 0;      // его режим скрипта до нас - вернуть при отпускании
@@ -119,7 +121,15 @@ bool PartnerIsBuddy() { return (PartnerCharacter() == 1 || !UsingNetwork()) && M
 // Без собственной воли: тот же набор, что у марионетки в TLOU2-Coop.
 void AiOff(uint64_t npc) {
 	Call(g_dc.scriptMode, { npc, 2, 1 });  // выключить ИИ и сюжетные команды
-	for (NativeFn on : { g_dc.setIgnore, g_dc.setBlind, g_dc.setDeaf }) Call(on, { npc, 1 });
+	for (NativeFn on : { g_dc.setBlind, g_dc.setDeaf }) Call(on, { npc, 1 });
+	// Враги по замыслу игры не замечают спутников (стелс): чтобы они охотились и на партнёра, его
+	// копия - во фракции самого игрока (так делает TLOU2-Coop) и не "игнорируется" ИИ.
+	if (g_enemiesSee) {
+		Call(g_dc.setIgnore, { npc, 0 });
+		if (const uint64_t faction = Call(g_dc.getFaction, { Sid("player") })) Call(g_dc.setFaction, { npc, faction });
+	} else {
+		Call(g_dc.setIgnore, { npc, 1 });
+	}
 	for (NativeFn off : { g_dc.hitReactions, g_dc.stun, g_dc.dodges }) Call(off, { npc, 0 });
 	Call(g_dc.setUnshootable, { npc, 1 });  // напарника не подстрелить
 }
@@ -127,6 +137,7 @@ void AiOff(uint64_t npc) {
 // Спутник главы становится партнёром: его ведёт сеть, а не ИИ.
 void TakeOverBuddy(uint64_t npc) {
 	g_buddyMode = Call(g_dc.getScriptMode, { npc });
+	g_buddyFaction = Call(g_dc.getFaction, { npc });
 	AiOff(npc);
 	g_puppetIsBuddy = true;
 	Log("puppet: companion %016llX now follows the partner (its AI is off)", static_cast<unsigned long long>(npc));
@@ -135,6 +146,7 @@ void TakeOverBuddy(uint64_t npc) {
 void ReleaseBuddy(uint64_t npc) {
 	if (Call(g_dc.entityExists, { npc })) {
 		Call(g_dc.scriptMode, { npc, g_buddyMode, 1 });
+		if (g_buddyFaction) Call(g_dc.setFaction, { npc, g_buddyFaction });
 		for (NativeFn off : { g_dc.setIgnore, g_dc.setBlind, g_dc.setDeaf }) Call(off, { npc, 0 });
 		for (NativeFn on : { g_dc.hitReactions, g_dc.stun, g_dc.dodges }) Call(on, { npc, 1 });
 	}
@@ -668,6 +680,7 @@ Role GetRole() { return MyCharacter() == 1 ? Role::Companion : Role::Hero; }
 bool MeFiring() { return g_meFiring; }
 bool MeCrouched() { return g_meCrouched; }
 bool MeAiming() { return g_meAiming; }
+void SetEnemiesSeePartner(bool on) { g_enemiesSee = on; }
 void SetPartnerStance(bool crouched, bool aiming) {
 	g_partnerCrouched = crouched;
 	g_partnerAiming = aiming;
@@ -804,6 +817,25 @@ void ScriptTick() {
 	g_meFiring = (Call(g_dc.isFiring, {}) & 1) != 0;
 	// Поза: своя - для отправки (5 раз в секунду хватает), партнёра - на марионетку при смене.
 	// Манеры NPC из скриптов игры: 'crouch - присед, 'ambient - обычная.
+	// Копию бьют враги - держим её живой: здоровье обратно до того, с каким она появилась.
+	static ULONGLONG lastHeal = 0;
+	static uint64_t healOf = 0;
+	static uint32_t fullHealth = 0;
+	if (g_enemiesSee && g_puppet && GetTickCount64() - lastHeal >= 200) {
+		lastHeal = GetTickCount64();
+		const uint64_t puppet = g_puppet;
+		const uint32_t h = static_cast<uint32_t>(Call(g_dc.getHealth, { puppet }));
+		float now = 0;
+		memcpy(&now, &h, 4);
+		if (puppet != healOf) {
+			healOf = puppet;
+			fullHealth = h;
+		} else {
+			float full = 0;
+			memcpy(&full, &fullHealth, 4);
+			if (now < full && now > 0.0f) Call(g_dc.setHealth, { puppet, fullHealth });
+		}
+	}
 	static ULONGLONG lastStance = 0;
 	if (GetTickCount64() - lastStance >= 200) {
 		lastStance = GetTickCount64();
