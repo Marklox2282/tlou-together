@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <cmath>
+#include <cstddef>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -57,12 +58,27 @@ void Log(const char* fmt, ...) {
 	fflush(g_log);
 }
 
-// Чтение через ядро: неверный адрес даёт false, а не вылет игры.
+// Чтение чужих структур: неверный адрес даёт false, а не вылет игры. Прямое копирование под
+// __try: ReadProcessMemory на каждое поле при обходе тысяч спавнеров вешал игру на секунды.
+// Свои перехваченные ошибки не пишем в журнал падений.
+thread_local bool t_safeRead = false;
+
+bool SafeCopy(void* dst, uintptr_t src, size_t n) {
+	if (src < 0x10000 || src + n < src || src + n > 0x7FFFFFFFFFFFull) return false;
+	t_safeRead = true;
+	bool ok = true;
+	__try {
+		memcpy(dst, reinterpret_cast<const void*>(src), n);
+	} __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
+		ok = false;
+	}
+	t_safeRead = false;
+	return ok;
+}
+
 template <typename T>
 bool Read(uintptr_t address, T& out) {
-	SIZE_T n = 0;
-	return ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(address), &out, sizeof(T), &n) &&
-		n == sizeof(T);
+	return SafeCopy(&out, address, sizeof(T));
 }
 
 uintptr_t ReadPtr(uintptr_t a) {
@@ -70,10 +86,11 @@ uintptr_t ReadPtr(uintptr_t a) {
 	return Read(a, v) && v >= 0x10000 && v <= 0x7FFFFFFFFFFFull ? v : 0;
 }
 
+// По байту до нуля: строка может кончаться у границы страницы.
 std::string ReadName(uintptr_t p) {
 	char buf[96]{};
-	SIZE_T n = 0;
-	if (!p || !ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(p), buf, sizeof(buf) - 1, &n)) return {};
+	size_t n = 0;
+	while (n + 1 < sizeof(buf) && SafeCopy(&buf[n], p + n, 1) && buf[n]) ++n;
 	buf[n] = 0;
 	return buf;
 }
@@ -186,60 +203,78 @@ int SpawnerRank(const std::string& art, const std::string& hero) {
 	return (heroFemale ? female : male) ? 3 : 1;
 }
 
-uintptr_t FindBuddySpawner(const std::string& hero, std::string& nameOut) {
+// Заголовок спавнера одним чтением (раскладка как в Part II).
+struct SpawnerHead {
+	float pos[4], rot[4];
+	uint8_t pad0[0x18];
+	uint64_t sid;        // +0x38
+	uint8_t pad1[0x10];
+	uintptr_t name;      // +0x50
+	uint8_t pad2[0x18];
+	uint64_t type;       // +0x70, 0 = точка появления игрока
+	uintptr_t art;       // +0x78
+	uint8_t flags0, flags1;
+};
+static_assert(offsetof(SpawnerHead, sid) == kSpSid && offsetof(SpawnerHead, name) == kSpName &&
+	offsetof(SpawnerHead, type) == kSpType && offsetof(SpawnerHead, art) == kSpArt &&
+	offsetof(SpawnerHead, flags0) == kSpFlags0 && offsetof(SpawnerHead, flags1) == kSpFlags1);
+
+// Все спавнеры загруженных уровней; fn возвращает false, чтобы остановиться.
+template <typename Fn>
+void ForEachSpawner(Fn&& fn) {
+	constexpr uint32_t kMaxLevels = 0x200;
+	constexpr int32_t kMaxPerLevel = 20000;
 	const uintptr_t mgr = ReadPtr(g_base + kLevelMgrRva), levels = mgr ? ReadPtr(mgr + kMgrLevels) : 0;
 	uint32_t count = 0;
-	if (!levels || !Read(mgr + kMgrLevelCount, count) || count > 0x200) return 0;
-	uintptr_t best = 0;
-	int bestRank = 0;
+	static uintptr_t levelPtrs[kMaxLevels], spawners[kMaxPerLevel];
+	if (!levels || !Read(mgr + kMgrLevelCount, count) || count > kMaxLevels || !SafeCopy(levelPtrs, levels, count * 8ull)) return;
 	for (uint32_t i = 0; i < count; ++i) {
-		const uintptr_t sd = ReadPtr(ReadPtr(levels + i * 8) + kLevelSpawnData), arr = sd ? ReadPtr(sd + 8) : 0;
+		const uintptr_t sd = ReadPtr(levelPtrs[i] + kLevelSpawnData), arr = sd ? ReadPtr(sd + 8) : 0;
 		int32_t n = 0;
-		if (!arr || !Read(sd + 0x10, n) || n <= 0 || n > 100000) continue;
-		for (int32_t j = 0; j < n; ++j) {
-			const uintptr_t sp = ReadPtr(arr + j * 8);
-			uint64_t type = 0;  // 0 = точка появления игрока, не NPC
-			uint8_t f0 = 0;
-			if (!sp || !Read(sp + kSpType, type) || !type || !Read(sp + kSpFlags0, f0) || (f0 & kSpDisabled)) continue;
-			const std::string art = ReadName(ReadPtr(sp + kSpArt));
-			const int rank = SpawnerRank(art, hero);
-			if (rank > bestRank) {
-				best = sp;
-				bestRank = rank;
-				nameOut = ReadName(ReadPtr(sp + kSpName)) + " (" + art + ")";
-				if (rank == 5) return best;
-			}
+		if (!arr || !Read(sd + 0x10, n) || n <= 0 || n > kMaxPerLevel || !SafeCopy(spawners, arr, n * 8ull)) continue;
+		// Мусорный уровень (неверный счётчик) не должен стоить тысяч перехваченных исключений.
+		for (int32_t j = 0, misses = 0; j < n && misses < 8; ++j) {
+			SpawnerHead h{};
+			if (!spawners[j] || !Read(spawners[j], h)) { ++misses; continue; }
+			misses = 0;
+			if (!fn(spawners[j], h)) return;
 		}
 	}
+}
+
+uintptr_t FindBuddySpawner(const std::string& hero, std::string& nameOut) {
+	uintptr_t best = 0;
+	int bestRank = 0;
+	ForEachSpawner([&](uintptr_t sp, const SpawnerHead& h) {
+		if (!h.type || (h.flags0 & kSpDisabled)) return true;
+		const std::string art = ReadName(h.art);
+		const int rank = SpawnerRank(art, hero);
+		if (rank > bestRank) {
+			best = sp;
+			bestRank = rank;
+			nameOut = ReadName(h.name) + " (" + art + ")";
+		}
+		return bestRank < 5;
+	});
 	return best;
 }
 
 // Внешность героя текущей главы: у точек появления игрока (тип 0, "...-player-N") арт - костюм
 // героя ("t1x-joel-costume-01"). Берём ближайшую к игроку.
 std::string HeroLook(const float around[3]) {
-	const uintptr_t mgr = ReadPtr(g_base + kLevelMgrRva), levels = mgr ? ReadPtr(mgr + kMgrLevels) : 0;
-	uint32_t count = 0;
-	if (!levels || !Read(mgr + kMgrLevelCount, count) || count > 0x200) return {};
 	std::string best;
 	float bestDist = 1e30f;
-	for (uint32_t i = 0; i < count; ++i) {
-		const uintptr_t sd = ReadPtr(ReadPtr(levels + i * 8) + kLevelSpawnData), arr = sd ? ReadPtr(sd + 8) : 0;
-		int32_t n = 0;
-		if (!arr || !Read(sd + 0x10, n) || n <= 0 || n > 100000) continue;
-		for (int32_t j = 0; j < n; ++j) {
-			const uintptr_t sp = ReadPtr(arr + j * 8);
-			uint64_t type = 1;
-			float pos[3]{};
-			if (!sp || !Read(sp + kSpType, type) || type || !Read(sp, pos)) continue;
-			if (ReadName(ReadPtr(sp + kSpName)).find("-player-") == std::string::npos) continue;
-			const std::string art = ReadName(ReadPtr(sp + kSpArt));
-			const float dx = pos[0] - around[0], dy = pos[1] - around[1], dz = pos[2] - around[2], d = dx * dx + dy * dy + dz * dz;
-			if (art.rfind("t1x-", 0) == 0 && d < bestDist) {
-				bestDist = d;
-				best = art;
-			}
+	ForEachSpawner([&](uintptr_t, const SpawnerHead& h) {
+		if (h.type) return true;
+		const float dx = h.pos[0] - around[0], dy = h.pos[1] - around[1], dz = h.pos[2] - around[2];
+		const float d = dx * dx + dy * dy + dz * dz;
+		if (d >= bestDist || ReadName(h.name).find("-player-") == std::string::npos) return true;
+		if (std::string art = ReadName(h.art); art.rfind("t1x-", 0) == 0) {
+			bestDist = d;
+			best = std::move(art);
 		}
-	}
+		return true;
+	});
 	return best;
 }
 
@@ -347,8 +382,10 @@ void PuppetUpdate() {
 	if (!DelayedTarget(now, target)) return;
 	if (!g_puppet) {
 		if (now - g_lastSpawnTry < 3000) return;
-		g_lastSpawnTry = now;
 		g_puppet = SpawnPuppet(target);
+		const ULONGLONG took = GetTickCount64() - now;
+		if (took > 20) Log("puppet: spawn attempt took %llu ms", took);
+		g_lastSpawnTry = GetTickCount64();
 		return;
 	}
 	// Марионетка идёт сама своей анимацией: npc-move-to(npc, frame, режим, 0...), где режим
@@ -566,7 +603,8 @@ void CrashWrite(const char* fmt, ...) {
 }
 
 LONG CALLBACK OnException(EXCEPTION_POINTERS* e) {
-	if (e->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || g_crashCount++ >= 3) return EXCEPTION_CONTINUE_SEARCH;
+	if (e->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || t_safeRead || g_crashCount++ >= 3)
+		return EXCEPTION_CONTINUE_SEARCH;
 	const CONTEXT& c = *e->ContextRecord;
 	auto rva = [](uint64_t a) { return a >= g_base && a < g_base + 0x9000000 ? a - g_base : 0; };
 	CrashWrite("\r\naccess violation tid=%lu rip=tlou+%llX (%llX) %s %llX\r\n", GetCurrentThreadId(), rva(c.Rip), c.Rip,
