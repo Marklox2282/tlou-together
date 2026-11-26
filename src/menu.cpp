@@ -552,6 +552,9 @@ void EventDiag(safetyhook::Context& ctx) {
 }
 
 void OnPress(safetyhook::Context& ctx) {
+	// Ветка общая с "выйти на рабочий стол" (buttonQuitToDesktop прыгает сюда же): в rax ещё имя
+	// нажатой кнопки - чужую отдаём игре.
+	if (ctx.rax != Sid("buttonQuitToLibrary")) return;
 	const uintptr_t menu = ctx.r15;
 	using MainMenuFn = bool (*)(uintptr_t);
 	const auto mainMenu = reinterpret_cast<MainMenuFn>(*reinterpret_cast<uintptr_t*>(*reinterpret_cast<uintptr_t*>(menu) + kMainMenuVcall));
