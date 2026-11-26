@@ -27,7 +27,7 @@ namespace {
 
 // Номер версии мода: увеличивать при каждом выпуске (tools/release.py берёт его отсюда).
 // Игроки с разными версиями не соединяются.
-constexpr uint32_t kModVersion = 11;
+constexpr uint32_t kModVersion = 12;
 
 using engine::Locator;
 
@@ -56,9 +56,12 @@ net::Config LoadConfig(std::string& name) {
 				"; peer_ip   = empty: F8 connects to a Steam friend who is in this game and also pressed F8.\n"
 				";             An IP (LAN): connect directly over UDP instead of Steam.\n"
 				"; port      = your UDP port for peer_ip mode; peer_port = your friend's.\n"
+				"; character = how your partner sees you: auto (default: the chapter's hero, like them),\n"
+				";             companion (the chapter's companion: Tess, Ellie...), or joel, ellie, sarah, tess,\n"
+				";             tommy, bill, henry, sam, riley, marlene, maria.\n"
 				"; enemy_sync = soft (default): enemies keep their AI, moved to the host's spot off-screen.\n"
 				";             full (experimental): the guest's enemies copy the host's moves; they don't attack yet.\n"
-				"name=\npeer_ip=\nport=7777\npeer_port=7777\n", f);
+				"name=\npeer_ip=\nport=7777\npeer_port=7777\ncharacter=auto\n", f);
 			fclose(f);
 		}
 		return cfg;
@@ -77,6 +80,7 @@ net::Config LoadConfig(std::string& name) {
 		else if (key == "port") cfg.port = static_cast<uint16_t>(atoi(value.c_str()));
 		else if (key == "peer_port") cfg.peerPort = static_cast<uint16_t>(atoi(value.c_str()));
 		else if (key == "enemy_sync") enemies::SetFullSync(value == "full");
+		else if (key == "character") puppet::SetMyCharacter(puppet::CharacterFromName(value));
 	}
 	fclose(f);
 	return cfg;
@@ -131,6 +135,8 @@ void PublishLobby(ULONGLONG now) {
 	s.code = net::Link::LobbyCode(g_link.Lobby());
 	s.codeError = g_codeError;
 	s.iAmHero = puppet::GetRole() == puppet::Role::Hero;
+	s.myCharacter = puppet::CharacterName(puppet::MyCharacter());
+	s.partnerCharacter = puppet::CharacterName(puppet::PartnerCharacter());
 	s.heroName = puppet::HeroCharacter();
 	s.companionName = puppet::CompanionCharacter();
 	s.on = g_link.GetState() != net::State::Off;
@@ -188,13 +194,8 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		SetClipboardText(net::Link::LobbyCode(copiedLobby));
 		Log("net: lobby code %s copied to the clipboard", net::Link::LobbyCode(copiedLobby).c_str());
 	}
-	// Роли: решает одна сторона (Link::Authority), вторая берёт противоположную роль из поз.
-	static bool heroSwapped = false, partnerHero = true;
-	if (action == menu::SwapRoles) {
-		if (g_link.Authority()) heroSwapped = !heroSwapped;
-		else g_link.SendSwap();
-	}
-	if (g_link.TakeSwapRequest() && g_link.Authority()) heroSwapped = !heroSwapped;
+	// Персонаж: кнопка в лобби перебирает варианты (auto, спутник, joel, ellie...).
+	if (action == menu::SwapRoles) puppet::SetMyCharacter((puppet::MyCharacter() + 1) % puppet::kCharacterCount);
 	if (const uint64_t invite = net::Link::TakeInvite()) {  // приняли приглашение в Steam
 		LoadConfig(name);
 		g_link.SetName(name);
@@ -219,13 +220,9 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	const engine::Chapter mine = puppet::MyChapter();
 	g_link.SetChapter({ mine.node, mine.task });
 	if (gotPose) {
-		partnerHero = (pose.flags & net::kFlagHero) != 0;
 		puppet::SetPartnerFiring((pose.flags & net::kFlagFiring) != 0);
+		puppet::SetPartnerCharacter(puppet::CharacterFromSid(pose.target));
 	}
-	const bool connectedNow = g_link.GetState() == net::State::Connected;
-	if (connectedNow)
-		puppet::SetRole(g_link.Authority() ? (heroSwapped ? puppet::Role::Companion : puppet::Role::Hero)
-		                                   : (partnerHero ? puppet::Role::Companion : puppet::Role::Hero));
 	if (gotPose) {
 		if (!puppet::UsingNetwork()) {  // первая поза друга: марионетка теперь его
 			puppet::UseNetwork(true);
@@ -275,7 +272,8 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	}
 	if (havePlayer && now - lastSend >= 50) {  // 20 раз в секунду
 		lastSend = now;
-		g_link.SendPose(me.pos, me.rot, puppet::GetRole() == puppet::Role::Hero, puppet::MeFiring());
+		g_link.SendPose(me.pos, me.rot, puppet::GetRole() == puppet::Role::Hero, puppet::MeFiring(),
+			puppet::CharacterSid(puppet::MyCharacter()));
 	}
 }
 
@@ -300,7 +298,7 @@ void FrameTick(safetyhook::Context&) {
 	if (KeyPressed(VK_F10, f10Down)) {
 		if (GetAsyncKeyState(VK_SHIFT) & 0x8000) {
 			if (g_link.GetState() != net::State::Connected)
-				puppet::SetRole(puppet::GetRole() == puppet::Role::Hero ? puppet::Role::Companion : puppet::Role::Hero);
+				puppet::SetMyCharacter((puppet::MyCharacter() + 1) % puppet::kCharacterCount);
 		} else {
 			puppet::SetWanted(!puppet::Wanted());
 			Log("F10: puppet %s", puppet::Wanted() ? "on" : "off");
@@ -444,6 +442,10 @@ void Init() {
 	if (script) g_scriptHook = std::move(*script);
 	Log("script hook: %s", g_scriptHook ? "ok" : "FAILED");
 	if (auto h = safetyhook::MidHook::create(reinterpret_cast<void*>(engine::g_base + 0x152EF1F), FireDiag)) g_fireDiag = std::move(*h);
+	{
+		std::string name;
+		LoadConfig(name);  // персонаж и режим врагов - сразу, не только по F8
+	}
 	menu::Install(ReadLobby, [](menu::Action a) { g_menuAction = a; });
 	InstallCrashLog();
 }

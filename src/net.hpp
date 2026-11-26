@@ -59,7 +59,8 @@ public:
 	void Stop();
 	// Отправляет приветствия при поиске и принимает пакеты. Возвращает true, если пришла поза.
 	bool Tick(uint64_t nowMs, Packet& pose);
-	void SendPose(const float pos[3], const float rot[4], bool hero = true, bool firing = false);
+	// character: выбранный персонаж отправителя (sid имени), в поле target.
+	void SendPose(const float pos[3], const float rot[4], bool hero = true, bool firing = false, uint64_t character = 0);
 	// Роли решает одна сторона: хозяин лобби; без лобби - больший Steam ID (по UDP - меньший порт).
 	bool Authority() const;
 	void SendSwap();             // просьба поменяться ролями (от второй стороны)

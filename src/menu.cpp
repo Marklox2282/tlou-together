@@ -76,7 +76,7 @@ const Lang kLangs[] = {
 		"You are in %s's lobby.<br>Connecting...",
 		"Connected to %s.<br>In game: F7 - go to your partner, F5 - load your partner's chapter.",
 		"Connecting...", "CREATE LOBBY", "INVITE FRIEND", "LEAVE LOBBY", "LOBBY",
-		"SWAP ROLES", "You", "hero", "companion",
+		"CHANGE CHARACTER", "You", "hero", "companion",
 		"JOIN BY CODE",
 		"Lobby code: %s<br>It is copied - paste it to your friend in a chat.",
 		"Copy your friend's lobby code first (Ctrl+C), then choose Join by code." },
@@ -86,7 +86,7 @@ const Lang kLangs[] = {
 		"Вы в лобби игрока %s.<br>Соединение...",
 		"Подключено: %s.<br>В игре: F7 - к напарнику, F5 - загрузить главу напарника.",
 		"Соединение...", "СОЗДАТЬ ЛОББИ", "ПРИГЛАСИТЬ ДРУГА", "ПОКИНУТЬ ЛОББИ", "ЛОББИ",
-		"ПОМЕНЯТЬСЯ РОЛЯМИ", "Вы", "герой", "напарник",
+		"СМЕНИТЬ ПЕРСОНАЖА", "Вы", "герой", "напарник",
 		"ВОЙТИ ПО КОДУ",
 		"Код лобби: %s<br>Он уже скопирован - вставьте его другу в чат.",
 		"Сначала скопируйте код лобби друга (Ctrl+C), потом выберите «Войти по коду»." },
@@ -96,7 +96,7 @@ const Lang kLangs[] = {
 		"Vous êtes dans le salon de %s.<br>Connexion...",
 		"Connecté à %s.<br>En jeu : F7 - rejoindre votre partenaire, F5 - charger son chapitre.",
 		"Connexion...", "CRÉER UN SALON", "INVITER UN AMI", "QUITTER LE SALON", "SALON",
-		"ÉCHANGER LES RÔLES", "Vous", "héros", "compagnon",
+		"CHANGER DE PERSONNAGE", "Vous", "héros", "compagnon",
 		"REJOINDRE PAR CODE",
 		"Code du salon : %s<br>Il est copié - collez-le à votre ami dans un chat.",
 		"Copiez d'abord le code du salon de votre ami (Ctrl+C), puis choisissez Rejoindre par code." },
@@ -106,7 +106,7 @@ const Lang kLangs[] = {
 		"Du bist in der Lobby von %s.<br>Verbinde...",
 		"Verbunden mit %s.<br>Im Spiel: F7 - zum Partner, F5 - Kapitel des Partners laden.",
 		"Verbinde...", "LOBBY ERSTELLEN", "FREUND EINLADEN", "LOBBY VERLASSEN", "LOBBY",
-		"ROLLEN TAUSCHEN", "Du", "Held", "Begleiter",
+		"FIGUR WECHSELN", "Du", "Held", "Begleiter",
 		"MIT CODE BEITRETEN",
 		"Lobby-Code: %s<br>Er ist kopiert - schick ihn deinem Freund im Chat.",
 		"Kopiere zuerst den Lobby-Code deines Freundes (Strg+C) und wähle dann Mit Code beitreten." },
@@ -116,7 +116,7 @@ const Lang kLangs[] = {
 		"Sei nella lobby di %s.<br>Connessione...",
 		"Connesso a %s.<br>In gioco: F7 - raggiungi il compagno, F5 - carica il suo capitolo.",
 		"Connessione...", "CREA LOBBY", "INVITA UN AMICO", "ESCI DALLA LOBBY", "LOBBY",
-		"SCAMBIA I RUOLI", "Tu", "eroe", "compagno",
+		"CAMBIA PERSONAGGIO", "Tu", "eroe", "compagno",
 		"ENTRA CON CODICE",
 		"Codice lobby: %s<br>È già copiato - incollalo al tuo amico in chat.",
 		"Copia prima il codice lobby del tuo amico (Ctrl+C), poi scegli Entra con codice." },
@@ -126,7 +126,7 @@ const Lang kLangs[] = {
 		"Estás en la sala de %s.<br>Conectando...",
 		"Conectado con %s.<br>En el juego: F7 - ir con tu compañero, F5 - cargar su capítulo.",
 		"Conectando...", "CREAR SALA", "INVITAR A UN AMIGO", "SALIR DE LA SALA", "SALA",
-		"CAMBIAR PAPELES", "Tú", "protagonista", "compañero",
+		"CAMBIAR PERSONAJE", "Tú", "protagonista", "compañero",
 		"UNIRSE CON CÓDIGO",
 		"Código de sala: %s<br>Ya está copiado: pégaselo a tu amigo en un chat.",
 		"Copia primero el código de sala de tu amigo (Ctrl+C) y elige Unirse con código." },
@@ -136,7 +136,7 @@ const Lang kLangs[] = {
 		"Você está no lobby de %s.<br>Conectando...",
 		"Conectado a %s.<br>No jogo: F7 - ir até o parceiro, F5 - carregar o capítulo dele.",
 		"Conectando...", "CRIAR LOBBY", "CONVIDAR AMIGO", "SAIR DO LOBBY", "LOBBY",
-		"TROCAR PAPÉIS", "Você", "protagonista", "parceiro",
+		"TROCAR PERSONAGEM", "Você", "protagonista", "parceiro",
 		"ENTRAR COM CÓDIGO",
 		"Código do lobby: %s<br>Ele já foi copiado - cole para o seu amigo no chat.",
 		"Copie primeiro o código do lobby do seu amigo (Ctrl+C) e escolha Entrar com código." },
@@ -146,7 +146,7 @@ const Lang kLangs[] = {
 		"Jesteś w lobby gracza %s.<br>Łączenie...",
 		"Połączono z: %s.<br>W grze: F7 - do partnera, F5 - wczytaj rozdział partnera.",
 		"Łączenie...", "UTWÓRZ LOBBY", "ZAPROŚ ZNAJOMEGO", "OPUŚĆ LOBBY", "LOBBY",
-		"ZAMIEŃ ROLE", "Ty", "bohater", "towarzysz",
+		"ZMIEŃ POSTAĆ", "Ty", "bohater", "towarzysz",
 		"DOŁĄCZ KODEM",
 		"Kod lobby: %s<br>Jest już skopiowany - wklej go znajomemu na czacie.",
 		"Najpierw skopiuj kod lobby znajomego (Ctrl+C), potem wybierz Dołącz kodem." },
@@ -156,7 +156,7 @@ const Lang kLangs[] = {
 		"%s adlı oyuncunun lobisindesin.<br>Bağlanılıyor...",
 		"%s ile bağlanıldı.<br>Oyunda: F7 - ortağına git, F5 - ortağının bölümünü yükle.",
 		"Bağlanılıyor...", "LOBİ KUR", "ARKADAŞ DAVET ET", "LOBİDEN ÇIK", "LOBİ",
-		"ROLLERİ DEĞİŞ", "Sen", "kahraman", "yoldaş",
+		"KARAKTERİ DEĞİŞ", "Sen", "kahraman", "yoldaş",
 		"KODLA KATIL",
 		"Lobi kodu: %s<br>Kopyalandı - sohbette arkadaşına yapıştır.",
 		"Önce arkadaşının lobi kodunu kopyala (Ctrl+C), sonra Kodla katıl'ı seç." },
@@ -166,7 +166,7 @@ const Lang kLangs[] = {
 		"Jste v lobby hráče %s.<br>Připojování...",
 		"Připojeno k: %s.<br>Ve hře: F7 - k parťákovi, F5 - načíst jeho kapitolu.",
 		"Připojování...", "VYTVOŘIT LOBBY", "POZVAT PŘÍTELE", "OPUSTIT LOBBY", "LOBBY",
-		"VYMĚNIT ROLE", "Vy", "hrdina", "parťák",
+		"ZMĚNIT POSTAVU", "Vy", "hrdina", "parťák",
 		"PŘIPOJIT SE KÓDEM",
 		"Kód lobby: %s<br>Je zkopírovaný - vložte ho příteli do chatu.",
 		"Nejdřív zkopírujte kód lobby přítele (Ctrl+C) a pak zvolte Připojit se kódem." },
@@ -176,7 +176,7 @@ const Lang kLangs[] = {
 		"%s lobbijában vagy.<br>Csatlakozás...",
 		"Csatlakozva: %s.<br>Játékban: F7 - a társadhoz, F5 - a társad fejezetének betöltése.",
 		"Csatlakozás...", "LOBBI LÉTREHOZÁSA", "BARÁT MEGHÍVÁSA", "KILÉPÉS A LOBBIBÓL", "LOBBI",
-		"SZEREPCSERE", "Te", "főhős", "társ",
+		"KARAKTERVÁLTÁS", "Te", "főhős", "társ",
 		"BELÉPÉS KÓDDAL",
 		"Lobbikód: %s<br>Már ki van másolva - illeszd be a barátodnak a csetbe.",
 		"Először másold ki a barátod lobbikódját (Ctrl+C), majd válaszd a Belépés kóddal lehetőséget." },
@@ -186,7 +186,7 @@ const Lang kLangs[] = {
 		"Είσαι στο λόμπι του/της %s.<br>Σύνδεση...",
 		"Συνδέθηκες με: %s.<br>Στο παιχνίδι: F7 - στον συμπαίκτη, F5 - φόρτωση του κεφαλαίου του.",
 		"Σύνδεση...", "ΔΗΜΙΟΥΡΓΙΑ ΛΟΜΠΙ", "ΠΡΟΣΚΛΗΣΗ ΦΙΛΟΥ", "ΑΠΟΧΩΡΗΣΗ", "ΛΟΜΠΙ",
-		"ΑΝΤΑΛΛΑΓΗ ΡΟΛΩΝ", "Εσύ", "ήρωας", "σύντροφος",
+		"ΑΛΛΑΓΗ ΧΑΡΑΚΤΗΡΑ", "Εσύ", "ήρωας", "σύντροφος",
 		"ΣΥΝΔΕΣΗ ΜΕ ΚΩΔΙΚΟ",
 		"Κωδικός λόμπι: %s<br>Έχει αντιγραφεί - στείλ' τον στον φίλο σου στη συνομιλία.",
 		"Αντίγραψε πρώτα τον κωδικό λόμπι του φίλου σου (Ctrl+C) και μετά διάλεξε Σύνδεση με κωδικό." },
@@ -196,7 +196,7 @@ const Lang kLangs[] = {
 		"Je zit in de lobby van %s.<br>Verbinden...",
 		"Verbonden met %s.<br>In het spel: F7 - naar je partner, F5 - hoofdstuk van je partner laden.",
 		"Verbinden...", "LOBBY MAKEN", "VRIEND UITNODIGEN", "LOBBY VERLATEN", "LOBBY",
-		"ROLLEN WISSELEN", "Jij", "held", "metgezel",
+		"PERSONAGE WISSELEN", "Jij", "held", "metgezel",
 		"MET CODE DEELNEMEN",
 		"Lobbycode: %s<br>Hij is gekopieerd - plak hem in een chat naar je vriend.",
 		"Kopieer eerst de lobbycode van je vriend (Ctrl+C) en kies dan Met code deelnemen." },
@@ -206,7 +206,7 @@ const Lang kLangs[] = {
 		"Du er i %s's lobby.<br>Forbinder...",
 		"Forbundet til %s.<br>I spillet: F7 - gå til din makker, F5 - indlæs din makkers kapitel.",
 		"Forbinder...", "OPRET LOBBY", "INVITER VEN", "FORLAD LOBBY", "LOBBY",
-		"BYT ROLLER", "Du", "helt", "makker",
+		"SKIFT FIGUR", "Du", "helt", "makker",
 		"DELTAG MED KODE",
 		"Lobbykode: %s<br>Den er kopieret - indsæt den til din ven i en chat.",
 		"Kopiér først din vens lobbykode (Ctrl+C), og vælg så Deltag med kode." },
@@ -216,7 +216,7 @@ const Lang kLangs[] = {
 		"Olet pelaajan %s aulassa.<br>Yhdistetään...",
 		"Yhdistetty: %s.<br>Pelissä: F7 - pelikaverin luo, F5 - lataa pelikaverin luku.",
 		"Yhdistetään...", "LUO AULA", "KUTSU KAVERI", "POISTU AULASTA", "AULA",
-		"VAIHDA ROOLEJA", "Sinä", "sankari", "seuralainen",
+		"VAIHDA HAHMOA", "Sinä", "sankari", "seuralainen",
 		"LIITY KOODILLA",
 		"Aulan koodi: %s<br>Se on kopioitu - liitä se kaverillesi chattiin.",
 		"Kopioi ensin kaverisi aulan koodi (Ctrl+C) ja valitse sitten Liity koodilla." },
@@ -226,7 +226,7 @@ const Lang kLangs[] = {
 		"Du er i lobbyen til %s.<br>Kobler til...",
 		"Koblet til %s.<br>I spillet: F7 - gå til partneren, F5 - last inn partnerens kapittel.",
 		"Kobler til...", "OPPRETT LOBBY", "INVITER VENN", "FORLAT LOBBYEN", "LOBBY",
-		"BYTT ROLLER", "Du", "helt", "følgesvenn",
+		"BYTT KARAKTER", "Du", "helt", "følgesvenn",
 		"BLI MED MED KODE",
 		"Lobbykode: %s<br>Den er kopiert - lim den inn til vennen din i en chat.",
 		"Kopier først lobbykoden til vennen din (Ctrl+C), og velg så Bli med med kode." },
@@ -236,7 +236,7 @@ const Lang kLangs[] = {
 		"Du är i %s lobby.<br>Ansluter...",
 		"Ansluten till %s.<br>I spelet: F7 - gå till din partner, F5 - ladda din partners kapitel.",
 		"Ansluter...", "SKAPA LOBBY", "BJUD IN VÄN", "LÄMNA LOBBYN", "LOBBY",
-		"BYT ROLLER", "Du", "hjälte", "följeslagare",
+		"BYT KARAKTÄR", "Du", "hjälte", "följeslagare",
 		"GÅ MED MED KOD",
 		"Lobbykod: %s<br>Den är kopierad - klistra in den till din vän i en chatt.",
 		"Kopiera först din väns lobbykod (Ctrl+C) och välj sedan Gå med med kod." },
@@ -246,7 +246,7 @@ const Lang kLangs[] = {
 		"Nalaziš se u predvorju igrača %s.<br>Povezivanje...",
 		"Povezano s: %s.<br>U igri: F7 - do partnera, F5 - učitaj partnerovo poglavlje.",
 		"Povezivanje...", "NAPRAVI PREDVORJE", "POZOVI PRIJATELJA", "NAPUSTI PREDVORJE", "PREDVORJE",
-		"ZAMIJENI ULOGE", "Ti", "junak", "pratilac",
+		"PROMIJENI LIK", "Ti", "junak", "pratilac",
 		"PRIDRUŽI SE KODOM",
 		"Kod predvorja: %s<br>Već je kopiran - zalijepi ga prijatelju u chat.",
 		"Najprije kopiraj prijateljev kod predvorja (Ctrl+C), a zatim odaberi Pridruži se kodom." },
@@ -256,7 +256,7 @@ const Lang kLangs[] = {
 		"%s のロビーに参加しています。<br>接続中...",
 		"%s と接続しました。<br>ゲーム中: F7 - パートナーの所へ、F5 - パートナーのチャプターをロード。",
 		"接続中...", "ロビーを作成", "フレンドを招待", "ロビーを退出", "ロビー",
-		"役割を交代", "あなた", "主人公", "相棒",
+		"キャラクター変更", "あなた", "主人公", "相棒",
 		"コードで参加",
 		"ロビーコード: %s<br>コピー済みです。チャットでフレンドに貼り付けてください。",
 		"先にフレンドのロビーコードをコピー(Ctrl+C)してから「コードで参加」を選んでください。" },
@@ -266,7 +266,7 @@ const Lang kLangs[] = {
 		"%s 님의 로비에 있습니다.<br>연결 중...",
 		"%s 님과 연결되었습니다.<br>게임 중: F7 - 파트너에게 이동, F5 - 파트너의 챕터 불러오기.",
 		"연결 중...", "로비 만들기", "친구 초대", "로비 나가기", "로비",
-		"역할 바꾸기", "나", "주인공", "동료",
+		"캐릭터 변경", "나", "주인공", "동료",
 		"코드로 참가",
 		"로비 코드: %s<br>복사되었습니다. 채팅으로 친구에게 붙여 넣으세요.",
 		"먼저 친구의 로비 코드를 복사(Ctrl+C)한 뒤 코드로 참가를 선택하세요." },
@@ -276,7 +276,7 @@ const Lang kLangs[] = {
 		"你在 %s 的大厅中。<br>正在连接...",
 		"已连接到 %s。<br>游戏中：F7 - 前往同伴处，F5 - 载入同伴的章节。",
 		"正在连接...", "创建大厅", "邀请好友", "离开大厅", "大厅",
-		"交换角色", "你", "主角", "同伴",
+		"更换角色", "你", "主角", "同伴",
 		"用代码加入",
 		"大厅代码：%s<br>已复制，请在聊天中粘贴给好友。",
 		"请先复制好友的大厅代码（Ctrl+C），再选择“用代码加入”。" },
@@ -286,7 +286,7 @@ const Lang kLangs[] = {
 		"你在 %s 的大廳中。<br>正在連線...",
 		"已連線至 %s。<br>遊戲中：F7 - 前往夥伴處，F5 - 載入夥伴的章節。",
 		"正在連線...", "建立大廳", "邀請好友", "離開大廳", "大廳",
-		"交換角色", "你", "主角", "同伴",
+		"更換角色", "你", "主角", "同伴",
 		"用代碼加入",
 		"大廳代碼：%s<br>已複製，請在聊天中貼給好友。",
 		"請先複製好友的大廳代碼（Ctrl+C），再選擇「用代碼加入」。" },
@@ -296,7 +296,7 @@ const Lang kLangs[] = {
 		"คุณอยู่ในล็อบบี้ของ %s<br>กำลังเชื่อมต่อ...",
 		"เชื่อมต่อกับ %s แล้ว<br>ในเกม: F7 - ไปหาคู่หู, F5 - โหลดบทของคู่หู",
 		"กำลังเชื่อมต่อ...", "สร้างล็อบบี้", "เชิญเพื่อน", "ออกจากล็อบบี้", "ล็อบบี้",
-		"สลับบทบาท", "คุณ", "ตัวเอก", "คู่หู",
+		"เปลี่ยนตัวละคร", "คุณ", "ตัวเอก", "คู่หู",
 		"เข้าร่วมด้วยรหัส",
 		"รหัสล็อบบี้: %s<br>คัดลอกแล้ว วางให้เพื่อนในแชตได้เลย",
 		"คัดลอกรหัสล็อบบี้ของเพื่อนก่อน (Ctrl+C) แล้วเลือกเข้าร่วมด้วยรหัส" },
@@ -346,17 +346,17 @@ const char* LobbyText(const Lang& l) {
 	char* buf = g_body.Next();
 	const size_t n = sizeof(g_body.buf[0]);
 	if (s.connected) {
-		// "Подключено: Вася... <br><br>Вы: Joel (герой) · Вася: Tess (напарник)".
-		auto who = [&](bool hero) {
-			std::string name = hero ? s.heroName : s.companionName;
+		// "Подключено: Вася... <br><br>Вы: Sarah · Вася: Tess (напарник)".
+		auto who = [&](const std::string& c) {
+			std::string name = c == "auto" ? s.heroName : c == "companion" ? s.companionName : c;
 			if (!name.empty()) name[0] = static_cast<char>(toupper(static_cast<unsigned char>(name[0])));
-			const char* role = hero ? l.hero : l.companion;
-			return name.empty() ? std::string(role) : name + " (" + role + ")";
+			if (c == "companion") return name.empty() ? std::string(l.companion) : name + " (" + l.companion + ")";
+			return name.empty() ? std::string(l.hero) : name;
 		};
 		const int k = snprintf(buf, n, l.connected, Escaped(s.partner).c_str());
 		if (k > 0 && static_cast<size_t>(k) < n)
-			snprintf(buf + k, n - k, "<br><br>%s: %s  ·  %s: %s", l.you, who(s.iAmHero).c_str(), Escaped(s.partner).c_str(),
-				who(!s.iAmHero).c_str());
+			snprintf(buf + k, n - k, "<br><br>%s: %s  ·  %s: %s", l.you, who(s.myCharacter).c_str(), Escaped(s.partner).c_str(),
+				who(s.partnerCharacter).c_str());
 	}
 	else if (s.lobby && s.host) {
 		const int k = snprintf(buf, n, "%s", l.hostWait);
@@ -446,7 +446,7 @@ void OnAnswer(safetyhook::Context& ctx) {
 	if (button == kMessageBoxOk) a = g_boxConnected ? SwapRoles : g_boxInLobby ? Invite : CreateLobby;
 	else if (button == kMessageBoxCancel) a = g_boxInLobby ? Leave : JoinByCode;
 	if (a != None) {
-		Log("menu: lobby button %s", a == CreateLobby ? "create" : a == Invite ? "invite" : a == SwapRoles ? "swap roles" : a == JoinByCode ? "join by code" : "leave");
+		Log("menu: lobby button %s", a == CreateLobby ? "create" : a == Invite ? "invite" : a == SwapRoles ? "change character" : a == JoinByCode ? "join by code" : "leave");
 		if (g_action) g_action(a);
 		if (a == CreateLobby) g_reopenAt = GetTickCount64() + 2500;  // уже с лобби, под окном приглашения Steam
 		if (a == SwapRoles) g_reopenAt = GetTickCount64() + 1500;    // показать новые роли

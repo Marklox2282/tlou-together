@@ -36,11 +36,24 @@ uint64_t Current();  // id марионетки (для журнала паде�
 // спутник главы (Тесс, Элли, Билл...) с выключенным ИИ, а если спутника нет - копия NPC.
 // Напарник - сам выглядит как спутник главы, а его ИИ-спутник спрятан; партнёр (герой) у него -
 // копия NPC в облике героя.
+// Персонаж игрока - каждый выбирает сам (ini character=, кнопка в лобби), выбор уходит партнёру:
+//  0 auto      - герой главы, как сам игрок (Сара и Сара, Джоэл и Джоэл): родные анимации;
+//  1 companion - спутник главы: у партнёра им становится настоящий спутник (Тесс...) без ИИ,
+//                у себя игрок получает облик спутника, а свой ИИ-спутник спрятан;
+//  2+          - конкретный персонаж (joel, ellie...), если он есть в загруженных уровнях.
+constexpr int kCharacterCount = 13;
+const char* CharacterName(int c);           // "auto", "companion", "joel"...
+int CharacterFromName(const std::string& name);
+uint64_t CharacterSid(int c);               // для сети
+int CharacterFromSid(uint64_t sid);         // 0, если неизвестен
+void SetMyCharacter(int c);
+int MyCharacter();
+void SetPartnerCharacter(int c);
+int PartnerCharacter();
 enum class Role { Hero, Companion };
 bool MeFiring();                   // свой игрок стреляет (читается в скриптовом потоке)
 void SetPartnerFiring(bool on);    // партнёр стреляет: марионетка стреляет тоже
-void SetRole(Role r);
-Role GetRole();
+Role GetRole();                             // Companion, если мой персонаж - спутник
 // Имена персонажей текущей главы для лобби ("joel", "tess"); пусто - неизвестно.
 std::string HeroCharacter();
 std::string CompanionCharacter();

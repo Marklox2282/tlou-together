@@ -21,6 +21,7 @@ struct Lobby {
 	std::string code;         // код своего лобби ("K7QX-92F")
 	bool codeError = false;   // пробовали войти по коду, а в буфере обмена не код
 	bool iAmHero = true;      // роли: я герой главы или его спутник
+	std::string myCharacter, partnerCharacter;  // "auto", "companion", "joel"...
 	std::string heroName, companionName;  // "joel", "tess"; пусто - неизвестно
 };
 

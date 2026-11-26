@@ -390,6 +390,17 @@ uint64_t CurrentBuddy(uint64_t exclude) {
 	return 0;
 }
 
+std::string ArtOfCharacter(const std::string& character) {
+	std::string art;
+	ForEachSpawner([&](uintptr_t, const SpawnerHead& h) {
+		std::string a = ReadName(h.art);
+		if (HeroName(a) != character || a.find("-costume") == std::string::npos) return true;
+		art = std::move(a);
+		return false;
+	});
+	return art;
+}
+
 // Имя NPC, созданного спавнером, совпадает с sid спавнера.
 std::string ArtOfNpc(uint64_t npc) {
 	std::string art;

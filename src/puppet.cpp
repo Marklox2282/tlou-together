@@ -85,7 +85,8 @@ int g_failures = 0;
 uint64_t g_badForChapter = 0;
 
 // ---- роли ----------------------------------------------------------------------------------
-std::atomic<int> g_role{ static_cast<int>(Role::Hero) };
+std::atomic<int> g_myChar{ 0 }, g_partnerChar{ 0 };
+int g_puppetChar = -1;  // для какого выбора партнёра создана копия NPC
 std::atomic<bool> g_meFiring{ false }, g_partnerFiring{ false };
 bool g_puppetIsBuddy = false;  // марионетка - настоящий спутник главы (у героя)
 uint64_t g_buddyMode = 0;      // его режим скрипта до нас - вернуть при отпускании
@@ -121,7 +122,11 @@ void ReleaseBuddy(uint64_t npc) {
 // Копия NPC без собственной воли.
 uint64_t Spawn(const Locator& at) {
 	Locator me{};
+	// Облик - выбор партнёра: auto (и спутник без спутника) - герой главы, иначе его персонаж.
 	std::string look = PlayerLocator(me) ? HeroLook(me.pos) : std::string();
+	g_puppetChar = PartnerCharacter();
+	if (g_puppetChar >= 2)
+		if (std::string art = ArtOfCharacter(CharacterName(g_puppetChar)); !art.empty()) look = std::move(art);
 	std::string name;
 	if (g_badForChapter != LoadChapter(g_myChapter).task) {
 		g_badSpawners.clear();
@@ -255,7 +260,7 @@ void Update() {
 	if (!puppet) {
 		if (now - g_lastSpawnTry < (g_failures >= 3 ? 15000u : 3000u)) return;
 		// Герою партнёра изображает настоящий спутник главы, если он есть.
-		if (GetRole() == Role::Hero)
+		if (PartnerCharacter() == 1)
 			if (const uint64_t buddy = CurrentBuddy(0)) {
 				TakeOverBuddy(buddy);
 				g_puppet = puppet = buddy;
@@ -402,12 +407,34 @@ void SwapLook(const std::string& art) {
 	Log("companion: player look -> %s", art.c_str());
 }
 
-// Раз в полсекунды. on: роль напарника действует; иначе всё вернуть как было.
+// Раз в полсекунды. on: сеть или тест включены; иначе всё вернуть как было.
+// Свой облик: спутник - его облик и его ИИ-копия спрятана; персонаж - его костюм; auto - свой.
 void CompanionTick(bool on) {
 	static ULONGLONG last = 0;
+	static uint64_t lastTask = 0;
 	const ULONGLONG now = GetTickCount64();
 	if (now - last < 500) return;
 	last = now;
+	const int mine = MyCharacter();
+	if (const uint64_t task = LoadChapter(g_myChapter).task; task != lastTask) {
+		lastTask = task;  // после загрузки облик игрока снова родной - подменим заново
+		g_lookNow.clear();
+	}
+	if (on && mine >= 2) {
+		if (g_hiddenBuddy) ShowBuddy(g_hiddenBuddy);
+		g_hiddenBuddy = 0;
+		Locator me{};
+		if (g_heroLook.empty() && PlayerLocator(me)) g_heroLook = HeroLook(me.pos);
+		static int triedFor = -1;
+		static uint64_t triedTask = 0;
+		if (g_lookNow.empty() && (triedFor != mine || triedTask != lastTask)) {  // перебор спавнеров - раз на главу
+			triedFor = mine;
+			triedTask = lastTask;
+			SwapLook(ArtOfCharacter(CharacterName(mine)));
+		}
+		return;
+	}
+	on = on && mine == 1;
 	if (!on) {
 		if (g_hiddenBuddy) ShowBuddy(g_hiddenBuddy);
 		g_hiddenBuddy = 0;
@@ -524,11 +551,29 @@ void SetNetActive(bool on) { g_netActive = on; }
 void SetPartnerChapter(const Chapter& c) { StoreChapter(g_partnerChapter, c); }
 Chapter MyChapter() { return LoadChapter(g_myChapter); }
 void RequestJoin(bool own) { g_joinRequest = own ? 2 : 1; }
-void SetRole(Role r) {
-	if (static_cast<int>(r) != g_role.exchange(static_cast<int>(r)))
-		Log("roles: I am the %s", r == Role::Hero ? "hero" : "companion");
+const char* const kCharacters[kCharacterCount] = { "auto", "companion", "joel", "ellie", "sarah", "tess", "tommy",
+	"bill", "henry", "sam", "riley", "marlene", "maria" };
+const char* CharacterName(int c) { return c >= 0 && c < kCharacterCount ? kCharacters[c] : kCharacters[0]; }
+int CharacterFromName(const std::string& name) {
+	for (int i = 0; i < kCharacterCount; ++i)
+		if (name == kCharacters[i]) return i;
+	return 0;
 }
-Role GetRole() { return static_cast<Role>(g_role.load()); }
+uint64_t CharacterSid(int c) { return Sid(CharacterName(c)); }
+int CharacterFromSid(uint64_t sid) {
+	for (int i = 0; i < kCharacterCount; ++i)
+		if (Sid(kCharacters[i]) == sid) return i;
+	return 0;
+}
+void SetMyCharacter(int c) {
+	if (c != g_myChar.exchange(c)) Log("character: I play as %s", CharacterName(c));
+}
+int MyCharacter() { return g_myChar; }
+void SetPartnerCharacter(int c) {
+	if (c != g_partnerChar.exchange(c)) Log("character: partner plays as %s", CharacterName(c));
+}
+int PartnerCharacter() { return g_partnerChar; }
+Role GetRole() { return MyCharacter() == 1 ? Role::Companion : Role::Hero; }
 bool MeFiring() { return g_meFiring; }
 void SetPartnerFiring(bool on) { g_partnerFiring = on; }
 std::string HeroCharacter() {
@@ -559,7 +604,7 @@ uint64_t TakeWorkMicroseconds() { return g_workUs.exchange(0); }
 void ScriptTick() {
 	if (!g_wanted.load(std::memory_order_relaxed) && !g_teleport.load(std::memory_order_relaxed) &&
 		!g_joinRequest.load(std::memory_order_relaxed) && !g_joinAt && !g_hiddenBuddyAtomic.load(std::memory_order_relaxed) &&
-		g_role.load(std::memory_order_relaxed) == static_cast<int>(Role::Hero) &&
+		g_myChar.load(std::memory_order_relaxed) == 0 &&
 		!g_netActive.load(std::memory_order_relaxed) && !g_puppet.load(std::memory_order_relaxed))
 		return;
 	const uint64_t frame = g_frame.load(std::memory_order_relaxed);
@@ -578,10 +623,17 @@ void ScriptTick() {
 	if (const int join = g_joinRequest.exchange(0)) StartJoin(join == 2);
 	FinishJoin();
 	// Роль сменилась на напарника, а партнёра изображал наш спутник: отдать его ИИ (дальше он спрятан).
-	if (GetRole() == Role::Companion && g_puppetIsBuddy) Hide();
+	// Партнёр больше не спутник, а его изображал наш спутник - отдать того ИИ.
+	if (PartnerCharacter() != 1 && g_puppetIsBuddy) Hide();
+	// Партнёр выбрал другого персонажа - копию NPC пересоздать в новом облике.
+	if (g_puppet && !g_puppetIsBuddy && g_puppetChar >= 0 && g_puppetChar != PartnerCharacter()) {
+		Hide();
+		g_puppet = 0;
+		g_hidden = false;
+		g_lastSpawnTry = 0;
+	}
 	if (!g_wanted && g_puppet) Hide();
-	const bool companion = GetRole() == Role::Companion && (g_wanted || g_netActive);
-	CompanionTick(companion);
+	CompanionTick(g_wanted || g_netActive);
 	g_hiddenBuddyAtomic = g_hiddenBuddy != 0;
 	if (g_wanted || g_netActive) NamesTick();
 	g_meFiring = (Call(g_dc.isFiring, {}) & 1) != 0;

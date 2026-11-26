@@ -103,6 +103,8 @@ std::vector<uint64_t> CharacterSids(const std::string& character);
 // Спутник главы (Тесс, Элли, Билл...): первый живой NPC из списка спутников игры
 // ('all-buddy-npcs), кроме exclude. 0 - спутника нет. Скриптовый контекст.
 uint64_t CurrentBuddy(uint64_t exclude);
+// Костюм персонажа ("tess" -> "t1x-tess-costume-01") по спавнерам загруженных уровней; пусто - нет.
+std::string ArtOfCharacter(const std::string& character);
 // Арт спавнера, из которого создан NPC с этим именем ("t1x-tess-costume-01"); пусто - не нашли.
 std::string ArtOfNpc(uint64_t npc);
 // Костюм героя главы: арт ближайшей к точке точки появления игрока ("t1x-joel-costume-01").
