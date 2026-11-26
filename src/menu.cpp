@@ -510,6 +510,7 @@ std::atomic<bool> g_boxOpen{ false }, g_popRequest{ false }, g_reopen{ false };
 std::atomic<DWORD> g_mainThread{ 0 };  // основной поток (из OnFrame): меню трогаем только из него
 std::atomic<ULONGLONG> g_reopenAfter{ 0 };
 std::atomic<uint64_t> g_boxPage{ 0 };  // имя страницы окна в стеке (узнаём после открытия)
+std::atomic<ULONGLONG> g_boxOpenedAt{ 0 };
 
 void RequestReopen(ULONGLONG delayMs) {
 	g_reopenAfter = GetTickCount64() + delayMs;
@@ -548,6 +549,7 @@ bool OpenLobby(bool mainMenu) {
 	if (box) reinterpret_cast<void (*)(uintptr_t, uint64_t)>(base + kBoxTitleRva)(box, kLibraryText);
 	if (box) {
 		g_boxPage = 0;
+		g_boxOpenedAt = GetTickCount64();
 		g_boxOpen = true;
 	}
 	return box != 0;
@@ -660,24 +662,24 @@ void ScriptTick() {
 			Log("menu: lobby reopened %s", OpenLobby(g_mainMenu) ? "ok" : "FAILED");
 		return;
 	}
-	// Страницу окна запоминаем сразу после открытия: сверху стека будет она.
+	// Страницу окна запоминаем через 0.3 с после открытия: в стек оно встаёт не сразу (сразу
+	// сверху была ещё прежняя страница, и закрывалась она, а не наше окно).
 	if (!g_boxPage.load(std::memory_order_relaxed)) {
-		static std::atomic_flag busy = ATOMIC_FLAG_INIT;
-		if (busy.test_and_set()) return;
-		if (!g_boxPage) {
-			const uint64_t top = Call(g_dc.topPage, { stack, 0 });
-			g_boxPage = top;
-			Log("menu: lobby box page %016llX", static_cast<unsigned long long>(top));
-		}
-		busy.clear();
+		if (GetTickCount64() - g_boxOpenedAt < 300) return;
+		g_boxPage = Call(g_dc.topPage, { stack, 0 });
+		Log("menu: lobby box page %016llX", static_cast<unsigned long long>(g_boxPage.load()));
 	}
 	bool want = true;
 	if (!g_popRequest.load(std::memory_order_relaxed) || !g_popRequest.compare_exchange_strong(want, false)) return;
-	if (const uint64_t page = g_boxPage) {
+	// Закрываем, только если сверху именно наше окно.
+	const uint64_t page = g_boxPage, top = Call(g_dc.topPage, { stack, 0 });
+	if (page && top == page) {
 		Call(g_dc.popPage, { stack, page });
 		g_boxOpen = false;
 		RequestReopen(300);
 		Log("menu: lobby changed - box closed to show it again");
+	} else {
+		Log("menu: lobby changed, but the box is not on top (%016llX); leaving it", static_cast<unsigned long long>(top));
 	}
 }
 
