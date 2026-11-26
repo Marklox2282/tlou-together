@@ -10,6 +10,7 @@
 
 #include <safetyhook.hpp>
 
+#include "clipboard.hpp"
 #include "engine.hpp"
 #include "log.hpp"
 #include "menu.hpp"
@@ -74,6 +75,10 @@ struct Lang {
 	const char* waitStart;  // нажали начать игру, а напарник ещё не подключён
 	const char* createFailed;  // Steam не создал лобби
 	const char* joinFailed;    // не вошли в лобби по коду / приглашению
+	const char* start;         // кнопка "начать игру", когда подключены
+	const char* leaveHint;     // как выйти из лобби, когда подключены
+	const char* inClipboard;   // %s - код в буфере обмена
+	const char* noClipboard;   // в буфере нет кода
 };
 
 const Lang kLangs[] = {
@@ -91,7 +96,8 @@ const Lang kLangs[] = {
 		"This window does not update by itself: close it and open Multiplayer again in a few seconds.",
 		"Your partner is still connecting. You can start the game once they are here.",
 		"Could not create the lobby: no connection to Steam. Check that Steam is online and that a VPN does not block it.",
-		"Could not join the lobby: it is closed, full or the code is wrong." },
+		"Could not join the lobby: it is closed, full or the code is wrong.",
+		"START GAME", "F6 - leave the lobby.", "In your clipboard: %s", "Your clipboard has no lobby code." },
 	{ "ВЫХОД В БИБЛИОТЕКУ", "МУЛЬТИПЛЕЕР",
 		"Создайте лобби и пригласите друга из Steam, чтобы пройти сюжет вместе.<br>У друга тоже должен стоять мод.",
 		"Лобби создано.<br>Пригласите друга: откроется окно Steam, выберите в нём друга.<br>Когда он примет приглашение, вы соединитесь сами.",
@@ -106,7 +112,8 @@ const Lang kLangs[] = {
 		"Это окно само не обновляется: закройте его и откройте «Мультиплеер» снова через пару секунд.",
 		"Напарник ещё подключается. Начать игру можно, когда он подключится.",
 		"Не удалось создать лобби: нет связи со Steam. Проверьте, что Steam в сети и VPN его не блокирует.",
-		"Не удалось войти в лобби: оно закрыто, заполнено или код неверный." },
+		"Не удалось войти в лобби: оно закрыто, заполнено или код неверный.",
+		"НАЧАТЬ ИГРУ", "F6 - покинуть лобби.", "В буфере обмена: %s", "В буфере обмена нет кода лобби." },
 	{ "RETOUR VERS LA BIBLIOTHÈQUE", "MULTIJOUEUR",
 		"Créez un salon et invitez un ami Steam pour jouer l'histoire ensemble.<br>Votre ami doit aussi avoir ce mod.",
 		"Votre salon est ouvert.<br>Invitez un ami : la fenêtre Steam s'ouvre, choisissez-y un ami.<br>Dès qu'il accepte, la connexion se fait toute seule.",
@@ -121,7 +128,8 @@ const Lang kLangs[] = {
 		"Cette fenêtre ne se met pas à jour : fermez-la et rouvrez Multijoueur dans quelques secondes.",
 		"Votre partenaire se connecte encore. Vous pourrez lancer la partie quand il sera là.",
 		"Impossible de créer le salon : pas de connexion à Steam. Vérifiez que Steam est en ligne et qu'un VPN ne le bloque pas.",
-		"Impossible de rejoindre le salon : il est fermé, plein ou le code est faux." },
+		"Impossible de rejoindre le salon : il est fermé, plein ou le code est faux.",
+		"COMMENCER", "F6 - quitter le salon.", "Dans votre presse-papiers : %s", "Votre presse-papiers ne contient pas de code." },
 	{ "BEENDEN UND ZUR BIBLIOTHEK", "MEHRSPIELER",
 		"Erstelle eine Lobby und lade einen Steam-Freund ein, um die Geschichte gemeinsam zu spielen.<br>Dein Freund braucht diese Mod auch.",
 		"Deine Lobby ist offen.<br>Lade einen Freund ein: Das Steam-Fenster öffnet sich, wähle dort einen Freund.<br>Sobald er annimmt, verbindet ihr euch automatisch.",
@@ -136,7 +144,8 @@ const Lang kLangs[] = {
 		"Dieses Fenster aktualisiert sich nicht: schließe es und öffne Mehrspieler in ein paar Sekunden erneut.",
 		"Dein Partner verbindet sich noch. Du kannst das Spiel starten, sobald er da ist.",
 		"Lobby konnte nicht erstellt werden: keine Verbindung zu Steam. Prüfe, ob Steam online ist und kein VPN es blockiert.",
-		"Lobby-Beitritt fehlgeschlagen: geschlossen, voll oder falscher Code." },
+		"Lobby-Beitritt fehlgeschlagen: geschlossen, voll oder falscher Code.",
+		"SPIEL STARTEN", "F6 - Lobby verlassen.", "In der Zwischenablage: %s", "In der Zwischenablage ist kein Lobby-Code." },
 	{ "TORNA ALLA LIBRERIA", "MULTIGIOCATORE",
 		"Crea una lobby e invita un amico di Steam per giocare la storia insieme.<br>Anche il tuo amico deve avere questa mod.",
 		"La tua lobby è aperta.<br>Invita un amico: si apre la finestra di Steam, scegli lì un amico.<br>Quando accetta, vi collegate automaticamente.",
@@ -151,7 +160,8 @@ const Lang kLangs[] = {
 		"Questa finestra non si aggiorna da sola: chiudila e riapri Multigiocatore tra qualche secondo.",
 		"Il tuo compagno si sta ancora collegando. Potrai iniziare quando sarà qui.",
 		"Impossibile creare la lobby: nessuna connessione a Steam. Controlla che Steam sia online e che una VPN non lo blocchi.",
-		"Impossibile entrare nella lobby: è chiusa, piena o il codice è sbagliato." },
+		"Impossibile entrare nella lobby: è chiusa, piena o il codice è sbagliato.",
+		"INIZIA", "F6 - esci dalla lobby.", "Negli appunti: %s", "Negli appunti non c'è un codice lobby." },
 	{ "SALIR A LA BIBLIOTECA", "MULTIJUGADOR",
 		"Crea una sala e invita a un amigo de Steam para jugar la historia juntos.<br>Tu amigo también necesita este mod.",
 		"Tu sala está abierta.<br>Invita a un amigo: se abre la ventana de Steam, elige allí a un amigo.<br>Cuando acepte, os conectaréis automáticamente.",
@@ -166,7 +176,8 @@ const Lang kLangs[] = {
 		"Esta ventana no se actualiza sola: ciérrala y vuelve a abrir Multijugador en unos segundos.",
 		"Tu compañero todavía se está conectando. Podrás empezar cuando esté aquí.",
 		"No se pudo crear la sala: sin conexión con Steam. Comprueba que Steam esté en línea y que una VPN no lo bloquee.",
-		"No se pudo entrar en la sala: está cerrada, llena o el código es incorrecto." },
+		"No se pudo entrar en la sala: está cerrada, llena o el código es incorrecto.",
+		"EMPEZAR", "F6 - salir de la sala.", "En el portapapeles: %s", "No hay ningún código de sala en el portapapeles." },
 	{ "SAIR PARA A BIBLIOTECA", "MULTIJOGADOR",
 		"Crie um lobby e convide um amigo da Steam para jogar a história juntos.<br>Seu amigo também precisa deste mod.",
 		"Seu lobby está aberto.<br>Convide um amigo: a janela da Steam abre, escolha um amigo nela.<br>Quando ele aceitar, vocês se conectam automaticamente.",
@@ -181,7 +192,8 @@ const Lang kLangs[] = {
 		"Esta janela não se atualiza sozinha: feche-a e abra Multijogador de novo em alguns segundos.",
 		"Seu parceiro ainda está se conectando. Você pode começar quando ele chegar.",
 		"Não foi possível criar o lobby: sem conexão com a Steam. Verifique se a Steam está online e se uma VPN não a bloqueia.",
-		"Não foi possível entrar no lobby: está fechado, cheio ou o código está errado." },
+		"Não foi possível entrar no lobby: está fechado, cheio ou o código está errado.",
+		"COMEÇAR", "F6 - sair do lobby.", "Na área de transferência: %s", "Não há código de lobby na área de transferência." },
 	{ "WYJDŹ DO BIBLIOTEKI", "TRYB WIELOOSOBOWY",
 		"Utwórz lobby i zaproś znajomego ze Steam, aby przejść fabułę razem.<br>Znajomy też musi mieć ten mod.",
 		"Twoje lobby jest otwarte.<br>Zaproś znajomego: otworzy się okno Steam, wybierz w nim znajomego.<br>Gdy przyjmie zaproszenie, połączycie się automatycznie.",
@@ -196,7 +208,8 @@ const Lang kLangs[] = {
 		"To okno samo się nie odświeża: zamknij je i otwórz Tryb wieloosobowy ponownie za kilka sekund.",
 		"Partner wciąż się łączy. Grę możesz zacząć, gdy dołączy.",
 		"Nie udało się utworzyć lobby: brak połączenia ze Steam. Sprawdź, czy Steam jest online i czy VPN go nie blokuje.",
-		"Nie udało się dołączyć: lobby jest zamknięte, pełne lub kod jest błędny." },
+		"Nie udało się dołączyć: lobby jest zamknięte, pełne lub kod jest błędny.",
+		"ROZPOCZNIJ GRĘ", "F6 - opuść lobby.", "W schowku: %s", "W schowku nie ma kodu lobby." },
 	{ "KÜTÜPHANEYE ÇIK", "ÇOK OYUNCULU",
 		"Bir lobi kur ve hikâyeyi birlikte oynamak için bir Steam arkadaşını davet et.<br>Arkadaşında da bu mod olmalı.",
 		"Lobin açık.<br>Bir arkadaşını davet et: Steam penceresi açılır, oradan bir arkadaş seç.<br>Kabul edince otomatik olarak bağlanırsınız.",
@@ -211,7 +224,8 @@ const Lang kLangs[] = {
 		"Bu pencere kendiliğinden güncellenmez: kapat ve birkaç saniye sonra Çok Oyunculu'yu yeniden aç.",
 		"Ortağın hâlâ bağlanıyor. O gelince oyunu başlatabilirsin.",
 		"Lobi kurulamadı: Steam bağlantısı yok. Steam'in çevrimiçi olduğunu ve bir VPN'in engellemediğini kontrol et.",
-		"Lobiye katılınamadı: kapalı, dolu ya da kod yanlış." },
+		"Lobiye katılınamadı: kapalı, dolu ya da kod yanlış.",
+		"OYUNU BAŞLAT", "F6 - lobiden çık.", "Panoda: %s", "Panoda lobi kodu yok." },
 	{ "ODEJÍT DO KNIHOVNY", "HRA VÍCE HRÁČŮ",
 		"Vytvořte lobby a pozvěte přítele ze Steamu, abyste hráli příběh spolu.<br>Přítel musí mít tento mód také.",
 		"Vaše lobby je otevřené.<br>Pozvěte přítele: otevře se okno Steamu, vyberte v něm přítele.<br>Jakmile pozvánku přijme, spojíte se automaticky.",
@@ -226,7 +240,8 @@ const Lang kLangs[] = {
 		"Toto okno se samo neaktualizuje: zavřete ho a za pár sekund znovu otevřete Hru více hráčů.",
 		"Parťák se ještě připojuje. Hru můžete začít, až bude připojený.",
 		"Lobby se nepodařilo vytvořit: žádné spojení se Steamem. Zkontrolujte, že je Steam online a VPN ho neblokuje.",
-		"Do lobby se nepodařilo připojit: je zavřené, plné nebo je kód špatný." },
+		"Do lobby se nepodařilo připojit: je zavřené, plné nebo je kód špatný.",
+		"ZAČÍT HRU", "F6 - opustit lobby.", "Ve schránce: %s", "Ve schránce není kód lobby." },
 	{ "KILÉPÉS A KÖNYVTÁRBA", "TÖBBJÁTÉKOS",
 		"Hozz létre egy lobbit, és hívj meg egy Steam-barátot, hogy együtt játsszátok végig a történetet.<br>A barátodnak is kell ez a mod.",
 		"A lobbid nyitva van.<br>Hívj meg egy barátot: megnyílik a Steam ablaka, ott válassz barátot.<br>Ha elfogadja, automatikusan csatlakoztok.",
@@ -241,7 +256,8 @@ const Lang kLangs[] = {
 		"Ez az ablak magától nem frissül: zárd be, és pár másodperc múlva nyisd meg újra a Többjátékos menüt.",
 		"A társad még csatlakozik. Ha megérkezett, elindíthatod a játékot.",
 		"Nem sikerült létrehozni a lobbit: nincs kapcsolat a Steammel. Ellenőrizd, hogy a Steam online van, és VPN nem blokkolja.",
-		"Nem sikerült belépni a lobbiba: zárva van, megtelt vagy rossz a kód." },
+		"Nem sikerült belépni a lobbiba: zárva van, megtelt vagy rossz a kód.",
+		"JÁTÉK INDÍTÁSA", "F6 - kilépés a lobbiból.", "A vágólapon: %s", "A vágólapon nincs lobbikód." },
 	{ "ΕΞΟΔΟΣ ΣΤΗ ΒΙΒΛΙΟΘΗΚΗ", "ΠΟΛΛΟΙ ΠΑΙΚΤΕΣ",
 		"Δημιούργησε ένα λόμπι και προσκάλεσε έναν φίλο από το Steam για να παίξετε μαζί την ιστορία.<br>Ο φίλος σου χρειάζεται κι αυτός το mod.",
 		"Το λόμπι σου είναι ανοιχτό.<br>Προσκάλεσε έναν φίλο: ανοίγει το παράθυρο του Steam, διάλεξε εκεί φίλο.<br>Μόλις αποδεχτεί, συνδέεστε αυτόματα.",
@@ -256,7 +272,8 @@ const Lang kLangs[] = {
 		"Αυτό το παράθυρο δεν ενημερώνεται μόνο του: κλείσ' το και άνοιξε ξανά το Πολλοί παίκτες σε λίγα δευτερόλεπτα.",
 		"Ο συμπαίκτης σου συνδέεται ακόμα. Μπορείς να ξεκινήσεις μόλις έρθει.",
 		"Δεν δημιουργήθηκε το λόμπι: δεν υπάρχει σύνδεση με το Steam. Έλεγξε ότι το Steam είναι online και ότι δεν το μπλοκάρει VPN.",
-		"Δεν ήταν δυνατή η σύνδεση στο λόμπι: είναι κλειστό, γεμάτο ή ο κωδικός είναι λάθος." },
+		"Δεν ήταν δυνατή η σύνδεση στο λόμπι: είναι κλειστό, γεμάτο ή ο κωδικός είναι λάθος.",
+		"ΕΝΑΡΞΗ", "F6 - αποχώρηση από το λόμπι.", "Στο πρόχειρο: %s", "Δεν υπάρχει κωδικός λόμπι στο πρόχειρο." },
 	{ "STOPPEN EN NAAR BIBLIOTHEEK", "MULTIPLAYER",
 		"Maak een lobby en nodig een Steam-vriend uit om het verhaal samen te spelen.<br>Je vriend heeft deze mod ook nodig.",
 		"Je lobby is open.<br>Nodig een vriend uit: het Steam-venster opent, kies daar een vriend.<br>Zodra die accepteert, maken jullie automatisch verbinding.",
@@ -271,7 +288,8 @@ const Lang kLangs[] = {
 		"Dit venster ververst niet vanzelf: sluit het en open Multiplayer over een paar seconden opnieuw.",
 		"Je partner maakt nog verbinding. Je kunt beginnen zodra hij er is.",
 		"Lobby maken mislukt: geen verbinding met Steam. Controleer of Steam online is en of een VPN het niet blokkeert.",
-		"Deelnemen mislukt: de lobby is gesloten, vol of de code klopt niet." },
+		"Deelnemen mislukt: de lobby is gesloten, vol of de code klopt niet.",
+		"SPEL STARTEN", "F6 - lobby verlaten.", "Op het klembord: %s", "Er staat geen lobbycode op het klembord." },
 	{ "AFSLUT TIL BIBLIOTEK", "MULTIPLAYER",
 		"Opret en lobby, og inviter en Steam-ven til at spille historien sammen.<br>Din ven skal også have dette mod.",
 		"Din lobby er åben.<br>Inviter en ven: Steam-vinduet åbner, vælg en ven der.<br>Når vennen accepterer, forbindes I automatisk.",
@@ -286,7 +304,8 @@ const Lang kLangs[] = {
 		"Dette vindue opdateres ikke af sig selv: luk det, og åbn Multiplayer igen om et par sekunder.",
 		"Din makker forbinder stadig. Du kan starte spillet, når han er her.",
 		"Lobbyen kunne ikke oprettes: ingen forbindelse til Steam. Tjek, at Steam er online, og at en VPN ikke blokerer.",
-		"Kunne ikke deltage: lobbyen er lukket, fuld eller koden er forkert." },
+		"Kunne ikke deltage: lobbyen er lukket, fuld eller koden er forkert.",
+		"START SPIL", "F6 - forlad lobbyen.", "I udklipsholderen: %s", "Der er ingen lobbykode i udklipsholderen." },
 	{ "POISTU KIRJASTOON", "MONINPELI",
 		"Luo aula ja kutsu Steam-kaveri pelaamaan tarina yhdessä.<br>Kaverillasi pitää olla myös tämä modi.",
 		"Aulasi on auki.<br>Kutsu kaveri: Steam-ikkuna aukeaa, valitse sieltä kaveri.<br>Kun hän hyväksyy, yhteys muodostuu automaattisesti.",
@@ -301,7 +320,8 @@ const Lang kLangs[] = {
 		"Tämä ikkuna ei päivity itsestään: sulje se ja avaa Moninpeli uudelleen muutaman sekunnin päästä.",
 		"Pelikaverisi yhdistää vielä. Voit aloittaa pelin, kun hän on paikalla.",
 		"Aulaa ei voitu luoda: ei yhteyttä Steamiin. Tarkista, että Steam on verkossa eikä VPN estä sitä.",
-		"Aulaan ei päästy: se on suljettu, täynnä tai koodi on väärä." },
+		"Aulaan ei päästy: se on suljettu, täynnä tai koodi on väärä.",
+		"ALOITA PELI", "F6 - poistu aulasta.", "Leikepöydällä: %s", "Leikepöydällä ei ole aulan koodia." },
 	{ "GÅ TIL BIBLIOTEKET", "FLERSPILLER",
 		"Opprett en lobby og inviter en Steam-venn til å spille historien sammen.<br>Vennen din trenger også denne moden.",
 		"Lobbyen din er åpen.<br>Inviter en venn: Steam-vinduet åpnes, velg en venn der.<br>Når vennen godtar, kobles dere til automatisk.",
@@ -316,7 +336,8 @@ const Lang kLangs[] = {
 		"Dette vinduet oppdateres ikke av seg selv: lukk det og åpne Flerspiller igjen om noen sekunder.",
 		"Partneren din kobler fortsatt til. Du kan starte når han er her.",
 		"Kunne ikke opprette lobbyen: ingen forbindelse til Steam. Sjekk at Steam er pålogget og at en VPN ikke blokkerer.",
-		"Kunne ikke bli med: lobbyen er stengt, full eller koden er feil." },
+		"Kunne ikke bli med: lobbyen er stengt, full eller koden er feil.",
+		"START SPILL", "F6 - forlat lobbyen.", "På utklippstavlen: %s", "Det er ingen lobbykode på utklippstavlen." },
 	{ "AVSLUTA TILL BIBLIOTEKET", "FLERSPELARLÄGE",
 		"Skapa en lobby och bjud in en Steam-vän för att spela berättelsen tillsammans.<br>Din vän behöver också den här modden.",
 		"Din lobby är öppen.<br>Bjud in en vän: Steam-fönstret öppnas, välj en vän där.<br>När vännen tackar ja ansluter ni automatiskt.",
@@ -331,7 +352,8 @@ const Lang kLangs[] = {
 		"Det här fönstret uppdateras inte av sig självt: stäng det och öppna Flerspelarläge igen om några sekunder.",
 		"Din partner ansluter fortfarande. Du kan starta spelet när den är här.",
 		"Det gick inte att skapa lobbyn: ingen anslutning till Steam. Kontrollera att Steam är online och att en VPN inte blockerar.",
-		"Det gick inte att gå med: lobbyn är stängd, full eller koden är fel." },
+		"Det gick inte att gå med: lobbyn är stängd, full eller koden är fel.",
+		"STARTA SPEL", "F6 - lämna lobbyn.", "I urklipp: %s", "Det finns ingen lobbykod i urklipp." },
 	{ "VRATI SE U LIBRARY", "VIŠE IGRAČA",
 		"Napravi predvorje i pozovi prijatelja sa Steama da zajedno igrate priču.<br>Prijatelj također treba imati ovaj mod.",
 		"Tvoje predvorje je otvoreno.<br>Pozovi prijatelja: otvorit će se prozor Steama, ondje odaberi prijatelja.<br>Kad prihvati, povezat ćete se automatski.",
@@ -346,7 +368,8 @@ const Lang kLangs[] = {
 		"Ovaj se prozor ne osvježava sam: zatvori ga i za nekoliko sekundi ponovno otvori Više igrača.",
 		"Partner se još povezuje. Igru možeš pokrenuti kad stigne.",
 		"Predvorje nije stvoreno: nema veze sa Steamom. Provjeri je li Steam na mreži i ne blokira li ga VPN.",
-		"Ulazak nije uspio: predvorje je zatvoreno, puno ili je kod pogrešan." },
+		"Ulazak nije uspio: predvorje je zatvoreno, puno ili je kod pogrešan.",
+		"ZAPOČNI IGRU", "F6 - napusti predvorje.", "U međuspremniku: %s", "U međuspremniku nema koda predvorja." },
 	{ "ライブラリに戻る", "マルチプレイ",
 		"ロビーを作成してSteamのフレンドを招待し、一緒にストーリーを遊びましょう。<br>フレンドにもこのMODが必要です。",
 		"ロビーを作成しました。<br>フレンドを招待: Steamのウィンドウが開くので、そこでフレンドを選んでください。<br>招待が承諾されると自動で接続します。",
@@ -361,7 +384,8 @@ const Lang kLangs[] = {
 		"このウィンドウは自動で更新されません。閉じて、数秒後にもう一度「マルチプレイ」を開いてください。",
 		"パートナーはまだ接続中です。接続されたらゲームを開始できます。",
 		"ロビーを作成できませんでした: Steamに接続できません。Steamがオンラインか、VPNがブロックしていないか確認してください。",
-		"ロビーに参加できませんでした: 閉じている、満員、またはコードが違います。" },
+		"ロビーに参加できませんでした: 閉じている、満員、またはコードが違います。",
+		"ゲーム開始", "F6 - ロビーを退出", "クリップボード: %s", "クリップボードにロビーコードがありません。" },
 	{ "라이브러리로 나가기", "멀티플레이",
 		"로비를 만들고 Steam 친구를 초대해 함께 스토리를 플레이하세요.<br>친구도 이 모드를 설치해야 합니다.",
 		"로비가 열렸습니다.<br>친구 초대: Steam 창이 열리면 그곳에서 친구를 고르세요.<br>친구가 수락하면 자동으로 연결됩니다.",
@@ -376,7 +400,8 @@ const Lang kLangs[] = {
 		"이 창은 자동으로 갱신되지 않습니다. 창을 닫고 몇 초 뒤에 멀티플레이를 다시 여세요.",
 		"파트너가 아직 연결 중입니다. 연결되면 게임을 시작할 수 있습니다.",
 		"로비를 만들 수 없습니다: Steam에 연결되지 않았습니다. Steam이 온라인인지, VPN이 막고 있지 않은지 확인하세요.",
-		"로비에 참가할 수 없습니다: 닫혔거나 가득 찼거나 코드가 틀렸습니다." },
+		"로비에 참가할 수 없습니다: 닫혔거나 가득 찼거나 코드가 틀렸습니다.",
+		"게임 시작", "F6 - 로비 나가기", "클립보드: %s", "클립보드에 로비 코드가 없습니다." },
 	{ "退出至游戏库", "多人游戏",
 		"创建大厅并邀请一位 Steam 好友，一起体验剧情。<br>你的好友也需要安装此模组。",
 		"大厅已创建。<br>邀请好友：Steam 窗口会打开，请在其中选择好友。<br>好友接受后会自动连接。",
@@ -391,7 +416,8 @@ const Lang kLangs[] = {
 		"此窗口不会自动更新：请关闭它，几秒后再打开“多人游戏”。",
 		"同伴仍在连接中。连接后才能开始游戏。",
 		"无法创建大厅：无法连接 Steam。请确认 Steam 在线，且未被 VPN 阻止。",
-		"无法加入大厅：大厅已关闭、已满或代码错误。" },
+		"无法加入大厅：大厅已关闭、已满或代码错误。",
+		"开始游戏", "F6 - 离开大厅", "剪贴板中：%s", "剪贴板中没有大厅代码。" },
 	{ "返回收藏庫", "多人遊戲",
 		"建立大廳並邀請一位 Steam 好友，一起體驗劇情。<br>你的好友也需要安裝此模組。",
 		"大廳已建立。<br>邀請好友：Steam 視窗會開啟，請在其中選擇好友。<br>好友接受後會自動連線。",
@@ -406,7 +432,8 @@ const Lang kLangs[] = {
 		"此視窗不會自動更新：請關閉它，幾秒後再開啟「多人遊戲」。",
 		"夥伴仍在連線中。連線後才能開始遊戲。",
 		"無法建立大廳：無法連線至 Steam。請確認 Steam 在線，且未被 VPN 阻擋。",
-		"無法加入大廳：大廳已關閉、已滿或代碼錯誤。" },
+		"無法加入大廳：大廳已關閉、已滿或代碼錯誤。",
+		"開始遊戲", "F6 - 離開大廳", "剪貼簿中：%s", "剪貼簿中沒有大廳代碼。" },
 	{ "ออกไปยังคลังเกม", "ผู้เล่นหลายคน",
 		"สร้างล็อบบี้แล้วเชิญเพื่อนใน Steam มาเล่นเนื้อเรื่องด้วยกัน<br>เพื่อนของคุณต้องติดตั้งม็อดนี้ด้วย",
 		"ล็อบบี้ของคุณเปิดแล้ว<br>เชิญเพื่อน: หน้าต่าง Steam จะเปิดขึ้น ให้เลือกเพื่อนในนั้น<br>เมื่อเพื่อนตอบรับ จะเชื่อมต่อให้อัตโนมัติ",
@@ -421,7 +448,8 @@ const Lang kLangs[] = {
 		"หน้าต่างนี้ไม่อัปเดตเอง ปิดแล้วเปิดผู้เล่นหลายคนอีกครั้งในอีกไม่กี่วินาที",
 		"คู่หูยังเชื่อมต่ออยู่ เริ่มเกมได้เมื่อเขาเข้ามาแล้ว",
 		"สร้างล็อบบี้ไม่ได้: เชื่อมต่อ Steam ไม่ได้ ตรวจสอบว่า Steam ออนไลน์และ VPN ไม่ได้บล็อก",
-		"เข้าร่วมล็อบบี้ไม่ได้: ล็อบบี้ปิด เต็ม หรือรหัสผิด" },
+		"เข้าร่วมล็อบบี้ไม่ได้: ล็อบบี้ปิด เต็ม หรือรหัสผิด",
+		"เริ่มเกม", "F6 - ออกจากล็อบบี้", "ในคลิปบอร์ด: %s", "ไม่มีรหัสล็อบบี้ในคลิปบอร์ด" },
 };
 
 const Lang& LangFor(const char* library) {
@@ -433,6 +461,8 @@ const Lang& LangFor(const char* library) {
 
 LobbyFn g_lobby = nullptr;
 ActionFn g_action = nullptr;
+CodeFn g_clipboardCode = nullptr;
+std::string g_clipboardShown;  // код из буфера на момент открытия окна (поток меню)
 safetyhook::InlineHook g_textHook, g_visibleHook;
 safetyhook::MidHook g_pressHook, g_answerHook;
 
@@ -497,8 +527,8 @@ const char* LobbyTextInto(const Lang& l, char* buf, size_t n) {
 		};
 		const int k = snprintf(buf, n, l.connected, Escaped(s.partner).c_str());
 		if (k > 0 && static_cast<size_t>(k) < n)
-			snprintf(buf + k, n - k, "<br><br>%s: %s  ·  %s: %s", l.you, who(s.myCharacter).c_str(), Escaped(s.partner).c_str(),
-				who(s.partnerCharacter).c_str());
+			snprintf(buf + k, n - k, "<br><br>%s: %s  ·  %s: %s<br><br>%s", l.you, who(s.myCharacter).c_str(), Escaped(s.partner).c_str(),
+				who(s.partnerCharacter).c_str(), l.leaveHint);
 	}
 	else if (s.lobby && s.host) {
 		const int k = snprintf(buf, n, "%s", l.hostWait);
@@ -514,12 +544,20 @@ const char* LobbyTextInto(const Lang& l, char* buf, size_t n) {
 		const char* problem = s.failure == 1 ? l.createFailed : s.failure == 2 ? l.joinFailed : s.codeError ? l.noCode : nullptr;
 		if (problem) snprintf(buf, n, "%s<br><br>%s<br><br>%s", problem, l.intro, l.help);
 		else snprintf(buf, n, "%s<br><br>%s", l.intro, l.help);
+		// Что сейчас в буфере обмена - видно, что вставится по "войти по коду".
+		const size_t k = strlen(buf);
+		if (g_clipboardShown.empty()) snprintf(buf + k, n - k, "<br><br>%s", l.noClipboard);
+		else {
+			snprintf(buf + k, n - k, "<br><br>");
+			snprintf(buf + strlen(buf), n - strlen(buf), l.inClipboard, g_clipboardShown.c_str());
+		}
 	}
 	// Окно игры показывает текст на момент открытия: во всех промежуточных состояниях - подсказка.
 	if (!s.connected && (s.lobby || s.busy || s.on)) {
 		const size_t k = strlen(buf);
 		if (k + 8 < n) snprintf(buf + k, n - k, "<br><br>%s", l.refresh);
 	}
+	if (const size_t k = strlen(buf); s.version && k + 32 < n) snprintf(buf + k, n - k, "<br><br>tlou-together v%u", s.version);
 	return buf;
 }
 
@@ -544,8 +582,8 @@ const char* TextLookup(void* db, uint64_t key, bool* found) {
 		const Lang& l = LangFor(g_textHook.call<const char*>(db, kLibraryText, nullptr));
 		if (found) *found = true;
 		if (labels) {
-			if (key == kYesText) return g_boxConnected ? l.swap : g_boxInLobby ? l.invite : l.create;
-			return g_boxInLobby ? l.leave : l.joinCode;
+			if (key == kYesText) return g_boxConnected ? l.start : g_boxInLobby ? l.invite : l.create;
+			return g_boxConnected ? l.swap : g_boxInLobby ? l.leave : l.joinCode;
 		}
 		return key == kLobbyText || key == kLobbyText2 ? LobbyText(l) : key == kDescText ? DescText(l) : TitleText(l);
 	}
@@ -555,7 +593,8 @@ const char* TextLookup(void* db, uint64_t key, bool* found) {
 std::atomic<bool> g_mainMenu{ true };
 // Повторный показ лобби после действия (ScriptTick, основной поток). g_boxOpen - наше окно
 // на экране (снимается любым ответом в нём).
-std::atomic<bool> g_boxOpen{ false }, g_reopen{ false };
+std::atomic<bool> g_boxOpen{ false }, g_reopen{ false }, g_startGame{ false };
+std::atomic<uintptr_t> g_menuObj{ 0 };  // объект главного меню (r15 обработчика), для "начать игру"
 std::atomic<DWORD> g_mainThread{ 0 };  // основной поток (из OnFrame): меню трогаем только из него
 std::atomic<ULONGLONG> g_reopenAfter{ 0 };
 int g_textTurn = 0;  // какой из двух ключей текста лобби у следующего окна
@@ -579,6 +618,8 @@ bool Visible(uintptr_t condition, uintptr_t a2, uintptr_t a3, uintptr_t a4) {
 bool OpenLobby(bool mainMenu) {
 	const Lobby s = g_lobby ? g_lobby() : Lobby{};
 	const bool inLobby = s.lobby || s.busy || s.on;
+	if (s.lobby && s.host && !s.code.empty()) clipboard::Set(s.code);  // код снова в буфере - вставить другу
+	g_clipboardShown = !inLobby && g_clipboardCode ? g_clipboardCode() : std::string();
 	g_boxInLobby = inLobby;
 	g_boxConnected = s.connected;
 	g_labelsUntil = GetTickCount64() + 1500;
@@ -629,6 +670,7 @@ void OnPress(safetyhook::Context& ctx) {
 	using MainMenuFn = bool (*)(uintptr_t);
 	const auto mainMenu = reinterpret_cast<MainMenuFn>(*reinterpret_cast<uintptr_t*>(*reinterpret_cast<uintptr_t*>(menu) + kMainMenuVcall));
 	g_mainMenu = mainMenu(menu);
+	g_menuObj = menu;
 	Log("menu: multiplayer pressed, lobby %s", OpenLobby(g_mainMenu) ? "opened" : "FAILED");
 	ctx.rip = engine::g_base + kPressDoneRva;
 }
@@ -640,12 +682,13 @@ void OnAnswer(safetyhook::Context& ctx) {
 	g_boxOpen = false;  // любое событие нашего окна - оно закрылось
 	const uint64_t button = *reinterpret_cast<const uint64_t*>(ctx.rsp + 0x30);
 	Action a = None;
-	if (button == kMessageBoxOk) a = g_boxConnected ? SwapRoles : g_boxInLobby ? Invite : CreateLobby;
-	else if (button == kMessageBoxCancel) a = g_boxInLobby ? Leave : JoinByCode;
+	if (button == kMessageBoxOk) a = g_boxConnected ? StartGame : g_boxInLobby ? Invite : CreateLobby;
+	else if (button == kMessageBoxCancel) a = g_boxConnected ? SwapRoles : g_boxInLobby ? Leave : JoinByCode;
 	if (a != None) {
-		Log("menu: lobby button %s", a == CreateLobby ? "create" : a == Invite ? "invite" : a == SwapRoles ? "change character" : a == JoinByCode ? "join by code" : "leave");
-		if (g_action) g_action(a);
-		if (a != Leave) RequestReopen(a == CreateLobby ? 2500 : 1000);  // показать, что вышло
+		Log("menu: lobby button %s", a == CreateLobby ? "create" : a == Invite ? "invite" : a == SwapRoles ? "change character" : a == JoinByCode ? "join by code" : a == StartGame ? "start game" : "leave");
+		if (a == StartGame) g_startGame = true;  // меню сюжета откроет ScriptTick (основной поток)
+		else if (g_action) g_action(a);
+		if (a != Leave && a != StartGame) RequestReopen(a == CreateLobby ? 2500 : 1000);  // показать, что вышло
 	}
 	ctx.rdi = 1;
 }
@@ -677,7 +720,22 @@ void OnFrame() {
 // середина обновления игры на основном потоке - так открывают меню и её скрипты; из конца кадра
 // (OnFrame) открытие роняло игру. Открытое окно игра не обновляет и закрыть его снаружи мы пока не
 // умеем (menu2-pop-page его не закрывал), поэтому в промежуточных состояниях - подсказка.
+// "Начать игру": обработчику меню (0x1C83174) - то же событие, что даёт THE LAST OF US
+// (событие - структура, первым полем имя кнопки); он сам открывает меню сюжета.
+constexpr uintptr_t kMenuEventsRva = 0x1C83174;
+
 void ScriptTick() {
+	if (g_startGame.load(std::memory_order_relaxed) && !g_boxOpen.load(std::memory_order_relaxed) &&
+		GetCurrentThreadId() == g_mainThread.load(std::memory_order_relaxed)) {
+		bool want = true;
+		if (const uintptr_t menu = g_menuObj; menu && g_startGame.compare_exchange_strong(want, false)) {
+			alignas(16) uint64_t ev[0x40]{};
+			ev[0] = Sid("buttonCampaignTLOU");
+			reinterpret_cast<void (*)(uintptr_t, uint64_t*)>(engine::g_base + kMenuEventsRva)(menu, ev);
+			Log("menu: start game - story menu requested");
+		}
+		return;
+	}
 	if (!g_reopen.load(std::memory_order_relaxed) || g_boxOpen.load(std::memory_order_relaxed)) return;
 	if (GetCurrentThreadId() != g_mainThread.load(std::memory_order_relaxed)) return;
 	bool want = true;
@@ -685,9 +743,10 @@ void ScriptTick() {
 		Log("menu: lobby reopened %s", OpenLobby(g_mainMenu) ? "ok" : "FAILED");
 }
 
-bool Install(LobbyFn lobby, ActionFn action) {
+bool Install(LobbyFn lobby, ActionFn action, CodeFn clipboardCode) {
 	g_lobby = lobby;
 	g_action = action;
+	g_clipboardCode = clipboardCode;
 	// Порядок важен: сначала нажатие и ответ, видимость - последней. Если что-то не встало,
 	// снимаем всё: иначе видимый пункт выходил бы в библиотеку.
 	const bool ok = Make(g_pressHook, kPressRva, OnPress, "press") && Make(g_answerHook, kAnswerRva, OnAnswer, "answer") &&

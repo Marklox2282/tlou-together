@@ -16,6 +16,7 @@
 
 #include "enemies.hpp"
 #include "engine.hpp"
+#include "clipboard.hpp"
 #include "log.hpp"
 #include "menu.hpp"
 #include "net.hpp"
@@ -27,7 +28,7 @@ namespace {
 
 // Номер версии мода: увеличивать при каждом выпуске (tools/release.py берёт его отсюда).
 // Игроки с разными версиями не соединяются.
-constexpr uint32_t kModVersion = 19;
+constexpr uint32_t kModVersion = 20;
 
 using engine::Locator;
 
@@ -99,29 +100,6 @@ net::Link g_link(Log, kModVersion);
 std::atomic<int> g_menuAction{ 0 };  // menu::Action из меню игры
 bool g_codeError = false;            // "войти по коду", а в буфере обмена не код
 
-// Буфер обмена: код лобби у хозяина кладём туда сами, гость берёт оттуда (в меню игры нет ввода).
-std::string ClipboardText() {
-	std::string out;
-	if (!OpenClipboard(nullptr)) return out;
-	if (HANDLE h = GetClipboardData(CF_UNICODETEXT))
-		if (const auto* w = static_cast<const wchar_t*>(GlobalLock(h))) {
-			for (size_t i = 0; w[i] && i < 64; ++i) out += w[i] < 128 ? static_cast<char>(w[i]) : '?';
-			GlobalUnlock(h);
-		}
-	CloseClipboard();
-	return out;
-}
-
-void SetClipboardText(const std::string& text) {
-	if (!OpenClipboard(nullptr)) return;
-	EmptyClipboard();
-	if (HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, text.size() + 1)) {
-		memcpy(GlobalLock(h), text.c_str(), text.size() + 1);
-		GlobalUnlock(h);
-		if (!SetClipboardData(CF_TEXT, h)) GlobalFree(h);
-	}
-	CloseClipboard();
-}
 SRWLOCK g_lobbyLock = SRWLOCK_INIT;
 menu::Lobby g_lobbyState;
 
@@ -142,6 +120,7 @@ void PublishLobby(ULONGLONG now) {
 	s.code = net::Link::LobbyCode(g_link.Lobby());
 	s.codeError = g_codeError;
 	s.failure = g_link.LobbyFailure();
+	s.version = kModVersion;
 	s.myCharacter = puppet::CharacterName(puppet::MyCharacter());
 	s.partnerCharacter = puppet::CharacterName(puppet::PartnerCharacter());
 	s.heroName = puppet::HeroCharacter();
@@ -183,7 +162,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	}
 	if (action == menu::Invite) g_link.InviteToLobby();
 	if (action == menu::JoinByCode) {
-		const std::string text = ClipboardText();
+		const std::string text = clipboard::Text();
 		const uint64_t lobby = net::Link::LobbyFromCode(text);
 		g_codeError = !lobby;
 		Log("net: join by code -> %s", lobby ? "lobby found" : "the clipboard holds no lobby code");  // сам буфер не пишем
@@ -198,7 +177,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	static uint64_t copiedLobby = 0;
 	if (g_link.Lobby() && g_link.LobbyHost() && g_link.Lobby() != copiedLobby) {
 		copiedLobby = g_link.Lobby();
-		SetClipboardText(net::Link::LobbyCode(copiedLobby));
+		clipboard::Set(net::Link::LobbyCode(copiedLobby));
 		Log("net: lobby code %s copied to the clipboard", net::Link::LobbyCode(copiedLobby).c_str());
 	}
 	// Персонаж: кнопка в лобби перебирает варианты (auto, спутник, joel, ellie...).
@@ -457,7 +436,9 @@ void Init() {
 		std::string name;
 		LoadConfig(name);  // персонаж и режим врагов - сразу, не только по F8
 	}
-	menu::Install(ReadLobby, [](menu::Action a) { g_menuAction = a; });
+	// Код лобби в буфере обмена (для окна "войти по коду"): "0D7C-RFW" или пусто.
+	menu::Install(ReadLobby, [](menu::Action a) { g_menuAction = a; },
+		[] { return net::Link::LobbyCode(net::Link::LobbyFromCode(clipboard::Text())); });
 	InstallCrashLog();
 }
 

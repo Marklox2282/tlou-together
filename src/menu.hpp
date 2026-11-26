@@ -23,14 +23,16 @@ struct Lobby {
 	int failure = 0;          // лобби не создалось (1) / не вошли (2) - net::Link::LobbyFailure
 	std::string myCharacter, partnerCharacter;  // "auto", "companion", "joel"...
 	std::string heroName, companionName;  // "joel", "tess"; пусто - неизвестно
+	unsigned version = 0;     // версия мода (внизу окна)
 };
 
-enum Action { None, CreateLobby, Invite, Leave, SwapRoles, JoinByCode };
+enum Action { None, CreateLobby, Invite, Leave, SwapRoles, JoinByCode, StartGame };
 
 using LobbyFn = Lobby (*)();  // состояние для текста лобби (вызывается из потока меню)
 using ActionFn = void (*)(Action);  // кнопка лобби (вызывается из потока меню)
 
-bool Install(LobbyFn lobby, ActionFn action);  // false - какой-то перехват не встал
+using CodeFn = std::string (*)();  // код лобби в буфере обмена ("0D7C-RFW"), пусто - нет кода
+bool Install(LobbyFn lobby, ActionFn action, CodeFn clipboardCode);  // false - какой-то перехват не встал
 void OnFrame();  // из игрового кадра: описание пункта (один раз), слежение за состоянием лобби
 // Из скриптового контекста (хук интерпретатора, много раз за кадр - должно быть дёшево):
 // закрыть устаревшее окно лобби (menu2-pop-page), чтобы меню открыло новое.
