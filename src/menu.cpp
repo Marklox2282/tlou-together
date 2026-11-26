@@ -539,6 +539,18 @@ bool OpenLobby(bool mainMenu) {
 }
 
 
+// Диагностика (временно): события меню с параметрами, кроме шумных (озвучка, наведение, подсказки).
+safetyhook::MidHook g_eventDiag;
+void EventDiag(safetyhook::Context& ctx) {
+	const uint64_t ev = ctx.rax;
+	if (ev == 0xF547B6E8D4BA3345ull || ev == 0x95FCC1E38DFAF1FFull || ev == 0x00527D7399AAAFF6ull || ev == 0x21E66780486CFD77ull)
+		return;
+	uint64_t a[6]{};
+	for (int i = 0; i < 6; ++i) engine::Read(ctx.rbx + 0x30 + i * 8, a[i]);
+	Log("menu diag: event %016llX menu %llX args %016llX %016llX %016llX %016llX %016llX %016llX", static_cast<unsigned long long>(ev),
+		static_cast<unsigned long long>(ctx.r15), a[0], a[1], a[2], a[3], a[4], a[5]);
+}
+
 void OnPress(safetyhook::Context& ctx) {
 	const uintptr_t menu = ctx.r15;
 	using MainMenuFn = bool (*)(uintptr_t);
@@ -605,6 +617,7 @@ bool Install(LobbyFn lobby, ActionFn action) {
 	g_action = action;
 	// Порядок важен: сначала нажатие и ответ, видимость - последней. Если что-то не встало,
 	// снимаем всё: иначе видимый пункт выходил бы в библиотеку.
+	Make(g_eventDiag, 0x1C831C7, EventDiag, "event diag");  // rax - событие, rbx - его параметры
 	const bool ok = Make(g_pressHook, kPressRva, OnPress, "press") && Make(g_answerHook, kAnswerRva, OnAnswer, "answer") &&
 		Make(g_textHook, kTextLookupRva, TextLookup, "text") && Make(g_visibleHook, kVisibleRva, Visible, "visibility");
 	if (!ok) {

@@ -56,6 +56,15 @@ float Dist(const float a[3], const float b[3]) {
 	return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
+// Разница поворотов вокруг вертикали (радианы, -pi..pi) по кватернионам {x, y, z, w}.
+float YawDiff(const float a[4], const float b[4]) {
+	auto yaw = [](const float q[4]) { return std::atan2(2.0f * (q[3] * q[1] + q[0] * q[2]), 1.0f - 2.0f * (q[1] * q[1] + q[0] * q[0])); };
+	float d = yaw(a) - yaw(b);
+	while (d > 3.14159265f) d -= 6.28318531f;
+	while (d < -3.14159265f) d += 6.28318531f;
+	return d;
+}
+
 // ---- состояние -----------------------------------------------------------------------------
 std::atomic<bool> g_wanted{ false }, g_follow{ false }, g_teleport{ false }, g_netActive{ false };
 std::atomic<uint64_t> g_puppet{ 0 }, g_doneFrame{ 0 };
@@ -387,15 +396,33 @@ void Update() {
 		Log("puppet: snapped (%.1f m behind%s)", err, stuck ? ", stuck" : "");
 		return;
 	}
-	// Партнёр почти стоит и мы рядом - стоим (микрошаги давали рывки и "широкую стойку").
+	// Партнёр стоит: через 0.7 с ставим марионетку точно на его место и с его поворотом (переносом
+	// на месте - он же сбрасывает застывшую "широкую стойку" начала шага), дальше держим совпадение
+	// не чаще раза в 1.5 с. Микрошаги командами давали рывки, а поворот стоя не менялся вовсе.
+	static ULONGLONG standingSince = 0, lastSettle = 0;
+	if (targetSpeed < 0.3f) {
+		if (!standingSince) standingSince = now;
+	} else {
+		standingSince = 0;
+	}
+	if (standingSince && now - standingSince >= 700 && err < 3.0f) {
+		const float yawOff = std::fabs(YawDiff(cur.rot, target.rot));
+		if ((err > 0.4f || yawOff > 0.45f) && now - lastSettle >= 1500) {
+			lastSettle = lastCmdAt = now;
+			lastMode = -1;
+			if (const uint64_t frame = BoundFrame(target.pos, target.rot)) Call(g_dc.teleport, { puppet, frame });
+		}
+		return;
+	}
 	if (targetSpeed < 0.5f && err < 1.5f) return;
 	const float speed = (std::max)(targetSpeed, err * 0.8f);
 	const int mode = speed < 1.8f ? 0 : (speed < 4.2f ? 1 : 2);
-	// Цель с упреждением: где партнёр будет через ~1 с при той же скорости. Команда - только если
-	// цель ушла больше чем на 2 м, сменился режим или прошло 2.5 с: каждая новая команда
+	// Цель с упреждением: где партнёр будет через ~0.5 с при той же скорости (дальше - чаще
+	// оказывалась за стеной на поворотах, и NPC срезал сквозь неё). Команда - только если цель
+	// ушла больше чем на 2 м, сменился режим или прошло 2.5 с: каждая новая команда
 	// перезапускала шаг, и NPC отставал и дёргался (особенно при медленной ходьбе).
 	float goal[3];
-	const float lead = targetSpeed > 0.5f ? 1.0f : 0.0f;
+	const float lead = targetSpeed > 0.5f ? 0.5f : 0.0f;
 	for (int i = 0; i < 3; ++i) goal[i] = target.pos[i] + (target.pos[i] - before.pos[i]) * 4.0f * lead;
 	goal[1] = target.pos[1];  // по высоте не упреждаем
 	// Партнёр остановился: прежняя цель была впереди - поправить на точное место сразу.
