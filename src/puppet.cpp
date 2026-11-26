@@ -152,8 +152,11 @@ uint64_t Spawn(const Locator& at) {
 		sp = 0;
 	}
 	g_lastSpawner = sp;
-	// Образ героя - только на скелет того же пола; иначе у NPC остаётся его собственный образ.
-	if (!SameSex(ReadName(ReadPtr(sp + kSpArt)), HeroName(look))) look.clear();
+	// Спавнер того же пола выбирается первым (SpawnerRank); другой пол - только если своего нет
+	// (пролог: кроме Сары женских NPC нет). Образ всё равно надеваем: лучше Сара с чуть кривым
+	// бегом, чем Джоэл вместо Сары.
+	if (!look.empty() && !SameSex(ReadName(ReadPtr(sp + kSpArt)), HeroName(look)))
+		Log("puppet: no %s-like NPC here, putting the look on another skeleton", HeroName(look).c_str());
 	uint64_t sid = 0;
 	uint8_t f1 = 0;
 	if (!sp || !Read(sp + kSpSid, sid) || !Read(sp + kSpFlags1, f1)) {
