@@ -44,7 +44,7 @@ using NativeFn = void (*)(uint64_t* ret, int argc, const uint64_t* argv, uint64_
 struct Natives {
 	NativeFn allocVector, allocQuat, allocBoundFrame, spawnWithLook, entityExists, teleport, scriptMode,
 		setIgnore, setBlind, setDeaf, hitReactions, stun, dodges, objectLocator, moveTo, newBoxedValue, sendEvent,
-		taskGetCurrent, killEntity;
+		taskGetCurrent, setVisible, setUnshootable;
 };
 extern Natives g_dc;
 bool InitNatives();  // false, если какой-то не найден

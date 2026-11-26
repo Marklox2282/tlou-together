@@ -122,6 +122,7 @@ uint64_t Spawn(const Locator& at) {
 	Call(g_dc.scriptMode, { npc, 2, 1 });  // выключить ИИ и сюжетные команды
 	for (NativeFn on : { g_dc.setIgnore, g_dc.setBlind, g_dc.setDeaf }) Call(on, { npc, 1 });
 	for (NativeFn off : { g_dc.hitReactions, g_dc.stun, g_dc.dodges }) Call(off, { npc, 0 });
+	Call(g_dc.setUnshootable, { npc, 1 });  // напарника не подстрелить
 	Log("puppet: %s -> %016llX", name.c_str(), static_cast<unsigned long long>(npc));
 	return npc;
 }
@@ -146,6 +147,34 @@ bool PartnerTooFar(const Locator& target) {
 	return tooFar;
 }
 
+// F10 выкл: марионетка прячется (стоп, невидимость, без столкновений), а не удаляется:
+// kill-entity посреди кадра ронял игру - движок ещё обновлял анимацию NPC в другом потоке
+// (npc.cpp PostAnimUpdate_Async). При F10 вкл та же марионетка появляется снова; при
+// перезагрузке уровня игра убирает её сама.
+constexpr uint64_t kBoxedSymbol = 7;
+std::atomic<bool> g_hidden{ false };
+
+void Hide() {
+	const uint64_t puppet = g_puppet;
+	if (!puppet || g_hidden || !Call(g_dc.entityExists, { puppet })) return;
+	Locator here{};
+	if (NpcLocator(puppet, here))
+		if (const uint64_t frame = BoundFrame(here.pos, here.rot)) Call(g_dc.moveTo, { puppet, frame, 0, 0, 0, 0, 0, 0 });
+	Call(g_dc.setVisible, { puppet, 0 });
+	if (const uint64_t none = Call(g_dc.newBoxedValue, { kBoxedSymbol, 0 }))
+		Call(g_dc.sendEvent, { Sid("unphysicalize"), puppet, none });
+	g_hidden = true;
+	Log("puppet %016llX hidden", static_cast<unsigned long long>(puppet));
+}
+
+void Show(uint64_t puppet, const Locator& at) {
+	Call(g_dc.sendEvent, { Sid("physicalize"), puppet });
+	Call(g_dc.setVisible, { puppet, 1 });
+	if (const uint64_t frame = BoundFrame(at.pos, at.rot)) Call(g_dc.teleport, { puppet, frame });
+	g_hidden = false;
+	Log("puppet %016llX shown again", static_cast<unsigned long long>(puppet));
+}
+
 void Update() {
 	const ULONGLONG now = GetTickCount64();
 	uint64_t puppet = g_puppet;
@@ -164,6 +193,7 @@ void Update() {
 			++g_failures;
 		}
 		g_puppet = puppet = 0;
+		g_hidden = false;
 	}
 	Locator target{};
 	if (!DelayedTarget(now, target) || PartnerTooFar(target)) return;
@@ -176,6 +206,7 @@ void Update() {
 		if (!puppet) ++g_failures;
 		return;
 	}
+	if (g_hidden) Show(puppet, target);
 	if (now - g_spawnedAt > 2000) g_failures = 0;
 	// Марионетка идёт сама своей анимацией: npc-move-to(npc, frame, режим, 0...), где режим
 	// 0 шаг, 1 бег, 2 спринт (замерено в TLOU2-Coop). Телепорт - только при сильном отставании:
@@ -271,13 +302,6 @@ void TeleportToPartner() {
 	Log("F7: teleport to partner at (%.1f %.1f %.1f) %s", partner.pos[0], partner.pos[1], partner.pos[2], boxed ? "sent" : "FAILED");
 }
 
-// F10 выкл: убрать марионетку (как в TLOU2-Coop - удаление процесса, а не смерть).
-void Remove() {
-	const uint64_t puppet = g_puppet.exchange(0);
-	if (puppet && Call(g_dc.entityExists, { puppet })) Call(g_dc.killEntity, { puppet });
-	Log("puppet %016llX removed", static_cast<unsigned long long>(puppet));
-}
-
 void ReadChapter() {
 	static ULONGLONG last = 0;
 	const ULONGLONG now = GetTickCount64();
@@ -336,7 +360,7 @@ void ScriptTick() {
 	ReadChapter();
 	ProfileAdd("[chapter]", MicrosecondsSince(s));
 	if (g_teleport.exchange(false)) TeleportToPartner();
-	if (!g_wanted && g_puppet) Remove();
+	if (!g_wanted && g_puppet) Hide();
 	s = QpcNow();
 	if (g_wanted) Update();
 	ProfileAdd("[update]", MicrosecondsSince(s));
