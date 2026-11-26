@@ -831,14 +831,10 @@ void ScriptTick() {
 			ReleaseSRWLockExclusive(&g_lookLock);
 		}
 	}
-	// Выстрел своего игрока: флаг "стреляет" держится не каждый кадр, поэтому ещё и счётчик выстрелов.
 	{
-		static uint64_t lastShots = ~0ull;
-		const uint64_t firing = Call(g_dc.isFiring, {}), shots = Call(g_dc.shotsFired, {});
-		const bool counted = lastShots != ~0ull && shots != lastShots;
-		if (counted || (firing & 1)) Log("me: shot (firing=%llu shots=%llu)", static_cast<unsigned long long>(firing), static_cast<unsigned long long>(shots));
-		lastShots = shots;
-		g_meFiring = (firing & 1) != 0 || counted;
+		const uint64_t firing = Call(g_dc.isFiring, {});
+		if (firing & 1) Log("me: shot");
+		g_meFiring = (firing & 1) != 0;
 	}
 	// Поза: своя - для отправки (5 раз в секунду хватает), партнёра - на марионетку при смене.
 	// Манеры NPC из скриптов игры: 'crouch - присед, 'ambient - обычная.

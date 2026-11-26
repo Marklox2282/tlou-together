@@ -221,11 +221,13 @@ bool InitNatives() {
 		{ &g_dc.getDifficulty, "get-difficulty" }, { &g_dc.setDifficulty, "set-difficulty" },
 		{ &g_dc.hudMessage, "hud-show-cipher-message" },
 		{ &g_dc.playerWeapon, "get-player-weapon-id" }, { &g_dc.npcWeapon, "npc-get-weapon" },
-		{ &g_dc.giveWeapon, "npc-give-weapon" }, { &g_dc.destroyWeapon, "npc-destroy-weapon" },
-		{ &g_dc.shotsFired, "get-shots-fired" } };
+		{ &g_dc.giveWeapon, "npc-give-weapon" }, { &g_dc.destroyWeapon, "npc-destroy-weapon" } };
 	for (const auto& [slot, name] : table) {
 		*slot = FindNative(name);
-		if (!*slot) return false;
+		if (!*slot) {
+			Log("natives: %s not found", name);
+			return false;
+		}
 		NameNative(*slot, name);
 	}
 	return true;
