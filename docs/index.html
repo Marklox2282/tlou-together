@@ -7,132 +7,140 @@
 <meta name="description" content="Unofficial two-player story co-op mod for The Last of Us Part I on PC (Steam).">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo+Narrow:wght@400;500;600;700&family=Oswald:wght@500;700&family=Roboto+Condensed:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #0b0d0b;
-  --bg2: #121511;
-  --text: #e8e4d9;
-  --muted: #9a9688;
-  --line: rgba(232, 228, 217, .12);
-  --accent: #c9a24a;
-  --green: #7c9461;
+  --bg: #070808;
+  --panel: #0f1010;
+  --text: #e6dfcf;
+  --dim: #a8a292;
+  --faint: #6f6b60;
+  --line: rgba(220, 220, 214, .14);
+  --accent: #c3a566;
+  --head: 'Anton', 'Oswald', 'Impact', 'Arial Narrow', sans-serif;
+  --ui: 'Bahnschrift', 'Archivo Narrow', 'Roboto Condensed', 'Arial Narrow', sans-serif;
+  --body: 'Bahnschrift', 'Archivo Narrow', 'Roboto Condensed', 'Segoe UI', Arial, sans-serif;
+  --worn: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='120'%3E%3Cfilter id='w'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.08 .5' numOctaves='3' seed='4'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 -14 11.6'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23w)'/%3E%3C/svg%3E");
 }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body {
   margin: 0; background: var(--bg); color: var(--text);
-  font: 16px/1.6 Inter, system-ui, sans-serif;
+  font-family: var(--body); font-size: 17px; line-height: 1.6;
   -webkit-font-smoothing: antialiased; overflow-x: hidden;
 }
-a { color: inherit; }
-/* film grain over everything */
+a { color: inherit; text-decoration: none; }
 body::after {
-  content: ""; position: fixed; inset: -50%; pointer-events: none; z-index: 50; opacity: .07;
+  content: ""; position: fixed; inset: -50%; pointer-events: none; z-index: 50; opacity: .06;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   animation: grain 1.2s steps(6) infinite;
 }
 @keyframes grain { 0%{transform:translate(0,0)} 25%{transform:translate(-3%,2%)} 50%{transform:translate(2%,-3%)} 75%{transform:translate(-2%,-1%)} 100%{transform:translate(0,0)} }
-@media (prefers-reduced-motion: reduce) { body::after { animation: none; } .ray { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { body::after, .ray { animation: none !important; } }
 
-.wrap { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 4vw, 44px); }
+.worn { color: #fff; -webkit-mask: var(--worn) center / 300px 120px; mask: var(--worn) center / 300px 120px; }
+
 nav {
   position: fixed; top: 0; left: 0; right: 0; z-index: 40;
-  display: flex; align-items: center; justify-content: space-between; padding: 18px 28px;
-  background: linear-gradient(var(--bg), transparent);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px clamp(16px, 4vw, 44px);
+  background: rgba(7,8,8,.82); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line);
 }
-.logo { font: 500 18px Oswald, sans-serif; letter-spacing: .25em; text-transform: uppercase; text-decoration: none; }
+.logo { font-family: var(--head); font-weight: 400; font-size: 34px; line-height: 1; text-transform: uppercase; color: #fff; }
 .logo span { color: var(--accent); }
-.navlinks { display: flex; gap: 22px; align-items: center; font-size: 14px; }
-.navlinks a { text-decoration: none; color: var(--muted); transition: color .2s; }
-.navlinks a:hover { color: var(--text); }
-.lang { border: 1px solid var(--line); border-radius: 999px; overflow: hidden; display: flex; }
-.lang button { background: none; border: 0; color: var(--muted); font: 600 12px Inter; padding: 6px 12px; cursor: pointer; }
+.navlinks { display: flex; gap: clamp(18px, 2.6vw, 34px); align-items: center; font-family: var(--ui); font-weight: 600; font-size: 15px; letter-spacing: .16em; text-transform: uppercase; }
+.navlinks a { color: var(--dim); transition: color .15s; }
+.navlinks a:hover { color: #fff; }
+.lang { display: flex; border: 1px solid var(--line); }
+.lang button { background: none; border: 0; color: var(--dim); font: 600 13px var(--ui); letter-spacing: .14em; padding: 7px 12px; cursor: pointer; }
 .lang button.on { background: var(--text); color: var(--bg); }
 
-/* hero: dusk light falling through a window */
 header {
-  position: relative; min-height: 100vh; display: flex; align-items: center; overflow: hidden;
+  position: relative; min-height: 100vh; display: flex; align-items: flex-end; overflow: hidden;
+  padding-bottom: clamp(70px, 12vh, 130px);
   background:
-    radial-gradient(ellipse 60% 50% at 78% 35%, rgba(214, 150, 70, .28), transparent 70%),
-    radial-gradient(ellipse 80% 60% at 20% 100%, rgba(80, 100, 60, .25), transparent 70%),
-    linear-gradient(180deg, #0d100c 0%, #0b0d0b 100%);
+    radial-gradient(ellipse 55% 55% at 80% 30%, rgba(205, 150, 80, .22), transparent 70%),
+    radial-gradient(ellipse 70% 50% at 15% 110%, rgba(70, 90, 55, .28), transparent 70%),
+    linear-gradient(180deg, #0c0e0c, #070808 85%);
 }
+header::after { content: ""; position: absolute; inset: auto 0 0 0; height: 30%; background: linear-gradient(transparent, var(--bg)); }
 .ray {
-  position: absolute; top: -20%; right: 8%; width: 46vw; height: 140%;
-  background: linear-gradient(180deg, rgba(232, 190, 120, .14), transparent 75%);
-  transform: skewX(-18deg); filter: blur(8px); animation: sway 9s ease-in-out infinite alternate;
+  position: absolute; top: -20%; right: 10%; width: 40vw; height: 140%;
+  background: linear-gradient(180deg, rgba(232, 190, 120, .13), transparent 75%);
+  transform: skewX(-18deg); filter: blur(10px); animation: sway 9s ease-in-out infinite alternate;
 }
-.ray.two { right: 26%; width: 12vw; opacity: .7; animation-duration: 12s; }
-@keyframes sway { from { transform: skewX(-18deg) translateX(0); opacity: .8; } to { transform: skewX(-14deg) translateX(-3vw); opacity: 1; } }
-.leaves { position: absolute; inset: 0; pointer-events: none; opacity: .35;
-  background-image: radial-gradient(circle at 90% 10%, rgba(124,148,97,.35) 0 2px, transparent 3px),
-                    radial-gradient(circle at 70% 25%, rgba(124,148,97,.25) 0 2px, transparent 3px);
-  background-size: 140px 140px, 90px 90px; mask-image: linear-gradient(90deg, transparent 40%, #000 100%); }
-.hero { position: relative; z-index: 2; padding-top: 80px; }
-.kicker { font: 500 13px Oswald; letter-spacing: .4em; text-transform: uppercase; color: var(--accent); }
+.ray.two { right: 30%; width: 9vw; opacity: .6; animation-duration: 13s; }
+@keyframes sway { from { transform: skewX(-18deg); opacity: .75; } to { transform: skewX(-14deg) translateX(-3vw); opacity: 1; } }
+.leaves, .scroll { display: none; }
+.hero { position: relative; z-index: 2; width: 100%; }
+.kicker { font-family: var(--ui); font-weight: 600; font-size: 13px; letter-spacing: .3em; text-transform: uppercase; color: var(--dim); }
 h1 {
-  font: 700 clamp(56px, 11vw, 140px)/.9 Oswald, sans-serif; letter-spacing: .02em; text-transform: uppercase;
-  margin: 18px 0 22px; text-shadow: 0 0 60px rgba(201, 162, 74, .15);
+  font-family: var(--head); font-weight: 400; text-transform: uppercase;
+  font-size: clamp(72px, 14vw, 190px); line-height: .86; letter-spacing: .005em; margin: 14px 0 22px;
 }
-h1 em { font-style: normal; color: transparent; -webkit-text-stroke: 1px rgba(232, 228, 217, .55); }
-.lead { font-size: 19px; max-width: 560px; color: #cfcabd; }
-.cta { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 34px; }
+h1 em { font-style: normal; color: var(--accent); }
+.lead { font-size: 18px; max-width: 520px; color: var(--text); margin: 0; }
+.cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 30px; }
 .btn {
-  display: inline-flex; align-items: center; gap: 10px; padding: 15px 26px; border-radius: 2px;
-  font: 500 15px Oswald; letter-spacing: .18em; text-transform: uppercase; text-decoration: none;
-  border: 1px solid var(--line); transition: transform .15s, background .2s, border-color .2s;
+  display: inline-flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 28px;
+  font-family: var(--ui); font-weight: 700; font-size: 16px; letter-spacing: .14em; text-transform: uppercase;
+  border: 1px solid var(--text); background: rgba(7,8,8,.35); transition: background .15s, color .15s, border-color .15s;
 }
-.btn:hover { transform: translateY(-2px); border-color: rgba(232,228,217,.4); }
-.btn.main { background: var(--text); color: var(--bg); border-color: var(--text); }
-.btn.main:hover { background: #fff; }
-.note { margin-top: 18px; font-size: 13px; color: var(--muted); }
-.scroll { position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); font: 12px Oswald; letter-spacing: .35em; color: var(--muted); z-index: 2; }
+.btn:hover { background: var(--text); color: var(--bg); }
+.btn.main { background: var(--text); color: var(--bg); }
+.btn.main:hover { background: #fff; border-color: #fff; }
+.note { margin-top: 16px; font-size: 14px; color: var(--faint); }
+.status { display: inline-block; margin-top: 22px; font: 600 12px var(--ui); letter-spacing: .3em; text-transform: uppercase; color: var(--accent); border-left: 2px solid var(--accent); padding-left: 10px; }
 
-section { padding: 110px 0; border-top: 1px solid var(--line); }
-h2 { font: 500 clamp(32px, 5vw, 52px)/1.05 Oswald; text-transform: uppercase; letter-spacing: .04em; margin: 0 0 14px; }
-.sub { color: var(--muted); max-width: 620px; margin: 0 0 54px; }
+section { padding: clamp(80px, 11vw, 130px) 0; border-top: 1px solid var(--line); }
+h2 {
+  font-family: var(--head); font-weight: 400; text-transform: uppercase;
+  font-size: clamp(48px, 7vw, 92px); line-height: .95; letter-spacing: .01em; margin: 0 0 16px;
+}
+.sub { color: var(--dim); max-width: 560px; margin: 0 0 56px; font-size: 17px; }
 
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
-.card { background: var(--bg); padding: 30px 26px; transition: background .25s; }
-.card:hover { background: var(--bg2); }
-.card .n { font: 500 12px Oswald; letter-spacing: .3em; color: var(--accent); }
-.card h3 { font: 500 22px Oswald; text-transform: uppercase; letter-spacing: .05em; margin: 12px 0 8px; }
-.card p { margin: 0; color: var(--muted); font-size: 15px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); column-gap: 40px; border-top: 1px solid var(--line); }
+.card { padding: 34px 0 38px; border-bottom: 1px solid var(--line); }
+.card .n { font: 600 14px var(--ui); letter-spacing: .3em; color: var(--accent); }
+.card h3 { font-family: var(--head); font-weight: 400; font-size: 36px; line-height: 1; text-transform: uppercase; color: #fff; margin: 10px 0 12px; }
+.card p { margin: 0; color: var(--dim); font-size: 16px; max-width: 360px; }
 
-.steps { counter-reset: s; display: grid; gap: 18px; max-width: 760px; }
-.step { display: grid; grid-template-columns: 64px 1fr; gap: 18px; align-items: start; padding: 22px 0; border-bottom: 1px solid var(--line); }
-.step::before { counter-increment: s; content: "0" counter(s); font: 700 34px Oswald; color: transparent; -webkit-text-stroke: 1px var(--accent); }
-.step h3 { margin: 4px 0 6px; font: 500 20px Oswald; text-transform: uppercase; letter-spacing: .05em; }
-.step p { margin: 0; color: var(--muted); }
-code { font: 14px ui-monospace, Consolas, monospace; background: rgba(232,228,217,.08); padding: 2px 7px; border-radius: 3px; color: var(--text); }
-kbd { font: 600 12px Inter; border: 1px solid var(--line); border-bottom-width: 2px; padding: 2px 7px; border-radius: 4px; color: var(--text); }
+.steps { counter-reset: s; max-width: 820px; border-top: 1px solid var(--line); }
+.step { display: grid; grid-template-columns: 90px 1fr; gap: 18px; padding: 28px 0; border-bottom: 1px solid var(--line); }
+.step::before { counter-increment: s; content: "0" counter(s); font: 400 54px/1 var(--head); color: var(--accent); }
+.step h3 { margin: 2px 0 6px; font: 400 30px/1.05 var(--head); text-transform: uppercase; color: #fff; }
+.step p { margin: 0; color: var(--dim); }
+code { font: 15px ui-monospace, Consolas, monospace; background: var(--panel); border: 1px solid var(--line); padding: 1px 7px; color: var(--text); }
+kbd { font: 700 15px var(--ui); letter-spacing: .08em; border: 1px solid var(--text); padding: 3px 9px; color: #fff; }
 
-.keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-top: 40px; }
-.key { padding: 18px; border: 1px solid var(--line); }
-.key kbd { font-size: 14px; }
-.key div { color: var(--muted); font-size: 14px; margin-top: 10px; }
+.keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 46px; background: var(--line); border: 1px solid var(--line); }
+.key { padding: 22px; background: var(--bg); }
+.key div { color: var(--dim); font: 600 13px var(--ui); letter-spacing: .16em; text-transform: uppercase; margin-top: 14px; }
 
-details { border-bottom: 1px solid var(--line); padding: 20px 0; max-width: 820px; }
-summary { cursor: pointer; font: 500 19px Oswald; text-transform: uppercase; letter-spacing: .05em; list-style: none; display: flex; justify-content: space-between; }
-summary::after { content: "+"; color: var(--accent); }
-details[open] summary::after { content: "–"; }
-details p { color: var(--muted); margin: 12px 0 0; }
+details { border-bottom: 1px solid var(--line); padding: 22px 0; max-width: 860px; }
+details:first-of-type { border-top: 1px solid var(--line); }
+summary { cursor: pointer; font: 600 18px var(--ui); letter-spacing: .1em; text-transform: uppercase; list-style: none; display: flex; justify-content: space-between; gap: 20px; color: #fff; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; color: var(--accent); font-size: 22px; line-height: 1; }
+details[open] summary::after { content: "\2212"; }
+details p { color: var(--dim); margin: 12px 0 0; }
 
-footer { padding: 60px 0 80px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+footer { padding: 34px 0 60px; border-top: 1px solid var(--line); color: var(--faint); font-size: 13px; }
 footer .legal { max-width: 760px; }
-footer a { color: var(--text); }
-.status { display: inline-block; margin-top: 26px; font: 500 12px Oswald; letter-spacing: .25em; text-transform: uppercase; color: var(--green); border: 1px solid rgba(124,148,97,.4); padding: 6px 12px; }
+footer a { color: var(--dim); }
+footer a:hover { color: #fff; }
 
 [data-ru] { display: none; }
 html[lang="ru"] [data-en] { display: none; }
 html[lang="ru"] [data-ru] { display: revert; }
 
-@media (max-width: 700px) {
+@media (max-width: 760px) {
   .navlinks a { display: none; }
-  nav { padding: 14px 16px; }
-  .wrap { padding: 0 16px; }
-  section { padding: 80px 0; }
+  .logo { font-size: 26px; }
+  .step { grid-template-columns: 60px 1fr; }
+  .step::before { font-size: 40px; }
+  .keys { grid-template-columns: repeat(2, 1fr); }
 }
 </style>
 </head>
@@ -153,7 +161,7 @@ html[lang="ru"] [data-ru] { display: revert; }
   <div class="ray"></div><div class="ray two"></div><div class="leaves"></div>
   <div class="wrap hero">
     <div class="kicker"><span data-en>Unofficial fan mod · The Last of Us Part I · PC</span><span data-ru>Неофициальный фанатский мод · The Last of Us Part I · ПК</span></div>
-    <h1>Endure<br><em>together</em></h1>
+    <h1 class="worn">Endure<br><em>together</em></h1>
     <p class="lead">
       <span data-en>Play the whole story of The Last of Us Part I with a friend. Two players, one journey — each on their own PC and their own copy of the game.</span>
       <span data-ru>Пройдите весь сюжет The Last of Us Part I вдвоём с другом. Два игрока, одна дорога — каждый на своём ПК и со своей копией игры.</span>
@@ -171,7 +179,7 @@ html[lang="ru"] [data-ru] { display: revert; }
 
 <section id="features">
   <div class="wrap">
-    <h2><span data-en>What it does</span><span data-ru>Что умеет</span></h2>
+    <h2 class="worn"><span data-en>What it does</span><span data-ru>Что умеет</span></h2>
     <p class="sub"><span data-en>A MULTIPLAYER item appears right in the game's own main menu. Everything else happens in the game.</span><span data-ru>Пункт MULTIPLAYER появляется прямо в главном меню игры. Всё остальное происходит в самой игре.</span></p>
     <div class="grid">
       <div class="card"><div class="n">01</div><h3><span data-en>Lobby</span><span data-ru>Лобби</span></h3><p><span data-en>Create a lobby, invite a Steam friend or share a code with a secret part. In 23 languages.</span><span data-ru>Создайте лобби, пригласите друга из Steam или отправьте код с секретной частью. На 23 языках.</span></p></div>
@@ -186,7 +194,7 @@ html[lang="ru"] [data-ru] { display: revert; }
 
 <section id="install">
   <div class="wrap">
-    <h2><span data-en>Install</span><span data-ru>Установка</span></h2>
+    <h2 class="worn"><span data-en>Install</span><span data-ru>Установка</span></h2>
     <p class="sub"><span data-en>One file, once. Both players need it.</span><span data-ru>Один файл, один раз. Нужен обоим игрокам.</span></p>
     <div class="steps">
       <div class="step"><div><h3><span data-en>Download</span><span data-ru>Скачайте</span></h3><p><span data-en>Get <code>winmm.dll</code> with the Download button above.</span><span data-ru>Скачайте <code>winmm.dll</code> кнопкой «Скачать» вверху.</span></p></div></div>
@@ -204,7 +212,7 @@ html[lang="ru"] [data-ru] { display: revert; }
 
 <section id="faq">
   <div class="wrap">
-    <h2>FAQ</h2>
+    <h2 class="worn">FAQ</h2>
     <details><summary><span data-en>Do both of us need the game?</span><span data-ru>Игра нужна обоим?</span></summary><p><span data-en>Yes. Each player needs their own copy of The Last of Us Part I on Steam.</span><span data-ru>Да. Каждому нужна своя копия The Last of Us Part I в Steam.</span></p></details>
     <details><summary><span data-en>Does it change my saves?</span><span data-ru>Мод меняет мои сохранения?</span></summary><p><span data-en>The mod doesn't touch save files, but loading your partner's checkpoint is a normal game load, so the game may autosave there. Back up your saves if you care about them.</span><span data-ru>Мод не трогает файлы сохранений, но загрузка чекпоинта напарника — обычная загрузка игры, и игра может сделать там автосохранение. Если сохранения важны — сделайте копию.</span></p></details>
     <details><summary><span data-en>The lobby can't be created</span><span data-ru>Лобби не создаётся</span></summary><p><span data-en>Steam must be online. A VPN or proxy can block Steam's lobby servers — try turning it off.</span><span data-ru>Steam должен быть в сети. VPN или прокси могут мешать серверам лобби Steam — попробуйте их выключить.</span></p></details>
