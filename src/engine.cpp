@@ -95,17 +95,24 @@ bool IsFemaleHero(const std::string& name) {
 // Арт "t1x-..." бывает и у предметов ("t1x-tool-clump-cleaning-rod" у treasure-tool-3: попытка
 // сделать из него NPC роняла игру), поэтому персонаж - только "t1x-<имя>-costume-...".
 int SpawnerRank(const std::string& art, const std::string& hero) {
-	const bool heroFemale = IsFemaleHero(hero);
 	if (art.rfind("t1x-", 0) == 0) {
 		if (art.find("-costume") == std::string::npos) return 0;
 		const std::string name = HeroName(art);
 		if (!hero.empty() && name == hero) return 0;
-		return hero.empty() || IsFemaleHero(name) == heroFemale ? 4 : 1;
+		// Сюжетные персонажи (Марлин, Тесс) надёжно слушаются команд движения - всегда впереди.
+		return SameSex(art, hero) ? 4 : 3;
 	}
+	// Обычные NPC (контрабандист в Бостоне) появляются, но не реагируют ни на телепорт, ни на
+	// npc-move-to - только если сюжетных нет.
 	if (art.rfind("survivor-", 0) && art.rfind("smuggler-", 0) && art.rfind("military-", 0)) return 0;
-	const bool male = art.find("-m-") != std::string::npos, female = art.find("-f-") != std::string::npos;
-	if (hero.empty()) return 2;
-	return (heroFemale ? female : male) ? 3 : 1;
+	return SameSex(art, hero) ? 2 : 1;
+}
+
+bool SameSex(const std::string& art, const std::string& hero) {
+	if (hero.empty()) return true;
+	const bool heroFemale = IsFemaleHero(hero);
+	if (const std::string name = HeroName(art); !name.empty()) return IsFemaleHero(name) == heroFemale;
+	return art.find(heroFemale ? "-f-" : "-m-") != std::string::npos;
 }
 
 namespace {

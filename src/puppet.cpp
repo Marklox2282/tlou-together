@@ -70,7 +70,7 @@ uint64_t g_badForChapter = 0;
 // Копия NPC без собственной воли: тот же набор, что у марионетки в TLOU2-Coop.
 uint64_t Spawn(const Locator& at) {
 	Locator me{};
-	const std::string look = PlayerLocator(me) ? HeroLook(me.pos) : std::string();
+	std::string look = PlayerLocator(me) ? HeroLook(me.pos) : std::string();
 	std::string name;
 	if (g_badForChapter != g_myChapter) {
 		g_badSpawners.clear();
@@ -78,6 +78,8 @@ uint64_t Spawn(const Locator& at) {
 	}
 	const uintptr_t sp = FindBuddySpawner(HeroName(look), g_badSpawners, name);
 	g_lastSpawner = sp;
+	// Образ героя - только на скелет того же пола; иначе у NPC остаётся его собственный образ.
+	if (!SameSex(ReadName(ReadPtr(sp + kSpArt)), HeroName(look))) look.clear();
 	uint64_t sid = 0;
 	uint8_t f1 = 0;
 	if (!sp || !Read(sp + kSpSid, sid) || !Read(sp + kSpFlags1, f1)) {
