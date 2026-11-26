@@ -63,6 +63,19 @@ public:
 	// Друзья в этой игре (только Steam; включает Steam при первом вызове). Готовность - по
 	// приветствиям за последние 3 с, поэтому видна, пока ищем.
 	std::vector<Friend> Friends(uint64_t nowMs);
+
+	// ---- лобби Steam: создать, пригласить (оверлей Steam), войти по приглашению, выйти ----
+	// Участники лобби соединяются между собой обычным образом; гость шлёт приветствия хозяину.
+	void CreateLobby(uint64_t nowMs);
+	void InviteToLobby();        // окно приглашения Steam (как Shift+Tab)
+	void JoinLobby(uint64_t lobby, uint64_t nowMs);
+	void LeaveLobby();
+	uint64_t Lobby() const { return lobby_; }
+	bool LobbyBusy() const { return lobbyCall_ != 0; }  // создаём или входим
+	bool LobbyHost() const { return lobbyHost_; }
+	std::string LobbyOwnerName() const;
+	// Приглашение, принятое в Steam (событие Steam или "+connect_lobby" в командной строке).
+	static uint64_t TakeInvite();
 	using Chapter = std::pair<uint64_t, uint64_t>;  // узел и задание (engine::Chapter)
 	void SetChapter(Chapter c) { chapter_ = c; }
 	void SetName(const std::string& name) { name_ = name; }
@@ -99,6 +112,10 @@ private:
 	std::vector<Packet> enemyEvents_;
 	struct Heard { uint64_t steamId; uint32_t modVersion; uint64_t atMs; };
 	std::vector<Heard> heard_;  // последние приветствия от друзей
+	void PollLobby(uint64_t nowMs);
+	uint64_t lobby_ = 0, lobbyCall_ = 0, target_ = 0;  // target_: хозяин лобби (гость шлёт только ему)
+	int lobbyCallKind_ = 0;                              // 1 создание, 2 вход
+	bool lobbyHost_ = false;
 	bool beep_ = true;
 };
 

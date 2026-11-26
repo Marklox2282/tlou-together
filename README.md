@@ -31,7 +31,10 @@ Uninstall: delete `winmm.dll` (and `tlou1-coop.*` files) from the game folder.
 
 ## Play
 
-Both players load the same chapter, then both press **F8**; a beep means connected. **F6** disconnects, **F7** teleports you to your partner,
+Main menu > **MULTIPLAYER** > **Create lobby**: the Steam invite window opens; pick your friend.
+Your friend accepts the invite in Steam (the game starts if it was closed) and joins your lobby;
+a beep means connected. Then both load the same chapter, or one of you presses **F5**.
+Without the menu: both press **F8** to connect to any friend who also pressed it. **F6** disconnects, **F7** teleports you to your partner,
 **F5** loads your partner's chapter and checkpoint and puts you next to them (Shift+F5 reloads your own, to test it).
 For LAN play without Steam set `peer_ip` in `tlou1-coop.ini` (created next to the game on first F8).
 Log: `tlou1-coop.log` in the game folder.

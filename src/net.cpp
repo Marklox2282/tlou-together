@@ -4,7 +4,9 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 
+#include <atomic>
 #include <cstring>
+#include <cstdlib>
 #include <vector>
 
 #include "net.hpp"
@@ -30,6 +32,16 @@ struct Steam {
 	int (*RecvOnChannel)(void*, int, void**, int) = nullptr;
 	bool (*CloseSession)(void*, const void*) = nullptr;
 	void (*MsgRelease)(void*) = nullptr;
+	void* mm = nullptr;  // ISteamMatchmaking
+	uint64_t (*CreateLobby)(void*, int, int) = nullptr;
+	uint64_t (*JoinLobby)(void*, uint64_t) = nullptr;
+	void (*LeaveLobby)(void*, uint64_t) = nullptr;
+	uint64_t (*GetLobbyOwner)(void*, uint64_t) = nullptr;
+	bool (*SetLobbyData)(void*, uint64_t, const char*, const char*) = nullptr;
+	void (*InviteDialog)(void*, uint64_t) = nullptr;
+	bool (*CallDone)(void*, uint64_t, bool*) = nullptr;
+	bool (*CallResult)(void*, uint64_t, void*, int, int, bool*) = nullptr;
+	void (*RegisterCallback)(void*, int) = nullptr;
 	uint32_t appId = 0;
 } g_steam;
 
@@ -39,6 +51,32 @@ constexpr int kFriendFlagImmediate = 0x04;
 constexpr int kSendFlags = 1 | 32;  // UnreliableNoNagle | AutoRestartBrokenSession
 constexpr int kSendReliable = 8 | 32;  // Reliable | AutoRestartBrokenSession
 constexpr int kChannel = 7;
+
+// ---- приглашение в лобби, принятое в Steam (GameLobbyJoinRequested_t, 333) -------------------
+// Объект с раскладкой CCallbackBase из steamworks (виртуальные Run/Run/GetCallbackSizeBytes,
+// флаги и номер события); SteamAPI_RunCallbacks игры вызывает Run в своём потоке.
+std::atomic<uint64_t> g_invite{ 0 };
+
+class CallbackBase {
+public:
+	virtual void Run(void* param) = 0;
+	virtual void Run(void* param, bool ioFailure, uint64_t call) = 0;
+	virtual int GetCallbackSizeBytes() = 0;
+	uint8_t flags = 0;
+	int callback = 0;
+};
+
+struct LobbyJoinRequested { uint64_t lobby, friendId; };
+constexpr int kLobbyJoinRequested = 333, kLobbyCreated = 513, kLobbyEnter = 504;
+
+class InviteCallback final : public CallbackBase {
+public:
+	void Run(void* param) override { g_invite = static_cast<const LobbyJoinRequested*>(param)->lobby; }
+	void Run(void* param, bool, uint64_t) override { Run(param); }
+	int GetCallbackSizeBytes() override { return sizeof(LobbyJoinRequested); }
+} g_inviteCallback;
+
+void RegisterInviteCallback();
 
 template <typename T>
 void Sym(HMODULE m, const char* name, T& out) { out = reinterpret_cast<T>(GetProcAddress(m, name)); }
@@ -54,6 +92,17 @@ bool SteamInit(Link::LogFn log) {
 	Sym(m, "SteamAPI_SteamFriends_v017", friends);
 	Sym(m, "SteamAPI_SteamUser_v021", user);  // в Part I v021, в Part II v023; GetSteamID одинаков
 	Sym(m, "SteamAPI_SteamNetworkingMessages_SteamAPI_v002", msgs);
+	void* (*mm)() = nullptr;
+	Sym(m, "SteamAPI_SteamMatchmaking_v009", mm);
+	Sym(m, "SteamAPI_ISteamMatchmaking_CreateLobby", s.CreateLobby);
+	Sym(m, "SteamAPI_ISteamMatchmaking_JoinLobby", s.JoinLobby);
+	Sym(m, "SteamAPI_ISteamMatchmaking_LeaveLobby", s.LeaveLobby);
+	Sym(m, "SteamAPI_ISteamMatchmaking_GetLobbyOwner", s.GetLobbyOwner);
+	Sym(m, "SteamAPI_ISteamMatchmaking_SetLobbyData", s.SetLobbyData);
+	Sym(m, "SteamAPI_ISteamFriends_ActivateGameOverlayInviteDialog", s.InviteDialog);
+	Sym(m, "SteamAPI_ISteamUtils_IsAPICallCompleted", s.CallDone);
+	Sym(m, "SteamAPI_ISteamUtils_GetAPICallResult", s.CallResult);
+	Sym(m, "SteamAPI_RegisterCallback", s.RegisterCallback);
 	Sym(m, "SteamAPI_SteamUtils_v010", utils);
 	Sym(m, "SteamAPI_SteamNetworkingUtils_SteamAPI_v004", nutils);
 	Sym(m, "SteamAPI_ISteamNetworkingUtils_InitRelayNetworkAccess", initRelay);
@@ -85,11 +134,31 @@ bool SteamInit(Link::LogFn log) {
 		return false;
 	}
 	s.appId = s.GetAppID(s.utils);
+	if (mm && s.CreateLobby && s.JoinLobby && s.LeaveLobby && s.GetLobbyOwner && s.SetLobbyData && s.InviteDialog &&
+		s.CallDone && s.CallResult)
+		s.mm = mm();
+	if (!s.mm) log("net: Steam lobbies unavailable");
+	RegisterInviteCallback();
 	if (nutils && initRelay)
 		if (void* nu = nutils()) initRelay(nu);
 	s.ok = true;
 	log("net: Steam ready, appid %u, me %s", s.appId, s.GetPersonaName(s.friends));
 	return true;
+}
+
+void RegisterInviteCallback() {
+	static bool done = false;
+	if (done || !g_steam.RegisterCallback) return;
+	done = true;
+	g_inviteCallback.callback = kLobbyJoinRequested;
+	g_steam.RegisterCallback(&g_inviteCallback, kLobbyJoinRequested);
+}
+
+// Steam запускает игру по приглашению с "+connect_lobby <id>" в командной строке.
+uint64_t LobbyFromCommandLine() {
+	const char* cmd = GetCommandLineA();
+	const char* p = cmd ? strstr(cmd, "+connect_lobby") : nullptr;
+	return p ? _strtoui64(p + strlen("+connect_lobby"), nullptr, 10) : 0;
 }
 
 Ident MakeIdent(uint64_t id) {
@@ -288,13 +357,16 @@ void Link::Disconnected(const char* why) {
 }
 
 bool Link::Tick(uint64_t nowMs, Packet& pose) {
+	PollLobby(nowMs);
 	if (state_ == State::Off) return false;
 	// Приветствие раз в секунду, пока не нашли друг друга. Отправка в Steam открывает сессию,
 	// поэтому оба игрока жмут F8: каждый шлёт другому, и сессии принимаются без запроса.
 	if (state_ == State::Searching && nowMs - lastHello_ >= 1000) {
 		lastHello_ = nowMs;
 		const Packet hello = Make(kHello);
-		if (steam_)
+		if (steam_ && target_)
+			SendTo(target_, hello);  // гость лобби: только хозяину
+		else if (steam_)
 			for (uint64_t id : FriendsInThisGame()) SendTo(id, hello);
 		else
 			SendTo(0, hello);
@@ -366,6 +438,85 @@ std::vector<Friend> Link::Friends(uint64_t nowMs) {
 		out.push_back(f);
 	}
 	return out;
+}
+
+// ---- лобби ---------------------------------------------------------------------------------
+uint64_t Link::TakeInvite() {
+	static bool commandLineChecked = false;
+	if (!commandLineChecked) {
+		commandLineChecked = true;
+		if (const uint64_t lobby = LobbyFromCommandLine()) return lobby;
+	}
+	return g_invite.exchange(0);
+}
+
+void Link::CreateLobby(uint64_t nowMs) {
+	if (!SteamInit(log_) || !g_steam.mm || lobby_ || lobbyCall_) return;
+	if (state_ == State::Off) Start(Config{}, nowMs);
+	lobbyCall_ = g_steam.CreateLobby(g_steam.mm, 1 /* только друзья */, 2);
+	lobbyCallKind_ = 1;
+	log_("net: creating a lobby");
+}
+
+void Link::JoinLobby(uint64_t lobby, uint64_t nowMs) {
+	if (!lobby || !SteamInit(log_) || !g_steam.mm || lobby == lobby_) return;
+	LeaveLobby();
+	Start(Config{}, nowMs);
+	lobbyCall_ = g_steam.JoinLobby(g_steam.mm, lobby);
+	lobbyCallKind_ = 2;
+	log_("net: joining lobby %llu", static_cast<unsigned long long>(lobby));
+}
+
+void Link::LeaveLobby() {
+	if (lobby_ && g_steam.mm) g_steam.LeaveLobby(g_steam.mm, lobby_);
+	if (lobby_) log_("net: left the lobby");
+	lobby_ = lobbyCall_ = target_ = 0;
+	lobbyHost_ = false;
+	Stop();
+}
+
+void Link::InviteToLobby() {
+	if (lobby_ && g_steam.mm) g_steam.InviteDialog(g_steam.friends, lobby_);
+}
+
+std::string Link::LobbyOwnerName() const {
+	if (!lobby_ || !g_steam.mm) return {};
+	const uint64_t owner = g_steam.GetLobbyOwner(g_steam.mm, lobby_);
+	return owner ? g_steam.GetFriendPersonaName(g_steam.friends, owner) : std::string();
+}
+
+void Link::PollLobby(uint64_t nowMs) {
+	if (!lobbyCall_ || !g_steam.mm) return;
+	bool failed = false;
+	if (!g_steam.CallDone(g_steam.utils, lobbyCall_, &failed)) return;
+	const uint64_t call = lobbyCall_;
+	lobbyCall_ = 0;
+	if (lobbyCallKind_ == 1) {
+		struct { int32_t result; uint64_t lobby; } r{};  // LobbyCreated_t
+		if (!g_steam.CallResult(g_steam.utils, call, &r, sizeof(r), kLobbyCreated, &failed) || failed || r.result != 1 || !r.lobby) {
+			log_("net: could not create a lobby (result %d)", r.result);
+			Stop();
+			return;
+		}
+		lobby_ = r.lobby;
+		lobbyHost_ = true;
+		g_steam.SetLobbyData(g_steam.mm, lobby_, "tlou1coop", std::to_string(modVersion_).c_str());
+		log_("net: lobby %llu created; opening the Steam invite window", static_cast<unsigned long long>(lobby_));
+		InviteToLobby();
+	} else {
+		struct { uint64_t lobby; uint32_t permissions; bool locked; uint32_t response; } r{};  // LobbyEnter_t
+		if (!g_steam.CallResult(g_steam.utils, call, &r, sizeof(r), kLobbyEnter, &failed) || failed || r.response != 1) {
+			log_("net: could not join the lobby (response %u)", r.response);
+			Stop();
+			return;
+		}
+		lobby_ = r.lobby;
+		lobbyHost_ = false;
+		target_ = g_steam.GetLobbyOwner(g_steam.mm, lobby_);
+		if (state_ == State::Off) Start(Config{}, nowMs);
+		lastHello_ = 0;  // сразу поприветствовать хозяина
+		log_("net: joined %s's lobby", LobbyOwnerName().c_str());
+	}
 }
 
 }  // namespace net

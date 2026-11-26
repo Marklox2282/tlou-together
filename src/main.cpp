@@ -82,7 +82,7 @@ net::Config LoadConfig(std::string& name) {
 net::Link g_link(Log, kModVersion);
 
 // Лобби в меню игры: состояние для его текста (меню читает из своего потока) и "Да".
-std::atomic<bool> g_menuToggle{ false };
+std::atomic<int> g_menuAction{ 0 };  // menu::Action из меню игры
 SRWLOCK g_lobbyLock = SRWLOCK_INIT;
 menu::Lobby g_lobbyState;
 
@@ -96,6 +96,10 @@ void PublishLobby(ULONGLONG now) {
 	}
 	menu::Lobby s;
 	s.friends = friends;
+	s.lobby = g_link.Lobby() != 0;
+	s.host = g_link.LobbyHost();
+	s.busy = g_link.LobbyBusy();
+	if (s.lobby && !s.host) s.owner = g_link.LobbyOwnerName();
 	s.on = g_link.GetState() != net::State::Off;
 	s.connected = g_link.GetState() == net::State::Connected;
 	if (s.connected) s.partner = g_link.PeerName();
@@ -115,27 +119,47 @@ menu::Lobby ReadLobby() {
 void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	static bool f8Down = false, f6Down = false;
 	static ULONGLONG lastSend = 0;
-	const bool toggle = g_menuToggle.exchange(false);  // "Да" в лобби меню игры
+	static bool wasOn = false;
+	const int action = g_menuAction.exchange(0);
 	const bool off = g_link.GetState() == net::State::Off;
-	if ((KeyPressed(VK_F8, f8Down) || toggle) && off) {
-		std::string name;
+	std::string name;
+	if (KeyPressed(VK_F8, f8Down) && off) {  // F8: без лобби, к любому другу, который тоже нажал F8
 		const net::Config cfg = LoadConfig(name);
 		g_link.SetName(name);
-		enemies::Reset();
-		puppet::SetNetActive(g_link.Start(cfg, now));
-	} else if ((KeyPressed(VK_F6, f6Down) || toggle) && !off) {
-		g_link.Stop();
-		puppet::SetNetActive(false);
-		puppet::SetPartnerChapter({});
-		puppet::UseNetwork(false);
+		g_link.Start(cfg, now);
+	} else if ((KeyPressed(VK_F6, f6Down) && !off) || action == menu::Leave) {
+		g_link.LeaveLobby();  // и отключиться
+	}
+	if (action == menu::CreateLobby) {
+		LoadConfig(name);
+		g_link.SetName(name);
+		g_link.CreateLobby(now);
+	}
+	if (action == menu::Invite) g_link.InviteToLobby();
+	if (const uint64_t invite = net::Link::TakeInvite()) {  // приняли приглашение в Steam
+		LoadConfig(name);
+		g_link.SetName(name);
+		g_link.JoinLobby(invite, now);
+	}
+
+	net::Packet pose;
+	const bool gotPose = g_link.Tick(now, pose);  // и ответы Steam по лобби, даже когда сеть выключена
+	const bool on = g_link.GetState() != net::State::Off;
+	if (on != wasOn) {  // сеть включилась или выключилась (клавиши, меню, лобби)
+		wasOn = on;
+		if (on) enemies::Reset();
+		puppet::SetNetActive(on);
+		if (!on) {
+			puppet::SetPartnerChapter({});
+			puppet::UseNetwork(false);
+		}
 	}
 	PublishLobby(now);
-	if (g_link.GetState() == net::State::Off) return;
+	if (!on) return;
 
 	const engine::Chapter mine = puppet::MyChapter();
 	g_link.SetChapter({ mine.node, mine.task });
-	net::Packet pose;
-	if (g_link.Tick(now, pose)) {
+	if (gotPose) {
 		if (!puppet::UsingNetwork()) {  // первая поза друга: марионетка теперь его
 			puppet::UseNetwork(true);
 			puppet::SetWanted(true);
@@ -313,7 +337,7 @@ void Init() {
 	auto script = safetyhook::MidHook::create(reinterpret_cast<void*>(engine::g_base + engine::kScriptInvokeRva), ScriptInvoke);
 	if (script) g_scriptHook = std::move(*script);
 	Log("script hook: %s", g_scriptHook ? "ok" : "FAILED");
-	menu::Install(ReadLobby, [] { g_menuToggle = true; });
+	menu::Install(ReadLobby, [](menu::Action a) { g_menuAction = a; });
 	InstallCrashLog();
 }
 

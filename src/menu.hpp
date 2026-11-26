@@ -14,12 +14,18 @@ struct Lobby {
 	std::string partner;      // ник партнёра, если подключены
 	struct Friend { std::string name; int status; };  // status: 0 в игре, 1 готов, 2 другая версия мода
 	std::vector<Friend> friends;  // друзья из Steam в этой игре
+	bool lobby = false;       // мы в лобби Steam
+	bool host = false;        // своё лобби
+	bool busy = false;        // лобби создаётся или мы в него входим
+	std::string owner;        // хозяин чужого лобби
 };
 
-using LobbyFn = Lobby (*)();  // состояние для текста лобби (вызывается из потока меню)
-using ToggleFn = void (*)();  // "Да" в лобби: включить поиск или отключиться
+enum Action { None, CreateLobby, Invite, Leave };
 
-bool Install(LobbyFn lobby, ToggleFn toggle);  // false - какой-то перехват не встал
+using LobbyFn = Lobby (*)();  // состояние для текста лобби (вызывается из потока меню)
+using ActionFn = void (*)(Action);  // кнопка лобби (вызывается из потока меню)
+
+bool Install(LobbyFn lobby, ActionFn action);  // false - какой-то перехват не встал
 void OnFrame();  // из игрового кадра: один раз после запуска игры дописать описание пункта
 
 }  // namespace menu
