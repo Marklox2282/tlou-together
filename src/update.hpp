@@ -9,7 +9,7 @@
 
 namespace update {
 
-inline constexpr const wchar_t* kReleaseUrl = L"https://github.com/marklox228lox/tlou1-coop/releases/latest/download/";
+inline constexpr const wchar_t* kReleaseUrl = L"https://github.com/Marklox2282/tlou1-coop/releases/latest/download/";
 
 enum class Result { UpToDate, Installed, Failed };
 using LogFn = void (*)(const char* fmt, ...);

@@ -9,7 +9,7 @@ import glob, os, pathlib, re, subprocess, sys, tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 KEY = pathlib.Path(os.environ["USERPROFILE"]) / ".tlou1-coop" / "signing.key"
-REPO = "marklox228lox/tlou1-coop"
+REPO = "Marklox2282/tlou1-coop"
 
 
 def run(*cmd, **kw):
