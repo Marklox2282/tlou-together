@@ -1,11 +1,15 @@
 # tlou-together
 
-Experimental two-player co-op for **The Last of Us Part I** (PC, Steam). Unofficial fan project, not
-affiliated with Sony Interactive Entertainment or Naughty Dog. You need your own copy of the game.
-No game files are in this repository.
+Experimental two-player co-op for **The Last of Us Part I** (PC, Steam).
+
+tlou-together is an unofficial fan project. It is not affiliated with, endorsed by or sponsored by
+Sony Interactive Entertainment or Naughty Dog. "The Last of Us" is a trademark of its owners. You
+need your own legitimately purchased copy of the game (Steam). This repository contains no game
+files and no assets taken from the game.
 
 Based on the reverse-engineering and approach of [TLOU2-Coop](https://github.com/cheese123113/TLOU2-Coop)
-(GPL-3.0), which builds on [Twelve Weeks](https://github.com/kelliex3/Twelve-Weeks). Licensed GPL-3.0.
+(GPL-3.0), which builds on [Twelve Weeks](https://github.com/kelliex3/Twelve-Weeks)
+([twelve-weeks.com](https://twelve-weeks.com/)). Licensed GPL-3.0.
 
 **Status: early test builds.** Works only with Steam build 18995818 of the game.
 
