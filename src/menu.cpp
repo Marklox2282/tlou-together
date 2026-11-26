@@ -507,6 +507,7 @@ std::atomic<bool> g_mainMenu{ true };
 // закрываем (ScriptTick, menu2-pop-page) и открываем заново из кода меню (Visible - его игра
 // вызывает каждый кадр, пока меню на экране; открытие из обработчика кадра роняло игру).
 std::atomic<bool> g_boxOpen{ false }, g_popRequest{ false }, g_reopen{ false };
+std::atomic<DWORD> g_mainThread{ 0 };  // основной поток (из OnFrame): меню трогаем только из него
 std::atomic<ULONGLONG> g_reopenAfter{ 0 };
 std::atomic<uint64_t> g_boxPage{ 0 };  // имя страницы окна в стеке (узнаём после открытия)
 
@@ -607,6 +608,7 @@ bool g_installed = false;
 }  // namespace
 
 void OnFrame() {
+	g_mainThread = GetCurrentThreadId();
 	// Состояние лобби сменилось, а окно открыто - закрыть его (ScriptTick) и открыть заново.
 	static ULONGLONG lastCheck = 0;
 	static std::string lastState;
@@ -640,8 +642,24 @@ void OnFrame() {
 }
 
 void ScriptTick() {
-	if (!g_boxOpen.load(std::memory_order_relaxed)) return;
+	const bool reopenDue = g_reopen.load(std::memory_order_relaxed) && !g_boxOpen.load(std::memory_order_relaxed);
+	if (!g_boxOpen.load(std::memory_order_relaxed) && !reopenDue) return;
+	if (GetCurrentThreadId() != g_mainThread.load(std::memory_order_relaxed)) {
+		static std::atomic<bool> logged{ false };
+		if (!logged.exchange(true)) Log("menu: script tick on another thread, waiting for the main one");
+		return;
+	}
+	static std::atomic<bool> mainSeen{ false };
+	if (!mainSeen.exchange(true)) Log("menu: script tick on the main thread");
 	const uint64_t stack = g_mainMenu ? Sid("main") : Sid("ingame");
+	// Отложенное открытие лобби: здесь середина обновления игры на основном потоке (скрипты меню
+	// работают так же), а не конец кадра, где открытие роняло игру.
+	if (reopenDue) {
+		bool want = true;
+		if (GetTickCount64() >= g_reopenAfter && g_reopen.compare_exchange_strong(want, false))
+			Log("menu: lobby reopened %s", OpenLobby(g_mainMenu) ? "ok" : "FAILED");
+		return;
+	}
 	// Страницу окна запоминаем сразу после открытия: сверху стека будет она.
 	if (!g_boxPage.load(std::memory_order_relaxed)) {
 		static std::atomic_flag busy = ATOMIC_FLAG_INIT;
