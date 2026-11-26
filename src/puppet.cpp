@@ -84,7 +84,40 @@ std::vector<uintptr_t> g_badSpawners;
 int g_failures = 0;
 uint64_t g_badForChapter = 0;
 
-// Копия NPC без собственной воли: тот же набор, что у марионетки в TLOU2-Coop.
+// ---- роли ----------------------------------------------------------------------------------
+std::atomic<int> g_role{ static_cast<int>(Role::Hero) };
+bool g_puppetIsBuddy = false;  // марионетка - настоящий спутник главы (у героя)
+uint64_t g_buddyMode = 0;      // его режим скрипта до нас - вернуть при отпускании
+SRWLOCK g_namesLock = SRWLOCK_INIT;
+std::string g_heroName, g_companionName;
+
+// Без собственной воли: тот же набор, что у марионетки в TLOU2-Coop.
+void AiOff(uint64_t npc) {
+	Call(g_dc.scriptMode, { npc, 2, 1 });  // выключить ИИ и сюжетные команды
+	for (NativeFn on : { g_dc.setIgnore, g_dc.setBlind, g_dc.setDeaf }) Call(on, { npc, 1 });
+	for (NativeFn off : { g_dc.hitReactions, g_dc.stun, g_dc.dodges }) Call(off, { npc, 0 });
+	Call(g_dc.setUnshootable, { npc, 1 });  // напарника не подстрелить
+}
+
+// Спутник главы становится партнёром: его ведёт сеть, а не ИИ.
+void TakeOverBuddy(uint64_t npc) {
+	g_buddyMode = Call(g_dc.getScriptMode, { npc });
+	AiOff(npc);
+	g_puppetIsBuddy = true;
+	Log("puppet: companion %016llX now follows the partner (its AI is off)", static_cast<unsigned long long>(npc));
+}
+
+void ReleaseBuddy(uint64_t npc) {
+	if (Call(g_dc.entityExists, { npc })) {
+		Call(g_dc.scriptMode, { npc, g_buddyMode, 1 });
+		for (NativeFn off : { g_dc.setIgnore, g_dc.setBlind, g_dc.setDeaf }) Call(off, { npc, 0 });
+		for (NativeFn on : { g_dc.hitReactions, g_dc.stun, g_dc.dodges }) Call(on, { npc, 1 });
+	}
+	g_puppetIsBuddy = false;
+	Log("puppet: companion %016llX has its AI back", static_cast<unsigned long long>(npc));
+}
+
+// Копия NPC без собственной воли.
 uint64_t Spawn(const Locator& at) {
 	Locator me{};
 	std::string look = PlayerLocator(me) ? HeroLook(me.pos) : std::string();
@@ -136,10 +169,7 @@ uint64_t Spawn(const Locator& at) {
 		Log("puppet: spawn from %s failed (npc=%016llX)", name.c_str(), static_cast<unsigned long long>(npc));
 		return 0;
 	}
-	Call(g_dc.scriptMode, { npc, 2, 1 });  // выключить ИИ и сюжетные команды
-	for (NativeFn on : { g_dc.setIgnore, g_dc.setBlind, g_dc.setDeaf }) Call(on, { npc, 1 });
-	for (NativeFn off : { g_dc.hitReactions, g_dc.stun, g_dc.dodges }) Call(off, { npc, 0 });
-	Call(g_dc.setUnshootable, { npc, 1 });  // напарника не подстрелить
+	AiOff(npc);
 	Log("puppet: %s -> %016llX", name.c_str(), static_cast<unsigned long long>(npc));
 	return npc;
 }
@@ -174,6 +204,11 @@ std::atomic<bool> g_hidden{ false };
 
 void Hide() {
 	const uint64_t puppet = g_puppet;
+	if (puppet && g_puppetIsBuddy) {  // настоящего спутника не прячем, а отдаём обратно ИИ
+		ReleaseBuddy(puppet);
+		g_puppet = 0;
+		return;
+	}
 	if (!puppet || g_hidden || !Call(g_dc.entityExists, { puppet })) return;
 	Locator here{};
 	if (NpcLocator(puppet, here))
@@ -212,11 +247,21 @@ void Update() {
 		}
 		g_puppet = puppet = 0;
 		g_hidden = false;
+		g_puppetIsBuddy = false;
 	}
 	Locator target{};
 	if (!DelayedTarget(now, target) || PartnerTooFar(target)) return;
 	if (!puppet) {
 		if (now - g_lastSpawnTry < (g_failures >= 3 ? 15000u : 3000u)) return;
+		// Герою партнёра изображает настоящий спутник главы, если он есть.
+		if (GetRole() == Role::Hero)
+			if (const uint64_t buddy = CurrentBuddy(0)) {
+				TakeOverBuddy(buddy);
+				g_puppet = puppet = buddy;
+				g_lastSpawner = 0;
+				g_lastSpawnTry = g_spawnedAt = now;
+				return;
+			}
 		g_puppet = puppet = Spawn(target);
 		const ULONGLONG took = GetTickCount64() - now;
 		if (took > 20) Log("puppet: spawn attempt took %llu ms", took);
@@ -320,6 +365,76 @@ void TeleportToPartner() {
 	Log("F7: teleport to partner at (%.1f %.1f %.1f) %s", partner.pos[0], partner.pos[1], partner.pos[2], boxed ? "sent" : "FAILED");
 }
 
+// ---- напарник: сам выглядит как спутник главы, его ИИ-спутник спрятан ------------------------
+uint64_t g_hiddenBuddy = 0;
+std::string g_heroLook, g_lookNow;  // облик героя (вернуть) и текущий подменённый облик
+
+void ShowBuddy(uint64_t npc) {
+	if (!npc || !Call(g_dc.entityExists, { npc })) return;
+	Call(g_dc.sendEvent, { Sid("physicalize"), npc });
+	Call(g_dc.setVisible, { npc, 1 });
+	for (NativeFn off : { g_dc.setIgnore, g_dc.setBlind, g_dc.setDeaf }) Call(off, { npc, 0 });
+	Log("companion: AI companion %016llX visible again", static_cast<unsigned long long>(npc));
+}
+
+void HideBuddy(uint64_t npc) {
+	Call(g_dc.setVisible, { npc, 0 });
+	if (const uint64_t none = Call(g_dc.newBoxedValue, { kBoxedSymbol, 0 })) Call(g_dc.sendEvent, { Sid("unphysicalize"), npc, none });
+	for (NativeFn on : { g_dc.setIgnore, g_dc.setBlind, g_dc.setDeaf }) Call(on, { npc, 1 });
+	Log("companion: AI companion %016llX hidden (you are the companion)", static_cast<unsigned long long>(npc));
+}
+
+void SwapLook(const std::string& art) {
+	if (art.empty() || art == g_lookNow) return;
+	Call(g_dc.swapLook, { Sid(art.c_str()), 1, 1 });
+	g_lookNow = art;
+	Log("companion: player look -> %s", art.c_str());
+}
+
+// Раз в полсекунды. on: роль напарника действует; иначе всё вернуть как было.
+void CompanionTick(bool on) {
+	static ULONGLONG last = 0;
+	const ULONGLONG now = GetTickCount64();
+	if (now - last < 500) return;
+	last = now;
+	if (!on) {
+		if (g_hiddenBuddy) ShowBuddy(g_hiddenBuddy);
+		g_hiddenBuddy = 0;
+		if (!g_lookNow.empty() && !g_heroLook.empty() && g_lookNow != g_heroLook) SwapLook(g_heroLook);
+		g_lookNow.clear();
+		return;
+	}
+	const uint64_t buddy = CurrentBuddy(g_puppet);
+	if (buddy == g_hiddenBuddy) return;
+	if (g_hiddenBuddy) ShowBuddy(g_hiddenBuddy);
+	g_hiddenBuddy = buddy;
+	if (!buddy) return;
+	Locator me{};
+	if (g_heroLook.empty() && PlayerLocator(me)) g_heroLook = HeroLook(me.pos);
+	HideBuddy(buddy);
+	SwapLook(ArtOfNpc(buddy));
+}
+
+// Имена героя и спутника главы для лобби: раз в 2 с, спавнеры перебираем только при смене спутника.
+void NamesTick() {
+	static ULONGLONG last = 0;
+	static uint64_t lastBuddy = ~0ull;
+	const ULONGLONG now = GetTickCount64();
+	if (now - last < 2000) return;
+	last = now;
+	const uint64_t buddy = g_hiddenBuddy ? g_hiddenBuddy : CurrentBuddy(g_puppetIsBuddy ? 0 : g_puppet.load());
+	if (buddy == lastBuddy) return;
+	lastBuddy = buddy;
+	Locator me{};
+	const std::string hero = PlayerLocator(me) ? HeroName(HeroLook(me.pos)) : std::string();
+	const std::string companion = buddy ? HeroName(ArtOfNpc(buddy)) : std::string();
+	AcquireSRWLockExclusive(&g_namesLock);
+	g_heroName = hero.empty() ? g_heroName : hero;
+	g_companionName = companion;
+	ReleaseSRWLockExclusive(&g_namesLock);
+	Log("roles: hero %s, companion %s", hero.empty() ? "?" : hero.c_str(), companion.empty() ? "none" : companion.c_str());
+}
+
 void ReadChapter() {
 	static ULONGLONG last = 0;
 	const ULONGLONG now = GetTickCount64();
@@ -398,12 +513,30 @@ void SetNetActive(bool on) { g_netActive = on; }
 void SetPartnerChapter(const Chapter& c) { StoreChapter(g_partnerChapter, c); }
 Chapter MyChapter() { return LoadChapter(g_myChapter); }
 void RequestJoin(bool own) { g_joinRequest = own ? 2 : 1; }
+void SetRole(Role r) {
+	if (static_cast<int>(r) != g_role.exchange(static_cast<int>(r)))
+		Log("roles: I am the %s", r == Role::Hero ? "hero" : "companion");
+}
+Role GetRole() { return static_cast<Role>(g_role.load()); }
+std::string HeroCharacter() {
+	AcquireSRWLockShared(&g_namesLock);
+	std::string s = g_heroName;
+	ReleaseSRWLockShared(&g_namesLock);
+	return s;
+}
+std::string CompanionCharacter() {
+	AcquireSRWLockShared(&g_namesLock);
+	std::string s = g_companionName;
+	ReleaseSRWLockShared(&g_namesLock);
+	return s;
+}
 uint64_t Current() { return g_puppet; }
 
 // Свой номер кадра: хук интерпретатора срабатывает на каждом вызове скриптовой функции (тысячи
 // за кадр на всех потоках), и проверка там должна стоить одно сравнение. Раньше здесь читался
 // счётчик кадров игры через проверяемое чтение памяти, и FPS заметно проседал.
 std::atomic<uint64_t> g_frame{ 0 };
+std::atomic<bool> g_hiddenBuddyAtomic{ false };  // спрятан спутник: тик нужен, чтобы вернуть его
 std::atomic<uint64_t> g_workUs{ 0 };
 
 void OnFrame() { g_frame.fetch_add(1, std::memory_order_relaxed); }
@@ -412,7 +545,8 @@ uint64_t TakeWorkMicroseconds() { return g_workUs.exchange(0); }
 // Скрипты выполняются на нескольких потоках; работа - один раз за кадр, первым пришедшим.
 void ScriptTick() {
 	if (!g_wanted.load(std::memory_order_relaxed) && !g_teleport.load(std::memory_order_relaxed) &&
-		!g_joinRequest.load(std::memory_order_relaxed) && !g_joinAt &&
+		!g_joinRequest.load(std::memory_order_relaxed) && !g_joinAt && !g_hiddenBuddyAtomic.load(std::memory_order_relaxed) &&
+		g_role.load(std::memory_order_relaxed) == static_cast<int>(Role::Hero) &&
 		!g_netActive.load(std::memory_order_relaxed) && !g_puppet.load(std::memory_order_relaxed))
 		return;
 	const uint64_t frame = g_frame.load(std::memory_order_relaxed);
@@ -430,7 +564,13 @@ void ScriptTick() {
 	if (g_teleport.exchange(false)) TeleportToPartner();
 	if (const int join = g_joinRequest.exchange(0)) StartJoin(join == 2);
 	FinishJoin();
+	// Роль сменилась на напарника, а партнёра изображал наш спутник: отдать его ИИ (дальше он спрятан).
+	if (GetRole() == Role::Companion && g_puppetIsBuddy) Hide();
 	if (!g_wanted && g_puppet) Hide();
+	const bool companion = GetRole() == Role::Companion && (g_wanted || g_netActive);
+	CompanionTick(companion);
+	g_hiddenBuddyAtomic = g_hiddenBuddy != 0;
+	if (g_wanted || g_netActive) NamesTick();
 	s = QpcNow();
 	if (g_wanted) Update();
 	ProfileAdd("[update]", MicrosecondsSince(s));

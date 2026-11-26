@@ -208,7 +208,8 @@ bool InitNatives() {
 		{ &g_dc.darrayAt, "darray-at" }, { &g_dc.getHealth, "get-object-health" },
 		{ &g_dc.setHealth, "set-object-health" }, { &g_dc.isDead, "character-is-dead?" }, { &g_dc.npcDie, "npc-die" },
 		{ &g_dc.taskNode, "task-get-current-node-id" }, { &g_dc.taskSubnode, "task-get-current-subnode-id" },
-		{ &g_dc.taskPlay, "task-play-debug!" } };
+		{ &g_dc.taskPlay, "task-play-debug!" }, { &g_dc.getScriptMode, "npc-get-script-mode" },
+		{ &g_dc.swapLook, "player-swap-look-id" } };
 	for (const auto& [slot, name] : table) {
 		*slot = FindNative(name);
 		if (!*slot) return false;
@@ -368,6 +369,29 @@ uintptr_t FindBuddySpawner(const std::string& hero, const std::vector<uintptr_t>
 		return bestRank < 9;
 	});
 	return best;
+}
+
+uint64_t CurrentBuddy(uint64_t exclude) {
+	const uint64_t list = Sid("all-buddy-npcs");
+	const uint64_t n = (std::min)(Call(g_dc.darrayCount, { list }), uint64_t{ 16 });
+	for (uint64_t i = 0; i < n; ++i) {
+		uint64_t npc = 0;
+		const uint64_t at = Call(g_dc.darrayAt, { list, i });
+		if (!at || !Read(at, npc) || !npc || npc == exclude) continue;
+		if (Call(g_dc.entityExists, { npc }) && !(Call(g_dc.isDead, { npc }) & 1)) return npc;
+	}
+	return 0;
+}
+
+// Имя NPC, созданного спавнером, совпадает с sid спавнера.
+std::string ArtOfNpc(uint64_t npc) {
+	std::string art;
+	ForEachSpawner([&](uintptr_t, const SpawnerHead& h) {
+		if (h.sid != npc) return true;
+		art = ReadName(h.art);
+		return false;
+	});
+	return art;
 }
 
 std::string HeroLook(const float around[3]) {

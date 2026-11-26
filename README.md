@@ -39,7 +39,14 @@ Without the menu: both press **F8** to connect to any friend who also pressed it
 For LAN play without Steam set `peer_ip` in `tlou1-coop.ini` (created next to the game on first F8).
 Log: `tlou1-coop.log` in the game folder.
 
-Test keys without a partner: **F10** spawns a test NPC, **F9** makes it follow you with a 1 s delay.
+Roles: the lobby host is the **hero** of the chapter (Sarah, Joel, Ellie); the friend is the
+**companion** (Tommy, Tess, Ellie, Bill, Henry...). The hero sees the friend as the real companion
+NPC (its AI is switched off); the companion player takes the companion's look and their own AI
+companion is hidden. **Swap roles** in the lobby once connected.
+
+Test keys without a partner: **F10** spawns a test NPC, **F9** makes it follow you with a 1 s delay
+(as the hero, the chapter's companion becomes that test partner); **Shift+F10** switches your own
+role between hero and companion.
 
 ## Build
 

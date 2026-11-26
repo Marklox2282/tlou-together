@@ -11,8 +11,9 @@ namespace net {
 
 constexpr uint32_t kMagic = 0x4F433154;  // "T1CO"
 constexpr uint8_t kProtocol = 3;          // 1 = v7 (без рукопожатия), 2 = v8 (без врагов)
-enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4 };
+enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kSwap = 5 };
 constexpr uint16_t kFlagDead = 1;  // kEnemy: враг убит
+constexpr uint16_t kFlagHero = 2;  // kPose: отправитель играет за героя главы
 
 #pragma pack(push, 1)
 struct Packet {
@@ -57,7 +58,11 @@ public:
 	void Stop();
 	// Отправляет приветствия при поиске и принимает пакеты. Возвращает true, если пришла поза.
 	bool Tick(uint64_t nowMs, Packet& pose);
-	void SendPose(const float pos[3], const float rot[4]);
+	void SendPose(const float pos[3], const float rot[4], bool hero = true);
+	// Роли решает одна сторона: хозяин лобби; без лобби - больший Steam ID (по UDP - меньший порт).
+	bool Authority() const;
+	void SendSwap();             // просьба поменяться ролями (от второй стороны)
+	bool TakeSwapRequest();      // пришла такая просьба
 	void SendEnemy(uint64_t npc, float health, bool dead);  // через Steam - с гарантией доставки
 	std::vector<Packet> TakeEnemyEvents();                  // полученные kEnemy с прошлого раза
 	// Друзья в этой игре (только Steam; включает Steam при первом вызове). Готовность - по
@@ -116,6 +121,8 @@ private:
 	uint64_t lobby_ = 0, lobbyCall_ = 0, target_ = 0;  // target_: хозяин лобби (гость шлёт только ему)
 	int lobbyCallKind_ = 0;                              // 1 создание, 2 вход
 	bool lobbyHost_ = false;
+	uint16_t port_ = 0;
+	bool swapRequested_ = false;
 	bool beep_ = true;
 };
 

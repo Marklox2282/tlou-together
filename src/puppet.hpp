@@ -3,6 +3,7 @@
 // для проверки без сети, свои позы с задержкой), и перенос игрока к нему.
 
 #include <cstdint>
+#include <string>
 
 #include "engine.hpp"
 
@@ -30,5 +31,16 @@ void ScriptTick();
 uint64_t TakeWorkMicroseconds();  // время работы ScriptTick с прошлого вызова
 
 uint64_t Current();  // id марионетки (для журнала падений)
+
+// Роли. Герой - главный персонаж главы (Сара, Джоэл, Элли); у него партнёра изображает настоящий
+// спутник главы (Тесс, Элли, Билл...) с выключенным ИИ, а если спутника нет - копия NPC.
+// Напарник - сам выглядит как спутник главы, а его ИИ-спутник спрятан; партнёр (герой) у него -
+// копия NPC в облике героя.
+enum class Role { Hero, Companion };
+void SetRole(Role r);
+Role GetRole();
+// Имена персонажей текущей главы для лобби ("joel", "tess"); пусто - неизвестно.
+std::string HeroCharacter();
+std::string CompanionCharacter();
 
 }  // namespace puppet

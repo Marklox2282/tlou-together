@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <atomic>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -59,6 +60,10 @@ struct Lang {
 	const char* invite;
 	const char* leave;
 	const char* tag;        // в названии пункта, пока в лобби
+	const char* swap;       // кнопка, когда подключены
+	const char* you;        // "Вы: Джоэл (герой)"
+	const char* hero;
+	const char* companion;
 };
 
 const Lang kLangs[] = {
@@ -67,139 +72,162 @@ const Lang kLangs[] = {
 		"Your lobby is open.<br>Invite a friend: the Steam window opens, choose a friend there.<br>When they accept, you connect automatically.",
 		"You are in %s's lobby.<br>Connecting...",
 		"Connected to %s.<br>In game: F7 - go to your partner, F5 - load your partner's chapter.",
-		"Connecting...", "CREATE LOBBY", "INVITE FRIEND", "LEAVE LOBBY", "LOBBY" },
+		"Connecting...", "CREATE LOBBY", "INVITE FRIEND", "LEAVE LOBBY", "LOBBY",
+		"SWAP ROLES", "You", "hero", "companion" },
 	{ "ВЫХОД В БИБЛИОТЕКУ", "МУЛЬТИПЛЕЕР",
 		"Создайте лобби и пригласите друга из Steam, чтобы пройти сюжет вместе.<br>У друга тоже должен стоять мод.",
 		"Лобби создано.<br>Пригласите друга: откроется окно Steam, выберите в нём друга.<br>Когда он примет приглашение, вы соединитесь сами.",
 		"Вы в лобби игрока %s.<br>Соединение...",
 		"Подключено: %s.<br>В игре: F7 - к напарнику, F5 - загрузить главу напарника.",
-		"Соединение...", "СОЗДАТЬ ЛОББИ", "ПРИГЛАСИТЬ ДРУГА", "ПОКИНУТЬ ЛОББИ", "ЛОББИ" },
+		"Соединение...", "СОЗДАТЬ ЛОББИ", "ПРИГЛАСИТЬ ДРУГА", "ПОКИНУТЬ ЛОББИ", "ЛОББИ",
+		"ПОМЕНЯТЬСЯ РОЛЯМИ", "Вы", "герой", "напарник" },
 	{ "RETOUR VERS LA BIBLIOTHÈQUE", "MULTIJOUEUR",
 		"Créez un salon et invitez un ami Steam pour jouer l'histoire ensemble.<br>Votre ami doit aussi avoir ce mod.",
 		"Votre salon est ouvert.<br>Invitez un ami : la fenêtre Steam s'ouvre, choisissez-y un ami.<br>Dès qu'il accepte, la connexion se fait toute seule.",
 		"Vous êtes dans le salon de %s.<br>Connexion...",
 		"Connecté à %s.<br>En jeu : F7 - rejoindre votre partenaire, F5 - charger son chapitre.",
-		"Connexion...", "CRÉER UN SALON", "INVITER UN AMI", "QUITTER LE SALON", "SALON" },
+		"Connexion...", "CRÉER UN SALON", "INVITER UN AMI", "QUITTER LE SALON", "SALON",
+		"ÉCHANGER LES RÔLES", "Vous", "héros", "compagnon" },
 	{ "BEENDEN UND ZUR BIBLIOTHEK", "MEHRSPIELER",
 		"Erstelle eine Lobby und lade einen Steam-Freund ein, um die Geschichte gemeinsam zu spielen.<br>Dein Freund braucht diese Mod auch.",
 		"Deine Lobby ist offen.<br>Lade einen Freund ein: Das Steam-Fenster öffnet sich, wähle dort einen Freund.<br>Sobald er annimmt, verbindet ihr euch automatisch.",
 		"Du bist in der Lobby von %s.<br>Verbinde...",
 		"Verbunden mit %s.<br>Im Spiel: F7 - zum Partner, F5 - Kapitel des Partners laden.",
-		"Verbinde...", "LOBBY ERSTELLEN", "FREUND EINLADEN", "LOBBY VERLASSEN", "LOBBY" },
+		"Verbinde...", "LOBBY ERSTELLEN", "FREUND EINLADEN", "LOBBY VERLASSEN", "LOBBY",
+		"ROLLEN TAUSCHEN", "Du", "Held", "Begleiter" },
 	{ "TORNA ALLA LIBRERIA", "MULTIGIOCATORE",
 		"Crea una lobby e invita un amico di Steam per giocare la storia insieme.<br>Anche il tuo amico deve avere questa mod.",
 		"La tua lobby è aperta.<br>Invita un amico: si apre la finestra di Steam, scegli lì un amico.<br>Quando accetta, vi collegate automaticamente.",
 		"Sei nella lobby di %s.<br>Connessione...",
 		"Connesso a %s.<br>In gioco: F7 - raggiungi il compagno, F5 - carica il suo capitolo.",
-		"Connessione...", "CREA LOBBY", "INVITA UN AMICO", "ESCI DALLA LOBBY", "LOBBY" },
+		"Connessione...", "CREA LOBBY", "INVITA UN AMICO", "ESCI DALLA LOBBY", "LOBBY",
+		"SCAMBIA I RUOLI", "Tu", "eroe", "compagno" },
 	{ "SALIR A LA BIBLIOTECA", "MULTIJUGADOR",
 		"Crea una sala e invita a un amigo de Steam para jugar la historia juntos.<br>Tu amigo también necesita este mod.",
 		"Tu sala está abierta.<br>Invita a un amigo: se abre la ventana de Steam, elige allí a un amigo.<br>Cuando acepte, os conectaréis automáticamente.",
 		"Estás en la sala de %s.<br>Conectando...",
 		"Conectado con %s.<br>En el juego: F7 - ir con tu compañero, F5 - cargar su capítulo.",
-		"Conectando...", "CREAR SALA", "INVITAR A UN AMIGO", "SALIR DE LA SALA", "SALA" },
+		"Conectando...", "CREAR SALA", "INVITAR A UN AMIGO", "SALIR DE LA SALA", "SALA",
+		"CAMBIAR PAPELES", "Tú", "protagonista", "compañero" },
 	{ "SAIR PARA A BIBLIOTECA", "MULTIJOGADOR",
 		"Crie um lobby e convide um amigo da Steam para jogar a história juntos.<br>Seu amigo também precisa deste mod.",
 		"Seu lobby está aberto.<br>Convide um amigo: a janela da Steam abre, escolha um amigo nela.<br>Quando ele aceitar, vocês se conectam automaticamente.",
 		"Você está no lobby de %s.<br>Conectando...",
 		"Conectado a %s.<br>No jogo: F7 - ir até o parceiro, F5 - carregar o capítulo dele.",
-		"Conectando...", "CRIAR LOBBY", "CONVIDAR AMIGO", "SAIR DO LOBBY", "LOBBY" },
+		"Conectando...", "CRIAR LOBBY", "CONVIDAR AMIGO", "SAIR DO LOBBY", "LOBBY",
+		"TROCAR PAPÉIS", "Você", "protagonista", "parceiro" },
 	{ "WYJDŹ DO BIBLIOTEKI", "TRYB WIELOOSOBOWY",
 		"Utwórz lobby i zaproś znajomego ze Steam, aby przejść fabułę razem.<br>Znajomy też musi mieć ten mod.",
 		"Twoje lobby jest otwarte.<br>Zaproś znajomego: otworzy się okno Steam, wybierz w nim znajomego.<br>Gdy przyjmie zaproszenie, połączycie się automatycznie.",
 		"Jesteś w lobby gracza %s.<br>Łączenie...",
 		"Połączono z: %s.<br>W grze: F7 - do partnera, F5 - wczytaj rozdział partnera.",
-		"Łączenie...", "UTWÓRZ LOBBY", "ZAPROŚ ZNAJOMEGO", "OPUŚĆ LOBBY", "LOBBY" },
+		"Łączenie...", "UTWÓRZ LOBBY", "ZAPROŚ ZNAJOMEGO", "OPUŚĆ LOBBY", "LOBBY",
+		"ZAMIEŃ ROLE", "Ty", "bohater", "towarzysz" },
 	{ "KÜTÜPHANEYE ÇIK", "ÇOK OYUNCULU",
 		"Bir lobi kur ve hikâyeyi birlikte oynamak için bir Steam arkadaşını davet et.<br>Arkadaşında da bu mod olmalı.",
 		"Lobin açık.<br>Bir arkadaşını davet et: Steam penceresi açılır, oradan bir arkadaş seç.<br>Kabul edince otomatik olarak bağlanırsınız.",
 		"%s adlı oyuncunun lobisindesin.<br>Bağlanılıyor...",
 		"%s ile bağlanıldı.<br>Oyunda: F7 - ortağına git, F5 - ortağının bölümünü yükle.",
-		"Bağlanılıyor...", "LOBİ KUR", "ARKADAŞ DAVET ET", "LOBİDEN ÇIK", "LOBİ" },
+		"Bağlanılıyor...", "LOBİ KUR", "ARKADAŞ DAVET ET", "LOBİDEN ÇIK", "LOBİ",
+		"ROLLERİ DEĞİŞ", "Sen", "kahraman", "yoldaş" },
 	{ "ODEJÍT DO KNIHOVNY", "HRA VÍCE HRÁČŮ",
 		"Vytvořte lobby a pozvěte přítele ze Steamu, abyste hráli příběh spolu.<br>Přítel musí mít tento mód také.",
 		"Vaše lobby je otevřené.<br>Pozvěte přítele: otevře se okno Steamu, vyberte v něm přítele.<br>Jakmile pozvánku přijme, spojíte se automaticky.",
 		"Jste v lobby hráče %s.<br>Připojování...",
 		"Připojeno k: %s.<br>Ve hře: F7 - k parťákovi, F5 - načíst jeho kapitolu.",
-		"Připojování...", "VYTVOŘIT LOBBY", "POZVAT PŘÍTELE", "OPUSTIT LOBBY", "LOBBY" },
+		"Připojování...", "VYTVOŘIT LOBBY", "POZVAT PŘÍTELE", "OPUSTIT LOBBY", "LOBBY",
+		"VYMĚNIT ROLE", "Vy", "hrdina", "parťák" },
 	{ "KILÉPÉS A KÖNYVTÁRBA", "TÖBBJÁTÉKOS",
 		"Hozz létre egy lobbit, és hívj meg egy Steam-barátot, hogy együtt játsszátok végig a történetet.<br>A barátodnak is kell ez a mod.",
 		"A lobbid nyitva van.<br>Hívj meg egy barátot: megnyílik a Steam ablaka, ott válassz barátot.<br>Ha elfogadja, automatikusan csatlakoztok.",
 		"%s lobbijában vagy.<br>Csatlakozás...",
 		"Csatlakozva: %s.<br>Játékban: F7 - a társadhoz, F5 - a társad fejezetének betöltése.",
-		"Csatlakozás...", "LOBBI LÉTREHOZÁSA", "BARÁT MEGHÍVÁSA", "KILÉPÉS A LOBBIBÓL", "LOBBI" },
+		"Csatlakozás...", "LOBBI LÉTREHOZÁSA", "BARÁT MEGHÍVÁSA", "KILÉPÉS A LOBBIBÓL", "LOBBI",
+		"SZEREPCSERE", "Te", "főhős", "társ" },
 	{ "ΕΞΟΔΟΣ ΣΤΗ ΒΙΒΛΙΟΘΗΚΗ", "ΠΟΛΛΟΙ ΠΑΙΚΤΕΣ",
 		"Δημιούργησε ένα λόμπι και προσκάλεσε έναν φίλο από το Steam για να παίξετε μαζί την ιστορία.<br>Ο φίλος σου χρειάζεται κι αυτός το mod.",
 		"Το λόμπι σου είναι ανοιχτό.<br>Προσκάλεσε έναν φίλο: ανοίγει το παράθυρο του Steam, διάλεξε εκεί φίλο.<br>Μόλις αποδεχτεί, συνδέεστε αυτόματα.",
 		"Είσαι στο λόμπι του/της %s.<br>Σύνδεση...",
 		"Συνδέθηκες με: %s.<br>Στο παιχνίδι: F7 - στον συμπαίκτη, F5 - φόρτωση του κεφαλαίου του.",
-		"Σύνδεση...", "ΔΗΜΙΟΥΡΓΙΑ ΛΟΜΠΙ", "ΠΡΟΣΚΛΗΣΗ ΦΙΛΟΥ", "ΑΠΟΧΩΡΗΣΗ", "ΛΟΜΠΙ" },
+		"Σύνδεση...", "ΔΗΜΙΟΥΡΓΙΑ ΛΟΜΠΙ", "ΠΡΟΣΚΛΗΣΗ ΦΙΛΟΥ", "ΑΠΟΧΩΡΗΣΗ", "ΛΟΜΠΙ",
+		"ΑΝΤΑΛΛΑΓΗ ΡΟΛΩΝ", "Εσύ", "ήρωας", "σύντροφος" },
 	{ "STOPPEN EN NAAR BIBLIOTHEEK", "MULTIPLAYER",
 		"Maak een lobby en nodig een Steam-vriend uit om het verhaal samen te spelen.<br>Je vriend heeft deze mod ook nodig.",
 		"Je lobby is open.<br>Nodig een vriend uit: het Steam-venster opent, kies daar een vriend.<br>Zodra die accepteert, maken jullie automatisch verbinding.",
 		"Je zit in de lobby van %s.<br>Verbinden...",
 		"Verbonden met %s.<br>In het spel: F7 - naar je partner, F5 - hoofdstuk van je partner laden.",
-		"Verbinden...", "LOBBY MAKEN", "VRIEND UITNODIGEN", "LOBBY VERLATEN", "LOBBY" },
+		"Verbinden...", "LOBBY MAKEN", "VRIEND UITNODIGEN", "LOBBY VERLATEN", "LOBBY",
+		"ROLLEN WISSELEN", "Jij", "held", "metgezel" },
 	{ "AFSLUT TIL BIBLIOTEK", "MULTIPLAYER",
 		"Opret en lobby, og inviter en Steam-ven til at spille historien sammen.<br>Din ven skal også have dette mod.",
 		"Din lobby er åben.<br>Inviter en ven: Steam-vinduet åbner, vælg en ven der.<br>Når vennen accepterer, forbindes I automatisk.",
 		"Du er i %s's lobby.<br>Forbinder...",
 		"Forbundet til %s.<br>I spillet: F7 - gå til din makker, F5 - indlæs din makkers kapitel.",
-		"Forbinder...", "OPRET LOBBY", "INVITER VEN", "FORLAD LOBBY", "LOBBY" },
+		"Forbinder...", "OPRET LOBBY", "INVITER VEN", "FORLAD LOBBY", "LOBBY",
+		"BYT ROLLER", "Du", "helt", "makker" },
 	{ "POISTU KIRJASTOON", "MONINPELI",
 		"Luo aula ja kutsu Steam-kaveri pelaamaan tarina yhdessä.<br>Kaverillasi pitää olla myös tämä modi.",
 		"Aulasi on auki.<br>Kutsu kaveri: Steam-ikkuna aukeaa, valitse sieltä kaveri.<br>Kun hän hyväksyy, yhteys muodostuu automaattisesti.",
 		"Olet pelaajan %s aulassa.<br>Yhdistetään...",
 		"Yhdistetty: %s.<br>Pelissä: F7 - pelikaverin luo, F5 - lataa pelikaverin luku.",
-		"Yhdistetään...", "LUO AULA", "KUTSU KAVERI", "POISTU AULASTA", "AULA" },
+		"Yhdistetään...", "LUO AULA", "KUTSU KAVERI", "POISTU AULASTA", "AULA",
+		"VAIHDA ROOLEJA", "Sinä", "sankari", "seuralainen" },
 	{ "GÅ TIL BIBLIOTEKET", "FLERSPILLER",
 		"Opprett en lobby og inviter en Steam-venn til å spille historien sammen.<br>Vennen din trenger også denne moden.",
 		"Lobbyen din er åpen.<br>Inviter en venn: Steam-vinduet åpnes, velg en venn der.<br>Når vennen godtar, kobles dere til automatisk.",
 		"Du er i lobbyen til %s.<br>Kobler til...",
 		"Koblet til %s.<br>I spillet: F7 - gå til partneren, F5 - last inn partnerens kapittel.",
-		"Kobler til...", "OPPRETT LOBBY", "INVITER VENN", "FORLAT LOBBYEN", "LOBBY" },
+		"Kobler til...", "OPPRETT LOBBY", "INVITER VENN", "FORLAT LOBBYEN", "LOBBY",
+		"BYTT ROLLER", "Du", "helt", "følgesvenn" },
 	{ "AVSLUTA TILL BIBLIOTEKET", "FLERSPELARLÄGE",
 		"Skapa en lobby och bjud in en Steam-vän för att spela berättelsen tillsammans.<br>Din vän behöver också den här modden.",
 		"Din lobby är öppen.<br>Bjud in en vän: Steam-fönstret öppnas, välj en vän där.<br>När vännen tackar ja ansluter ni automatiskt.",
 		"Du är i %s lobby.<br>Ansluter...",
 		"Ansluten till %s.<br>I spelet: F7 - gå till din partner, F5 - ladda din partners kapitel.",
-		"Ansluter...", "SKAPA LOBBY", "BJUD IN VÄN", "LÄMNA LOBBYN", "LOBBY" },
+		"Ansluter...", "SKAPA LOBBY", "BJUD IN VÄN", "LÄMNA LOBBYN", "LOBBY",
+		"BYT ROLLER", "Du", "hjälte", "följeslagare" },
 	{ "VRATI SE U LIBRARY", "VIŠE IGRAČA",
 		"Napravi predvorje i pozovi prijatelja sa Steama da zajedno igrate priču.<br>Prijatelj također treba imati ovaj mod.",
 		"Tvoje predvorje je otvoreno.<br>Pozovi prijatelja: otvorit će se prozor Steama, ondje odaberi prijatelja.<br>Kad prihvati, povezat ćete se automatski.",
 		"Nalaziš se u predvorju igrača %s.<br>Povezivanje...",
 		"Povezano s: %s.<br>U igri: F7 - do partnera, F5 - učitaj partnerovo poglavlje.",
-		"Povezivanje...", "NAPRAVI PREDVORJE", "POZOVI PRIJATELJA", "NAPUSTI PREDVORJE", "PREDVORJE" },
+		"Povezivanje...", "NAPRAVI PREDVORJE", "POZOVI PRIJATELJA", "NAPUSTI PREDVORJE", "PREDVORJE",
+		"ZAMIJENI ULOGE", "Ti", "junak", "pratilac" },
 	{ "ライブラリに戻る", "マルチプレイ",
 		"ロビーを作成してSteamのフレンドを招待し、一緒にストーリーを遊びましょう。<br>フレンドにもこのMODが必要です。",
 		"ロビーを作成しました。<br>フレンドを招待: Steamのウィンドウが開くので、そこでフレンドを選んでください。<br>招待が承諾されると自動で接続します。",
 		"%s のロビーに参加しています。<br>接続中...",
 		"%s と接続しました。<br>ゲーム中: F7 - パートナーの所へ、F5 - パートナーのチャプターをロード。",
-		"接続中...", "ロビーを作成", "フレンドを招待", "ロビーを退出", "ロビー" },
+		"接続中...", "ロビーを作成", "フレンドを招待", "ロビーを退出", "ロビー",
+		"役割を交代", "あなた", "主人公", "相棒" },
 	{ "라이브러리로 나가기", "멀티플레이",
 		"로비를 만들고 Steam 친구를 초대해 함께 스토리를 플레이하세요.<br>친구도 이 모드를 설치해야 합니다.",
 		"로비가 열렸습니다.<br>친구 초대: Steam 창이 열리면 그곳에서 친구를 고르세요.<br>친구가 수락하면 자동으로 연결됩니다.",
 		"%s 님의 로비에 있습니다.<br>연결 중...",
 		"%s 님과 연결되었습니다.<br>게임 중: F7 - 파트너에게 이동, F5 - 파트너의 챕터 불러오기.",
-		"연결 중...", "로비 만들기", "친구 초대", "로비 나가기", "로비" },
+		"연결 중...", "로비 만들기", "친구 초대", "로비 나가기", "로비",
+		"역할 바꾸기", "나", "주인공", "동료" },
 	{ "退出至游戏库", "多人游戏",
 		"创建大厅并邀请一位 Steam 好友，一起体验剧情。<br>你的好友也需要安装此模组。",
 		"大厅已创建。<br>邀请好友：Steam 窗口会打开，请在其中选择好友。<br>好友接受后会自动连接。",
 		"你在 %s 的大厅中。<br>正在连接...",
 		"已连接到 %s。<br>游戏中：F7 - 前往同伴处，F5 - 载入同伴的章节。",
-		"正在连接...", "创建大厅", "邀请好友", "离开大厅", "大厅" },
+		"正在连接...", "创建大厅", "邀请好友", "离开大厅", "大厅",
+		"交换角色", "你", "主角", "同伴" },
 	{ "返回收藏庫", "多人遊戲",
 		"建立大廳並邀請一位 Steam 好友，一起體驗劇情。<br>你的好友也需要安裝此模組。",
 		"大廳已建立。<br>邀請好友：Steam 視窗會開啟，請在其中選擇好友。<br>好友接受後會自動連線。",
 		"你在 %s 的大廳中。<br>正在連線...",
 		"已連線至 %s。<br>遊戲中：F7 - 前往夥伴處，F5 - 載入夥伴的章節。",
-		"正在連線...", "建立大廳", "邀請好友", "離開大廳", "大廳" },
+		"正在連線...", "建立大廳", "邀請好友", "離開大廳", "大廳",
+		"交換角色", "你", "主角", "同伴" },
 	{ "ออกไปยังคลังเกม", "ผู้เล่นหลายคน",
 		"สร้างล็อบบี้แล้วเชิญเพื่อนใน Steam มาเล่นเนื้อเรื่องด้วยกัน<br>เพื่อนของคุณต้องติดตั้งม็อดนี้ด้วย",
 		"ล็อบบี้ของคุณเปิดแล้ว<br>เชิญเพื่อน: หน้าต่าง Steam จะเปิดขึ้น ให้เลือกเพื่อนในนั้น<br>เมื่อเพื่อนตอบรับ จะเชื่อมต่อให้อัตโนมัติ",
 		"คุณอยู่ในล็อบบี้ของ %s<br>กำลังเชื่อมต่อ...",
 		"เชื่อมต่อกับ %s แล้ว<br>ในเกม: F7 - ไปหาคู่หู, F5 - โหลดบทของคู่หู",
-		"กำลังเชื่อมต่อ...", "สร้างล็อบบี้", "เชิญเพื่อน", "ออกจากล็อบบี้", "ล็อบบี้" },
+		"กำลังเชื่อมต่อ...", "สร้างล็อบบี้", "เชิญเพื่อน", "ออกจากล็อบบี้", "ล็อบบี้",
+		"สลับบทบาท", "คุณ", "ตัวเอก", "คู่หู" },
 };
 
 const Lang& LangFor(const char* library) {
@@ -245,7 +273,19 @@ const char* LobbyText(const Lang& l) {
 	const Lobby s = g_lobby ? g_lobby() : Lobby{};
 	char* buf = g_body.Next();
 	const size_t n = sizeof(g_body.buf[0]);
-	if (s.connected) snprintf(buf, n, l.connected, Escaped(s.partner).c_str());
+	if (s.connected) {
+		// "Подключено: Вася... <br><br>Вы: Joel (герой) · Вася: Tess (напарник)".
+		auto who = [&](bool hero) {
+			std::string name = hero ? s.heroName : s.companionName;
+			if (!name.empty()) name[0] = static_cast<char>(toupper(static_cast<unsigned char>(name[0])));
+			const char* role = hero ? l.hero : l.companion;
+			return name.empty() ? std::string(role) : name + " (" + role + ")";
+		};
+		const int k = snprintf(buf, n, l.connected, Escaped(s.partner).c_str());
+		if (k > 0 && static_cast<size_t>(k) < n)
+			snprintf(buf + k, n - k, "<br><br>%s: %s  ·  %s: %s", l.you, who(s.iAmHero).c_str(), Escaped(s.partner).c_str(),
+				who(!s.iAmHero).c_str());
+	}
 	else if (s.lobby && s.host) snprintf(buf, n, "%s", l.hostWait);
 	else if (s.lobby) snprintf(buf, n, l.joinWait, Escaped(s.owner).c_str());
 	else if (s.busy || s.on) snprintf(buf, n, "%s", l.busy);
@@ -266,6 +306,7 @@ const char* DescText(const Lang& l) {
 constexpr uint64_t kYesText = Sid("MENU_YES"), kNoText = Sid("MENU_NO"), kCancelText = Sid("MENU_CANCEL");
 std::atomic<ULONGLONG> g_labelsUntil{ 0 };
 std::atomic<bool> g_boxInLobby{ false };  // какое окно открыто: в лобби (3 кнопки) или нет (2)
+std::atomic<bool> g_boxConnected{ false };  // подключены: первая кнопка - поменяться ролями
 
 const char* TextLookup(void* db, uint64_t key, bool* found) {
 	const bool labels = (key == kYesText || key == kNoText) && GetTickCount64() < g_labelsUntil;
@@ -273,7 +314,7 @@ const char* TextLookup(void* db, uint64_t key, bool* found) {
 		const Lang& l = LangFor(g_textHook.call<const char*>(db, kLibraryText, nullptr));
 		if (found) *found = true;
 		if (labels) {
-			if (key == kYesText) return g_boxInLobby ? l.invite : l.create;
+			if (key == kYesText) return g_boxConnected ? l.swap : g_boxInLobby ? l.invite : l.create;
 			return g_boxInLobby ? l.leave : g_textHook.call<const char*>(db, kCancelText, nullptr);  // "НЕТ" -> "ОТМЕНА"
 		}
 		return key == kLobbyText ? LobbyText(l) : key == kDescText ? DescText(l) : TitleText(l);
@@ -294,6 +335,7 @@ bool OpenLobby(bool mainMenu) {
 	const Lobby s = g_lobby ? g_lobby() : Lobby{};
 	const bool inLobby = s.lobby || s.busy || s.on;
 	g_boxInLobby = inLobby;
+	g_boxConnected = s.connected;
 	g_labelsUntil = GetTickCount64() + 1500;
 	const uintptr_t base = engine::g_base;
 	using StackFn = uintptr_t (*)(uintptr_t, uint64_t);
@@ -323,12 +365,13 @@ void OnAnswer(safetyhook::Context& ctx) {
 	if (ctx.rdi != kLobbyBox) return;
 	const uint64_t button = *reinterpret_cast<const uint64_t*>(ctx.rsp + 0x30);
 	Action a = None;
-	if (button == kMessageBoxOk) a = g_boxInLobby ? Invite : CreateLobby;
+	if (button == kMessageBoxOk) a = g_boxConnected ? SwapRoles : g_boxInLobby ? Invite : CreateLobby;
 	else if (button == kMessageBoxCancel && g_boxInLobby) a = Leave;
 	if (a != None) {
-		Log("menu: lobby button %s", a == CreateLobby ? "create" : a == Invite ? "invite" : "leave");
+		Log("menu: lobby button %s", a == CreateLobby ? "create" : a == Invite ? "invite" : a == SwapRoles ? "swap roles" : "leave");
 		if (g_action) g_action(a);
 		if (a == CreateLobby) g_reopenAt = GetTickCount64() + 2500;  // уже с лобби, под окном приглашения Steam
+		if (a == SwapRoles) g_reopenAt = GetTickCount64() + 1500;    // показать новые роли
 	}
 	ctx.rdi = 1;
 }

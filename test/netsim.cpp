@@ -125,6 +125,23 @@ int main() {
 			"enemy events arrive with name, health and death");
 		Check(b.TakeEnemyEvents().empty() && a.TakeEnemyEvents().empty(), "events taken once, not echoed");
 
+		puts("== roles");
+		Check(a.Authority() != b.Authority(), "exactly one side decides roles");
+		b.SendSwap();
+		Sleep(10);
+		Run(a, b, 2);
+		Check(a.TakeSwapRequest() && !a.TakeSwapRequest() && !b.TakeSwapRequest(), "swap request arrives once");
+		a.SendPose(pose.pos, pose.rot, false);
+		Sleep(10);
+		net::Packet got;
+		bool seen = false;
+		for (int i = 0; i < 3 && !seen; ++i) {
+			t += 50;
+			seen = b.Tick(t, got);
+			Sleep(3);
+		}
+		Check(seen && !(got.flags & net::kFlagHero), "pose carries the sender's role");
+
 		puts("== bye");
 		a.Stop();
 		Sleep(10);

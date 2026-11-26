@@ -44,7 +44,7 @@ using NativeFn = void (*)(uint64_t* ret, int argc, const uint64_t* argv, uint64_
 struct Natives {
 	NativeFn allocVector, allocQuat, allocBoundFrame, spawnWithLook, entityExists, teleport, scriptMode,
 		setIgnore, setBlind, setDeaf, hitReactions, stun, dodges, objectLocator, moveTo, newBoxedValue, sendEvent,
-		setVisible, setUnshootable, darrayCount, darrayAt, getHealth, setHealth, isDead, npcDie, taskNode, taskSubnode, taskPlay;
+		setVisible, setUnshootable, darrayCount, darrayAt, getHealth, setHealth, isDead, npcDie, taskNode, taskSubnode, taskPlay, getScriptMode, swapLook;
 };
 extern Natives g_dc;
 bool InitNatives();  // false, если какой-то не найден
@@ -99,6 +99,11 @@ static_assert(offsetof(SpawnerHead, sid) == kSpSid && offsetof(SpawnerHead, name
 uintptr_t FindBuddySpawner(const std::string& hero, const std::vector<uintptr_t>& exclude, std::string& nameOut);
 // Имена (sid) NPC всех спавнеров этого сюжетного персонажа ("marlene") на загруженных уровнях.
 std::vector<uint64_t> CharacterSids(const std::string& character);
+// Спутник главы (Тесс, Элли, Билл...): первый живой NPC из списка спутников игры
+// ('all-buddy-npcs), кроме exclude. 0 - спутника нет. Скриптовый контекст.
+uint64_t CurrentBuddy(uint64_t exclude);
+// Арт спавнера, из которого создан NPC с этим именем ("t1x-tess-costume-01"); пусто - не нашли.
+std::string ArtOfNpc(uint64_t npc);
 // Костюм героя главы: арт ближайшей к точке точки появления игрока ("t1x-joel-costume-01").
 std::string HeroLook(const float around[3]);
 std::string HeroName(const std::string& art);  // "t1x-joel-costume-01" -> "joel"

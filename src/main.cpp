@@ -27,7 +27,7 @@ namespace {
 
 // Номер версии мода: увеличивать при каждом выпуске (tools/release.py берёт его отсюда).
 // Игроки с разными версиями не соединяются.
-constexpr uint32_t kModVersion = 9;
+constexpr uint32_t kModVersion = 10;
 
 using engine::Locator;
 
@@ -100,6 +100,9 @@ void PublishLobby(ULONGLONG now) {
 	s.host = g_link.LobbyHost();
 	s.busy = g_link.LobbyBusy();
 	if (s.lobby && !s.host) s.owner = g_link.LobbyOwnerName();
+	s.iAmHero = puppet::GetRole() == puppet::Role::Hero;
+	s.heroName = puppet::HeroCharacter();
+	s.companionName = puppet::CompanionCharacter();
 	s.on = g_link.GetState() != net::State::Off;
 	s.connected = g_link.GetState() == net::State::Connected;
 	if (s.connected) s.partner = g_link.PeerName();
@@ -136,6 +139,13 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		g_link.CreateLobby(now);
 	}
 	if (action == menu::Invite) g_link.InviteToLobby();
+	// Роли: решает одна сторона (Link::Authority), вторая берёт противоположную роль из поз.
+	static bool heroSwapped = false, partnerHero = true;
+	if (action == menu::SwapRoles) {
+		if (g_link.Authority()) heroSwapped = !heroSwapped;
+		else g_link.SendSwap();
+	}
+	if (g_link.TakeSwapRequest() && g_link.Authority()) heroSwapped = !heroSwapped;
 	if (const uint64_t invite = net::Link::TakeInvite()) {  // приняли приглашение в Steam
 		LoadConfig(name);
 		g_link.SetName(name);
@@ -159,6 +169,11 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 
 	const engine::Chapter mine = puppet::MyChapter();
 	g_link.SetChapter({ mine.node, mine.task });
+	if (gotPose) partnerHero = (pose.flags & net::kFlagHero) != 0;
+	const bool connectedNow = g_link.GetState() == net::State::Connected;
+	if (connectedNow)
+		puppet::SetRole(g_link.Authority() ? (heroSwapped ? puppet::Role::Companion : puppet::Role::Hero)
+		                                   : (partnerHero ? puppet::Role::Companion : puppet::Role::Hero));
 	if (gotPose) {
 		if (!puppet::UsingNetwork()) {  // первая поза друга: марионетка теперь его
 			puppet::UseNetwork(true);
@@ -186,7 +201,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		enemies::Receive({ p.target, p.health, (p.flags & net::kFlagDead) != 0 });
 	if (havePlayer && now - lastSend >= 50) {  // 20 раз в секунду
 		lastSend = now;
-		g_link.SendPose(me.pos, me.rot);
+		g_link.SendPose(me.pos, me.rot, puppet::GetRole() == puppet::Role::Hero);
 	}
 }
 
@@ -206,10 +221,16 @@ void FrameTick(safetyhook::Context&) {
 	const bool havePlayer = engine::PlayerLocator(me);
 	NetTick(now, havePlayer, me);
 	if (havePlayer && !puppet::UsingNetwork()) puppet::Record(now, me);  // локальная проверка
-	// F10: включить/выключить тестовую марионетку (выключение её убирает).
+	// F10: включить/выключить тестовую марионетку (выключение её прячет).
+	// Shift+F10 без подключения: сменить свою роль (герой/напарник) для проверки.
 	if (KeyPressed(VK_F10, f10Down)) {
-		puppet::SetWanted(!puppet::Wanted());
-		Log("F10: puppet %s", puppet::Wanted() ? "on" : "off");
+		if (GetAsyncKeyState(VK_SHIFT) & 0x8000) {
+			if (g_link.GetState() != net::State::Connected)
+				puppet::SetRole(puppet::GetRole() == puppet::Role::Hero ? puppet::Role::Companion : puppet::Role::Hero);
+		} else {
+			puppet::SetWanted(!puppet::Wanted());
+			Log("F10: puppet %s", puppet::Wanted() ? "on" : "off");
+		}
 	}
 	// F9: марионетка идёт по следу (иначе стоит, где появилась).
 	if (KeyPressed(VK_F9, f9Down)) {
