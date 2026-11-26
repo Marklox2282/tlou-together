@@ -336,13 +336,23 @@ void Update() {
 		Log("puppet: snapped (%.1f m behind%s)", err, stuck ? ", stuck" : "");
 		return;
 	}
-	if (targetSpeed < 0.4f && err < 1.0f) return;  // стоим рядом - ничего не делаем
+	// Партнёр почти стоит и мы рядом - стоим (микрошаги давали рывки и "широкую стойку").
+	if (targetSpeed < 0.5f && err < 1.5f) return;
 	const float speed = (std::max)(targetSpeed, err * 0.8f);
 	const int mode = speed < 1.8f ? 0 : (speed < 4.2f ? 1 : 2);
-	if (mode == lastMode && Dist(target.pos, lastGoal) < 0.75f && now - lastCmdAt < 1500) return;
-	if (const uint64_t frame = BoundFrame(target.pos, target.rot))
+	// Цель с упреждением: где партнёр будет через ~1 с при той же скорости. Команда - только если
+	// цель ушла больше чем на 2 м, сменился режим или прошло 2.5 с: каждая новая команда
+	// перезапускала шаг, и NPC отставал и дёргался (особенно при медленной ходьбе).
+	float goal[3];
+	const float lead = targetSpeed > 0.5f ? 1.0f : 0.0f;
+	for (int i = 0; i < 3; ++i) goal[i] = target.pos[i] + (target.pos[i] - before.pos[i]) * 4.0f * lead;
+	goal[1] = target.pos[1];  // по высоте не упреждаем
+	// Партнёр остановился: прежняя цель была впереди - поправить на точное место сразу.
+	const float resend = lead > 0.0f ? 2.0f : 0.75f;
+	if (mode == lastMode && Dist(goal, lastGoal) < resend && now - lastCmdAt < 2500) return;
+	if (const uint64_t frame = BoundFrame(goal, target.rot))
 		Call(g_dc.moveTo, { puppet, frame, static_cast<uint64_t>(mode), 0, 0, 0, 0, 0 });
-	memcpy(lastGoal, target.pos, sizeof(lastGoal));
+	memcpy(lastGoal, goal, sizeof(lastGoal));
 	if (mode != lastMode) Log("puppet: move mode %d (target %.1f m/s, %.1f m away)", mode, targetSpeed, err);
 	lastMode = mode;
 	lastCmdAt = now;
