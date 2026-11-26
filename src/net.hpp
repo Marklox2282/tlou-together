@@ -11,7 +11,7 @@ namespace net {
 
 constexpr uint32_t kMagic = 0x4F433154;  // "T1CO"
 constexpr uint8_t kProtocol = 3;          // 1 = v7 (без рукопожатия), 2 = v8 (без врагов)
-enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kSwap = 5 };
+enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kSwap = 5, kEnemyPos = 6 };
 constexpr uint16_t kFlagDead = 1;  // kEnemy: враг убит
 constexpr uint16_t kFlagHero = 2;  // kPose: отправитель играет за героя главы
 constexpr uint16_t kFlagFiring = 4;  // kPose: отправитель стреляет
@@ -65,7 +65,8 @@ public:
 	void SendSwap();             // просьба поменяться ролями (от второй стороны)
 	bool TakeSwapRequest();      // пришла такая просьба
 	void SendEnemy(uint64_t npc, float health, bool dead);  // через Steam - с гарантией доставки
-	std::vector<Packet> TakeEnemyEvents();                  // полученные kEnemy с прошлого раза
+	std::vector<Packet> TakeEnemyEvents();                  // полученные kEnemy и kEnemyPos с прошлого раза
+	void SendEnemyPos(uint64_t npc, const float pos[3], const float rot[4]);  // хозяин: где его враг
 	// Друзья в этой игре (только Steam; включает Steam при первом вызове). Готовность - по
 	// приветствиям за последние 3 с, поэтому видна, пока ищем.
 	std::vector<Friend> Friends(uint64_t nowMs);

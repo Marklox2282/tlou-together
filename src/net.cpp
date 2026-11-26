@@ -391,7 +391,7 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 			swapRequested_ = true;
 			continue;
 		}
-		if (p.type == kEnemy) {
+		if (p.type == kEnemy || p.type == kEnemyPos) {
 			if (enemyEvents_.size() < 1024) enemyEvents_.push_back(p);
 			continue;
 		}
@@ -424,6 +424,15 @@ void Link::SendEnemy(uint64_t npc, float health, bool dead) {
 	p.health = health;
 	p.flags = dead ? kFlagDead : 0;
 	Send(p, true);
+}
+
+void Link::SendEnemyPos(uint64_t npc, const float pos[3], const float rot[4]) {
+	if (state_ != State::Connected) return;
+	Packet p = Make(kEnemyPos);
+	p.target = npc;
+	memcpy(p.pos, pos, sizeof(p.pos));
+	memcpy(p.rot, rot, sizeof(p.rot));
+	Send(p);
 }
 
 std::vector<Packet> Link::TakeEnemyEvents() {

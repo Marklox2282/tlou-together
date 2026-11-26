@@ -124,6 +124,12 @@ int main() {
 			!(ev[0].flags & net::kFlagDead) && ev[1].target == 0x1111222233334444ull && (ev[1].flags & net::kFlagDead),
 			"enemy events arrive with name, health and death");
 		Check(b.TakeEnemyEvents().empty() && a.TakeEnemyEvents().empty(), "events taken once, not echoed");
+		const float ep[3] = { 1, 2, 3 }, er[4] = { 0, 0, 0, 1 };
+		a.SendEnemyPos(0x77, ep, er);
+		Sleep(10);
+		Run(a, b, 2);
+		const std::vector<net::Packet> pe = b.TakeEnemyEvents();
+		Check(pe.size() == 1 && pe[0].type == net::kEnemyPos && pe[0].target == 0x77 && pe[0].pos[2] == 3.0f, "enemy position arrives");
 
 		puts("== roles");
 		Check(a.Authority() != b.Authority(), "exactly one side decides roles");

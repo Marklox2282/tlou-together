@@ -30,6 +30,14 @@ std::atomic<bool> g_reset{ false };
 
 SRWLOCK g_lock = SRWLOCK_INIT;  // очереди между сетью и скриптовым потоком
 std::vector<Change> g_out, g_in;
+std::vector<Position> g_posOut;
+std::atomic<bool> g_sendPositions{ false };
+struct Remote { Position p; ULONGLONG at, snappedAt; };
+std::unordered_map<uint64_t, Remote> g_remote;  // гость: позиции хозяина (под g_lock)
+constexpr ULONGLONG kPosMs = 200, kSnapEveryMs = 3000;
+constexpr float kSnapDist = 6.0f;
+constexpr size_t kMaxSent = 12;
+
 
 void Push(std::vector<Change>& q, const Change& c) {
 	AcquireSRWLockExclusive(&g_lock);
@@ -57,6 +65,56 @@ std::vector<uint64_t> AllEnemies() {
 		if (const uint64_t at = Call(g_dc.darrayAt, { list, i }); at && Read(at, npc) && npc) out.push_back(npc);
 	}
 	return out;
+}
+
+float Dist2(const float* a, const float* b) {
+	const float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+	return dx * dx + dy * dy + dz * dz;
+}
+
+// Хозяин: ближайшие к игроку живые враги.
+void SendPositions(uint64_t puppet) {
+	Locator me{};
+	if (!PlayerLocator(me)) return;
+	std::vector<std::pair<float, Position>> closest;
+	for (uint64_t npc : AllEnemies()) {
+		if (npc == puppet || !Exists(npc) || Dead(npc)) continue;
+		Locator l{};
+		if (!NpcLocator(npc, l) || !std::isfinite(l.pos[0])) continue;
+		Position p{ npc, {}, {} };
+		memcpy(p.pos, l.pos, sizeof(p.pos));
+		memcpy(p.rot, l.rot, sizeof(p.rot));
+		closest.push_back({ Dist2(l.pos, me.pos), p });
+	}
+	std::sort(closest.begin(), closest.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+	AcquireSRWLockExclusive(&g_lock);
+	g_posOut.clear();
+	for (size_t i = 0; i < closest.size() && i < kMaxSent; ++i) g_posOut.push_back(closest[i].second);
+	ReleaseSRWLockExclusive(&g_lock);
+}
+
+// Гость: враг ушёл далеко от позиции у хозяина - перенести (ИИ не трогаем).
+void CorrectPositions(uint64_t puppet) {
+	const ULONGLONG now = GetTickCount64();
+	std::vector<Position> snap;
+	AcquireSRWLockExclusive(&g_lock);
+	for (auto it = g_remote.begin(); it != g_remote.end();) {
+		if (now - it->second.at > 2000) { it = g_remote.erase(it); continue; }  // хозяин его больше не шлёт
+		if (now - it->second.snappedAt >= kSnapEveryMs) snap.push_back(it->second.p);
+		++it;
+	}
+	ReleaseSRWLockExclusive(&g_lock);
+	for (const Position& p : snap) {
+		if (p.npc == puppet || !Exists(p.npc) || Dead(p.npc)) continue;
+		Locator cur{};
+		if (!NpcLocator(p.npc, cur) || Dist2(cur.pos, p.pos) < kSnapDist * kSnapDist) continue;
+		if (const uint64_t frame = BoundFrame(p.pos, p.rot)) Call(g_dc.teleport, { p.npc, frame });
+		AcquireSRWLockExclusive(&g_lock);
+		if (auto it = g_remote.find(p.npc); it != g_remote.end()) it->second.snappedAt = now;
+		ReleaseSRWLockExclusive(&g_lock);
+		Log("[enemies] %016llX moved to the host's position (%.1f m off)", static_cast<unsigned long long>(p.npc),
+			std::sqrt(Dist2(cur.pos, p.pos)));
+	}
 }
 
 void Scan(uint64_t puppet) {
@@ -136,6 +194,14 @@ void Tick(uint64_t puppet) {
 	for (const Change& c : in) Apply(c, puppet);
 
 	const ULONGLONG now = GetTickCount64();
+	static ULONGLONG lastPos = 0;
+	if (now - lastPos >= kPosMs) {
+		lastPos = now;
+		const int64_t p0 = QpcNow();
+		if (g_sendPositions) SendPositions(puppet);
+		else CorrectPositions(puppet);
+		ProfileAdd("[enemy pos]", MicrosecondsSince(p0));
+	}
 	if (now - g_lastScan < kScanMs) return;
 	g_lastScan = now;
 	const int64_t s = QpcNow();
@@ -152,6 +218,25 @@ std::vector<Change> TakeOutgoing() {
 }
 
 void Receive(const Change& c) { Push(g_in, c); }
+
+void SetSendPositions(bool on) { g_sendPositions = on; }
+
+std::vector<Position> TakePositions() {
+	std::vector<Position> out;
+	AcquireSRWLockExclusive(&g_lock);
+	out.swap(g_posOut);
+	ReleaseSRWLockExclusive(&g_lock);
+	return out;
+}
+
+void ReceivePosition(const Position& p) {
+	if (!p.npc || !std::isfinite(p.pos[0]) || !std::isfinite(p.pos[1]) || !std::isfinite(p.pos[2])) return;
+	AcquireSRWLockExclusive(&g_lock);
+	Remote& r = g_remote[p.npc];
+	r.p = p;
+	r.at = GetTickCount64();
+	ReleaseSRWLockExclusive(&g_lock);
+}
 void Reset() { g_reset = true; }
 
 }  // namespace enemies

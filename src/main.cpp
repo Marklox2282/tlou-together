@@ -200,8 +200,30 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	}
 	// Общие враги: свои удары - партнёру (без подключения просто в журнал), его - в игру.
 	for (const enemies::Change& c : enemies::TakeOutgoing()) g_link.SendEnemy(c.npc, c.health, c.dead);
-	for (const net::Packet& p : g_link.TakeEnemyEvents())
-		enemies::Receive({ p.target, p.health, (p.flags & net::kFlagDead) != 0 });
+	enemies::SetSendPositions(connected && g_link.Authority());
+	for (const enemies::Position& p : enemies::TakePositions()) g_link.SendEnemyPos(p.npc, p.pos, p.rot);
+	for (const net::Packet& p : g_link.TakeEnemyEvents()) {
+		if (p.type == net::kEnemyPos) {
+			enemies::Position e{ p.target, {}, {} };
+			memcpy(e.pos, p.pos, sizeof(e.pos));
+			memcpy(e.rot, p.rot, sizeof(e.rot));
+			enemies::ReceivePosition(e);
+		} else {
+			enemies::Receive({ p.target, p.health, (p.flags & net::kFlagDead) != 0 });
+		}
+	}
+	// Общий прогресс: хозяин ушёл в другую главу, а мы 10 с в старой - грузим его главу (как F5).
+	static ULONGLONG otherChapterSince = 0, lastAutoJoin = 0;
+	if (connected && !g_link.Authority() && theirs && mine && theirs.node != mine.node) {
+		if (!otherChapterSince) otherChapterSince = now;
+		if (now - otherChapterSince > 10000 && now - lastAutoJoin > 60000) {
+			lastAutoJoin = now;
+			Log("net: %s moved on to another chapter; following", g_link.PeerName().c_str());
+			puppet::RequestJoin(false);
+		}
+	} else {
+		otherChapterSince = 0;
+	}
 	if (havePlayer && now - lastSend >= 50) {  // 20 раз в секунду
 		lastSend = now;
 		g_link.SendPose(me.pos, me.rot, puppet::GetRole() == puppet::Role::Hero, puppet::MeFiring());

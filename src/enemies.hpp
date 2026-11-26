@@ -17,6 +17,14 @@ struct Change {
 // изменения от партнёра. puppet - своя марионетка, её не трогаем.
 void Tick(uint64_t puppet);
 
+// Позиции врагов. Хозяин (sendPositions) шлёт ближайших; у гостя враг, ушедший дальше 6 м от
+// позиции у хозяина, переносится туда (не чаще раза в 3 с). ИИ у гостя остаётся: враги на него
+// нападают как обычно.
+struct Position { uint64_t npc; float pos[3], rot[4]; };
+void SetSendPositions(bool on);
+std::vector<Position> TakePositions();     // хозяин: для отправки
+void ReceivePosition(const Position& p);   // гость: от хозяина
+
 // Любой поток (сеть - в игровом кадре):
 std::vector<Change> TakeOutgoing();  // свои удары и убийства для отправки
 void Receive(const Change& c);       // от партнёра
