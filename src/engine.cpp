@@ -230,6 +230,9 @@ bool InitNatives() {
 		}
 		NameNative(*slot, name);
 	}
+	// Необязательные: без них мод работает, только хуже.
+	if ((g_dc.totalAmmo = FindNative("get-total-ammo"))) NameNative(g_dc.totalAmmo, "get-total-ammo");
+	else Log("natives: get-total-ammo not found (optional)");
 	return true;
 }
 

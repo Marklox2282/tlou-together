@@ -831,10 +831,27 @@ void ScriptTick() {
 			ReleaseSRWLockExclusive(&g_lookLock);
 		}
 	}
+	// Свой выстрел: флаг игры держится мгновение и часто пропускается, поэтому ещё и по патронам:
+	// у того же оружия их стало меньше - был выстрел (перезарядка общий запас не меняет).
 	{
-		const uint64_t firing = Call(g_dc.isFiring, {});
-		if (firing & 1) Log("me: shot");
-		g_meFiring = (firing & 1) != 0;
+		static uint64_t ammoOf = 0;
+		static int64_t lastAmmo = -1;
+		const bool flag = (Call(g_dc.isFiring, {}) & 1) != 0;
+		bool spent = false;
+		const uint64_t weapon = g_myWeapon;
+		if (g_dc.totalAmmo && weapon) {
+			const int64_t ammo = static_cast<int32_t>(Call(g_dc.totalAmmo, { weapon }));
+			spent = weapon == ammoOf && lastAmmo >= 0 && ammo < lastAmmo;
+			ammoOf = weapon;
+			lastAmmo = ammo;
+		}
+		// Флаг держим 120 мс: поза уходит раз в 50 мс, выстрел в один кадр иначе проскочит между пакетами.
+		static ULONGLONG shotAt = 0;
+		if (flag || spent) {
+			shotAt = GetTickCount64();
+			Log("me: shot (%s)", flag ? "flag" : "ammo");
+		}
+		g_meFiring = shotAt && GetTickCount64() - shotAt < 120;
 	}
 	// Поза: своя - для отправки (5 раз в секунду хватает), партнёра - на марионетку при смене.
 	// Манеры NPC из скриптов игры: 'crouch - присед, 'ambient - обычная.
