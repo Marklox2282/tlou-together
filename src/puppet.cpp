@@ -106,6 +106,7 @@ std::string Locked(const std::string& s) {
 	return out;
 }
 std::atomic<bool> g_meFiring{ false }, g_partnerFiring{ false };
+std::atomic<bool> g_meCrouched{ false }, g_meAiming{ false }, g_partnerCrouched{ false }, g_partnerAiming{ false };
 bool g_puppetIsBuddy = false;  // марионетка - настоящий спутник главы (у героя)
 uint64_t g_buddyMode = 0;      // его режим скрипта до нас - вернуть при отпускании
 SRWLOCK g_namesLock = SRWLOCK_INIT;
@@ -665,6 +666,12 @@ void SetPartnerLook(const std::string& art) {
 }
 Role GetRole() { return MyCharacter() == 1 ? Role::Companion : Role::Hero; }
 bool MeFiring() { return g_meFiring; }
+bool MeCrouched() { return g_meCrouched; }
+bool MeAiming() { return g_meAiming; }
+void SetPartnerStance(bool crouched, bool aiming) {
+	g_partnerCrouched = crouched;
+	g_partnerAiming = aiming;
+}
 void SetPartnerFiring(bool on) { g_partnerFiring = on; }
 std::string HeroCharacter() {
 	AcquireSRWLockShared(&g_namesLock);
@@ -795,6 +802,27 @@ void ScriptTick() {
 		}
 	}
 	g_meFiring = (Call(g_dc.isFiring, {}) & 1) != 0;
+	// Поза: своя - для отправки (5 раз в секунду хватает), партнёра - на марионетку при смене.
+	// Манеры NPC из скриптов игры: 'crouch - присед, 'ambient - обычная.
+	static ULONGLONG lastStance = 0;
+	if (GetTickCount64() - lastStance >= 200) {
+		lastStance = GetTickCount64();
+		g_meCrouched = (Call(g_dc.isCrouched, {}) & 1) != 0;
+		g_meAiming = (Call(g_dc.isAiming, {}) & 1) != 0;
+		static uint64_t appliedTo = 0;
+		static bool crouchNow = false, aimNow = false;
+		const uint64_t puppet = g_puppet;
+		const bool crouch = UsingNetwork() ? g_partnerCrouched.load() : g_meCrouched.load();
+		const bool aim = UsingNetwork() ? g_partnerAiming.load() : g_meAiming.load();
+		if (puppet && !g_hidden && (puppet != appliedTo || crouch != crouchNow)) {
+			Call(g_dc.setDemeanor, { puppet, Sid(crouch ? "crouch" : "ambient") });
+			if (crouch != crouchNow) Log("puppet: %s", crouch ? "crouches" : "stands up");
+		}
+		if (puppet && !g_hidden && (puppet != appliedTo || aim != aimNow)) Call(aim ? g_dc.weaponUp : g_dc.weaponDown, { puppet });
+		appliedTo = puppet;
+		crouchNow = crouch;
+		aimNow = aim;
+	}
 	// Партнёр стреляет (по сети; без сети - свой игрок, для проверки): стреляет и марионетка.
 	// Только настоящий спутник главы: он союзник и в игрока не попадает; копия NPC - нет.
 	static ULONGLONG lastShot = 0;

@@ -15,6 +15,7 @@ enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kEnemyPos = 6, kDe
 constexpr uint16_t kFlagDead = 1;  // kEnemy: враг убит
 constexpr uint16_t kFlagHero = 2;  // kPose: отправитель играет за героя главы
 constexpr uint16_t kFlagFiring = 4;  // kPose: отправитель стреляет
+constexpr uint16_t kFlagCrouch = 8, kFlagAim = 16;  // kPose: присел, целится
 
 #pragma pack(push, 1)
 struct Packet {
@@ -62,7 +63,7 @@ public:
 	// character: выбранный персонаж отправителя (sid имени), в поле target.
 	// look: облик отправителя ("t1x-sarah-costume-01"), в поле name.
 	void SendPose(const float pos[3], const float rot[4], bool hero = true, bool firing = false, uint64_t character = 0,
-		const std::string& look = {});
+		const std::string& look = {}, uint16_t stance = 0);  // stance: kFlagCrouch | kFlagAim
 	// Ведущая сторона (позиции врагов): хозяин лобби; без лобби - больший Steam ID (по UDP - меньший порт).
 	bool Authority() const;
 	void SendEnemy(uint64_t npc, float health, bool dead);  // через Steam - с гарантией доставки

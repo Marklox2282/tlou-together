@@ -59,6 +59,10 @@ int PartnerCharacter();
 enum class Role { Hero, Companion };
 bool MeFiring();                   // свой игрок стреляет (читается в скриптовом потоке)
 void SetPartnerFiring(bool on);    // партнёр стреляет: марионетка стреляет тоже
+// Поза: присел, целится. Своя - для отправки; партнёра - марионетка садится и поднимает оружие.
+bool MeCrouched();
+bool MeAiming();
+void SetPartnerStance(bool crouched, bool aiming);
 Role GetRole();                             // Companion, если мой персонаж - спутник
 // Имена персонажей текущей главы для лобби ("joel", "tess"); пусто - неизвестно.
 std::string HeroCharacter();

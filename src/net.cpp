@@ -445,12 +445,13 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 	return gotPose;
 }
 
-void Link::SendPose(const float pos[3], const float rot[4], bool hero, bool firing, uint64_t character, const std::string& look) {
+void Link::SendPose(const float pos[3], const float rot[4], bool hero, bool firing, uint64_t character, const std::string& look,
+	uint16_t stance) {
 	if (state_ != State::Connected) return;
 	Packet p = Make(kPose);
 	p.target = character;
 	strncpy_s(p.name, look.c_str(), _TRUNCATE);
-	p.flags = static_cast<uint16_t>((hero ? kFlagHero : 0) | (firing ? kFlagFiring : 0));
+	p.flags = static_cast<uint16_t>((hero ? kFlagHero : 0) | (firing ? kFlagFiring : 0) | (stance & (kFlagCrouch | kFlagAim)));
 	p.seq = ++seq_;
 	memcpy(p.pos, pos, sizeof(p.pos));
 	memcpy(p.rot, rot, sizeof(p.rot));

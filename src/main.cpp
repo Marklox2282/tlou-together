@@ -28,7 +28,7 @@ namespace {
 
 // Номер версии мода: увеличивать при каждом выпуске (tools/release.py берёт его отсюда).
 // Игроки с разными версиями не соединяются.
-constexpr uint32_t kModVersion = 22;
+constexpr uint32_t kModVersion = 23;
 
 using engine::Locator;
 
@@ -217,6 +217,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	g_link.SetChapter({ mine.node, mine.task });
 	if (gotPose) {
 		puppet::SetPartnerFiring((pose.flags & net::kFlagFiring) != 0);
+		puppet::SetPartnerStance((pose.flags & net::kFlagCrouch) != 0, (pose.flags & net::kFlagAim) != 0);
 		puppet::SetPartnerCharacter(puppet::CharacterFromSid(pose.target));
 		char look[sizeof(pose.name) + 1]{};
 		memcpy(look, pose.name, sizeof(pose.name));
@@ -282,7 +283,8 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	if (havePlayer && now - lastSend >= 50) {  // 20 раз в секунду
 		lastSend = now;
 		g_link.SendPose(me.pos, me.rot, puppet::GetRole() == puppet::Role::Hero, puppet::MeFiring(),
-			puppet::CharacterSid(puppet::MyCharacter()), puppet::MyLook());
+			puppet::CharacterSid(puppet::MyCharacter()), puppet::MyLook(),
+			static_cast<uint16_t>((puppet::MeCrouched() ? net::kFlagCrouch : 0) | (puppet::MeAiming() ? net::kFlagAim : 0)));
 	}
 }
 
