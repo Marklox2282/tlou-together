@@ -30,6 +30,8 @@ constexpr uintptr_t kVisibleRva = 0x1BFE960;
 constexpr uintptr_t kPressRva = 0x1C8544A, kPressDoneRva = 0x1C85F13;
 // Ответ окна сообщения: rdi - id окна (как у выхода "confirm_exit_to_desktop"), [rsp+0x30] - кнопка.
 constexpr uintptr_t kAnswerRva = 0x1C86022;
+// Там же (функция 0x1C83174): ветки кнопок buttonCampaignTLOU и buttonCampaignSPDLC1 - начать игру.
+constexpr uintptr_t kStartTlouRva = 0x1C834CE, kStartLeftBehindRva = 0x1C83C9F;
 // Как в обработчике выхода: менеджер страниц по имени стека ("main"/"ingame") и показ окна
 // (менеджер, страница, текст, id ответа, 0, 2).
 // После создания окна - заголовок (окно, ключ текста); без него окно не показывалось.
@@ -69,6 +71,7 @@ struct Lang {
 	const char* noCode;     // в буфере обмена не код
 	const char* help;       // что делают кнопки первого окна
 	const char* refresh;    // окно не обновляется само
+	const char* waitStart;  // нажали начать игру, а напарник ещё не подключён
 };
 
 const Lang kLangs[] = {
@@ -83,7 +86,8 @@ const Lang kLangs[] = {
 		"Lobby code: %s<br>It is copied - paste it to your friend in a chat.",
 		"Copy your friend's lobby code first (Ctrl+C), then choose Join by code.",
 		"CREATE LOBBY - you host and get a code for your friend.<br>JOIN BY CODE - copy your friend's code first (Ctrl+C).",
-		"This window does not update by itself: close it and open Multiplayer again in a few seconds." },
+		"This window does not update by itself: close it and open Multiplayer again in a few seconds.",
+		"Your partner is still connecting. You can start the game once they are here." },
 	{ "ВЫХОД В БИБЛИОТЕКУ", "МУЛЬТИПЛЕЕР",
 		"Создайте лобби и пригласите друга из Steam, чтобы пройти сюжет вместе.<br>У друга тоже должен стоять мод.",
 		"Лобби создано.<br>Пригласите друга: откроется окно Steam, выберите в нём друга.<br>Когда он примет приглашение, вы соединитесь сами.",
@@ -95,7 +99,8 @@ const Lang kLangs[] = {
 		"Код лобби: %s<br>Он уже скопирован - вставьте его другу в чат.",
 		"Сначала скопируйте код лобби друга (Ctrl+C), потом выберите «Войти по коду».",
 		"СОЗДАТЬ ЛОББИ - вы хост и получаете код для друга.<br>ВОЙТИ ПО КОДУ - сначала скопируйте код друга (Ctrl+C).",
-		"Это окно само не обновляется: закройте его и откройте «Мультиплеер» снова через пару секунд." },
+		"Это окно само не обновляется: закройте его и откройте «Мультиплеер» снова через пару секунд.",
+		"Напарник ещё подключается. Начать игру можно, когда он подключится." },
 	{ "RETOUR VERS LA BIBLIOTHÈQUE", "MULTIJOUEUR",
 		"Créez un salon et invitez un ami Steam pour jouer l'histoire ensemble.<br>Votre ami doit aussi avoir ce mod.",
 		"Votre salon est ouvert.<br>Invitez un ami : la fenêtre Steam s'ouvre, choisissez-y un ami.<br>Dès qu'il accepte, la connexion se fait toute seule.",
@@ -107,7 +112,8 @@ const Lang kLangs[] = {
 		"Code du salon : %s<br>Il est copié - collez-le à votre ami dans un chat.",
 		"Copiez d'abord le code du salon de votre ami (Ctrl+C), puis choisissez Rejoindre par code.",
 		"CRÉER UN SALON - vous hébergez et recevez un code pour votre ami.<br>REJOINDRE PAR CODE - copiez d'abord le code de votre ami (Ctrl+C).",
-		"Cette fenêtre ne se met pas à jour : fermez-la et rouvrez Multijoueur dans quelques secondes." },
+		"Cette fenêtre ne se met pas à jour : fermez-la et rouvrez Multijoueur dans quelques secondes.",
+		"Votre partenaire se connecte encore. Vous pourrez lancer la partie quand il sera là." },
 	{ "BEENDEN UND ZUR BIBLIOTHEK", "MEHRSPIELER",
 		"Erstelle eine Lobby und lade einen Steam-Freund ein, um die Geschichte gemeinsam zu spielen.<br>Dein Freund braucht diese Mod auch.",
 		"Deine Lobby ist offen.<br>Lade einen Freund ein: Das Steam-Fenster öffnet sich, wähle dort einen Freund.<br>Sobald er annimmt, verbindet ihr euch automatisch.",
@@ -119,7 +125,8 @@ const Lang kLangs[] = {
 		"Lobby-Code: %s<br>Er ist kopiert - schick ihn deinem Freund im Chat.",
 		"Kopiere zuerst den Lobby-Code deines Freundes (Strg+C) und wähle dann Mit Code beitreten.",
 		"LOBBY ERSTELLEN - du bist Host und bekommst einen Code für deinen Freund.<br>MIT CODE BEITRETEN - kopiere zuerst den Code deines Freundes (Strg+C).",
-		"Dieses Fenster aktualisiert sich nicht: schließe es und öffne Mehrspieler in ein paar Sekunden erneut." },
+		"Dieses Fenster aktualisiert sich nicht: schließe es und öffne Mehrspieler in ein paar Sekunden erneut.",
+		"Dein Partner verbindet sich noch. Du kannst das Spiel starten, sobald er da ist." },
 	{ "TORNA ALLA LIBRERIA", "MULTIGIOCATORE",
 		"Crea una lobby e invita un amico di Steam per giocare la storia insieme.<br>Anche il tuo amico deve avere questa mod.",
 		"La tua lobby è aperta.<br>Invita un amico: si apre la finestra di Steam, scegli lì un amico.<br>Quando accetta, vi collegate automaticamente.",
@@ -131,7 +138,8 @@ const Lang kLangs[] = {
 		"Codice lobby: %s<br>È già copiato - incollalo al tuo amico in chat.",
 		"Copia prima il codice lobby del tuo amico (Ctrl+C), poi scegli Entra con codice.",
 		"CREA LOBBY - ospiti tu e ricevi un codice per il tuo amico.<br>ENTRA CON CODICE - copia prima il codice del tuo amico (Ctrl+C).",
-		"Questa finestra non si aggiorna da sola: chiudila e riapri Multigiocatore tra qualche secondo." },
+		"Questa finestra non si aggiorna da sola: chiudila e riapri Multigiocatore tra qualche secondo.",
+		"Il tuo compagno si sta ancora collegando. Potrai iniziare quando sarà qui." },
 	{ "SALIR A LA BIBLIOTECA", "MULTIJUGADOR",
 		"Crea una sala e invita a un amigo de Steam para jugar la historia juntos.<br>Tu amigo también necesita este mod.",
 		"Tu sala está abierta.<br>Invita a un amigo: se abre la ventana de Steam, elige allí a un amigo.<br>Cuando acepte, os conectaréis automáticamente.",
@@ -143,7 +151,8 @@ const Lang kLangs[] = {
 		"Código de sala: %s<br>Ya está copiado: pégaselo a tu amigo en un chat.",
 		"Copia primero el código de sala de tu amigo (Ctrl+C) y elige Unirse con código.",
 		"CREAR SALA - eres el anfitrión y recibes un código para tu amigo.<br>UNIRSE CON CÓDIGO - copia primero el código de tu amigo (Ctrl+C).",
-		"Esta ventana no se actualiza sola: ciérrala y vuelve a abrir Multijugador en unos segundos." },
+		"Esta ventana no se actualiza sola: ciérrala y vuelve a abrir Multijugador en unos segundos.",
+		"Tu compañero todavía se está conectando. Podrás empezar cuando esté aquí." },
 	{ "SAIR PARA A BIBLIOTECA", "MULTIJOGADOR",
 		"Crie um lobby e convide um amigo da Steam para jogar a história juntos.<br>Seu amigo também precisa deste mod.",
 		"Seu lobby está aberto.<br>Convide um amigo: a janela da Steam abre, escolha um amigo nela.<br>Quando ele aceitar, vocês se conectam automaticamente.",
@@ -155,7 +164,8 @@ const Lang kLangs[] = {
 		"Código do lobby: %s<br>Ele já foi copiado - cole para o seu amigo no chat.",
 		"Copie primeiro o código do lobby do seu amigo (Ctrl+C) e escolha Entrar com código.",
 		"CRIAR LOBBY - você é o anfitrião e recebe um código para o amigo.<br>ENTRAR COM CÓDIGO - copie primeiro o código do amigo (Ctrl+C).",
-		"Esta janela não se atualiza sozinha: feche-a e abra Multijogador de novo em alguns segundos." },
+		"Esta janela não se atualiza sozinha: feche-a e abra Multijogador de novo em alguns segundos.",
+		"Seu parceiro ainda está se conectando. Você pode começar quando ele chegar." },
 	{ "WYJDŹ DO BIBLIOTEKI", "TRYB WIELOOSOBOWY",
 		"Utwórz lobby i zaproś znajomego ze Steam, aby przejść fabułę razem.<br>Znajomy też musi mieć ten mod.",
 		"Twoje lobby jest otwarte.<br>Zaproś znajomego: otworzy się okno Steam, wybierz w nim znajomego.<br>Gdy przyjmie zaproszenie, połączycie się automatycznie.",
@@ -167,7 +177,8 @@ const Lang kLangs[] = {
 		"Kod lobby: %s<br>Jest już skopiowany - wklej go znajomemu na czacie.",
 		"Najpierw skopiuj kod lobby znajomego (Ctrl+C), potem wybierz Dołącz kodem.",
 		"UTWÓRZ LOBBY - jesteś hostem i dostajesz kod dla znajomego.<br>DOŁĄCZ KODEM - najpierw skopiuj kod znajomego (Ctrl+C).",
-		"To okno samo się nie odświeża: zamknij je i otwórz Tryb wieloosobowy ponownie za kilka sekund." },
+		"To okno samo się nie odświeża: zamknij je i otwórz Tryb wieloosobowy ponownie za kilka sekund.",
+		"Partner wciąż się łączy. Grę możesz zacząć, gdy dołączy." },
 	{ "KÜTÜPHANEYE ÇIK", "ÇOK OYUNCULU",
 		"Bir lobi kur ve hikâyeyi birlikte oynamak için bir Steam arkadaşını davet et.<br>Arkadaşında da bu mod olmalı.",
 		"Lobin açık.<br>Bir arkadaşını davet et: Steam penceresi açılır, oradan bir arkadaş seç.<br>Kabul edince otomatik olarak bağlanırsınız.",
@@ -179,7 +190,8 @@ const Lang kLangs[] = {
 		"Lobi kodu: %s<br>Kopyalandı - sohbette arkadaşına yapıştır.",
 		"Önce arkadaşının lobi kodunu kopyala (Ctrl+C), sonra Kodla katıl'ı seç.",
 		"LOBİ KUR - sen ev sahibisin ve arkadaşın için bir kod alırsın.<br>KODLA KATIL - önce arkadaşının kodunu kopyala (Ctrl+C).",
-		"Bu pencere kendiliğinden güncellenmez: kapat ve birkaç saniye sonra Çok Oyunculu'yu yeniden aç." },
+		"Bu pencere kendiliğinden güncellenmez: kapat ve birkaç saniye sonra Çok Oyunculu'yu yeniden aç.",
+		"Ortağın hâlâ bağlanıyor. O gelince oyunu başlatabilirsin." },
 	{ "ODEJÍT DO KNIHOVNY", "HRA VÍCE HRÁČŮ",
 		"Vytvořte lobby a pozvěte přítele ze Steamu, abyste hráli příběh spolu.<br>Přítel musí mít tento mód také.",
 		"Vaše lobby je otevřené.<br>Pozvěte přítele: otevře se okno Steamu, vyberte v něm přítele.<br>Jakmile pozvánku přijme, spojíte se automaticky.",
@@ -191,7 +203,8 @@ const Lang kLangs[] = {
 		"Kód lobby: %s<br>Je zkopírovaný - vložte ho příteli do chatu.",
 		"Nejdřív zkopírujte kód lobby přítele (Ctrl+C) a pak zvolte Připojit se kódem.",
 		"VYTVOŘIT LOBBY - jste hostitel a dostanete kód pro přítele.<br>PŘIPOJIT SE KÓDEM - nejdřív zkopírujte kód přítele (Ctrl+C).",
-		"Toto okno se samo neaktualizuje: zavřete ho a za pár sekund znovu otevřete Hru více hráčů." },
+		"Toto okno se samo neaktualizuje: zavřete ho a za pár sekund znovu otevřete Hru více hráčů.",
+		"Parťák se ještě připojuje. Hru můžete začít, až bude připojený." },
 	{ "KILÉPÉS A KÖNYVTÁRBA", "TÖBBJÁTÉKOS",
 		"Hozz létre egy lobbit, és hívj meg egy Steam-barátot, hogy együtt játsszátok végig a történetet.<br>A barátodnak is kell ez a mod.",
 		"A lobbid nyitva van.<br>Hívj meg egy barátot: megnyílik a Steam ablaka, ott válassz barátot.<br>Ha elfogadja, automatikusan csatlakoztok.",
@@ -203,7 +216,8 @@ const Lang kLangs[] = {
 		"Lobbikód: %s<br>Már ki van másolva - illeszd be a barátodnak a csetbe.",
 		"Először másold ki a barátod lobbikódját (Ctrl+C), majd válaszd a Belépés kóddal lehetőséget.",
 		"LOBBI LÉTREHOZÁSA - te vagy a házigazda, és kódot kapsz a barátodnak.<br>BELÉPÉS KÓDDAL - előbb másold ki a barátod kódját (Ctrl+C).",
-		"Ez az ablak magától nem frissül: zárd be, és pár másodperc múlva nyisd meg újra a Többjátékos menüt." },
+		"Ez az ablak magától nem frissül: zárd be, és pár másodperc múlva nyisd meg újra a Többjátékos menüt.",
+		"A társad még csatlakozik. Ha megérkezett, elindíthatod a játékot." },
 	{ "ΕΞΟΔΟΣ ΣΤΗ ΒΙΒΛΙΟΘΗΚΗ", "ΠΟΛΛΟΙ ΠΑΙΚΤΕΣ",
 		"Δημιούργησε ένα λόμπι και προσκάλεσε έναν φίλο από το Steam για να παίξετε μαζί την ιστορία.<br>Ο φίλος σου χρειάζεται κι αυτός το mod.",
 		"Το λόμπι σου είναι ανοιχτό.<br>Προσκάλεσε έναν φίλο: ανοίγει το παράθυρο του Steam, διάλεξε εκεί φίλο.<br>Μόλις αποδεχτεί, συνδέεστε αυτόματα.",
@@ -215,7 +229,8 @@ const Lang kLangs[] = {
 		"Κωδικός λόμπι: %s<br>Έχει αντιγραφεί - στείλ' τον στον φίλο σου στη συνομιλία.",
 		"Αντίγραψε πρώτα τον κωδικό λόμπι του φίλου σου (Ctrl+C) και μετά διάλεξε Σύνδεση με κωδικό.",
 		"ΔΗΜΙΟΥΡΓΙΑ ΛΟΜΠΙ - είσαι ο οικοδεσπότης και παίρνεις κωδικό για τον φίλο σου.<br>ΣΥΝΔΕΣΗ ΜΕ ΚΩΔΙΚΟ - αντίγραψε πρώτα τον κωδικό του φίλου σου (Ctrl+C).",
-		"Αυτό το παράθυρο δεν ενημερώνεται μόνο του: κλείσ' το και άνοιξε ξανά το Πολλοί παίκτες σε λίγα δευτερόλεπτα." },
+		"Αυτό το παράθυρο δεν ενημερώνεται μόνο του: κλείσ' το και άνοιξε ξανά το Πολλοί παίκτες σε λίγα δευτερόλεπτα.",
+		"Ο συμπαίκτης σου συνδέεται ακόμα. Μπορείς να ξεκινήσεις μόλις έρθει." },
 	{ "STOPPEN EN NAAR BIBLIOTHEEK", "MULTIPLAYER",
 		"Maak een lobby en nodig een Steam-vriend uit om het verhaal samen te spelen.<br>Je vriend heeft deze mod ook nodig.",
 		"Je lobby is open.<br>Nodig een vriend uit: het Steam-venster opent, kies daar een vriend.<br>Zodra die accepteert, maken jullie automatisch verbinding.",
@@ -227,7 +242,8 @@ const Lang kLangs[] = {
 		"Lobbycode: %s<br>Hij is gekopieerd - plak hem in een chat naar je vriend.",
 		"Kopieer eerst de lobbycode van je vriend (Ctrl+C) en kies dan Met code deelnemen.",
 		"LOBBY MAKEN - jij bent host en krijgt een code voor je vriend.<br>MET CODE DEELNEMEN - kopieer eerst de code van je vriend (Ctrl+C).",
-		"Dit venster ververst niet vanzelf: sluit het en open Multiplayer over een paar seconden opnieuw." },
+		"Dit venster ververst niet vanzelf: sluit het en open Multiplayer over een paar seconden opnieuw.",
+		"Je partner maakt nog verbinding. Je kunt beginnen zodra hij er is." },
 	{ "AFSLUT TIL BIBLIOTEK", "MULTIPLAYER",
 		"Opret en lobby, og inviter en Steam-ven til at spille historien sammen.<br>Din ven skal også have dette mod.",
 		"Din lobby er åben.<br>Inviter en ven: Steam-vinduet åbner, vælg en ven der.<br>Når vennen accepterer, forbindes I automatisk.",
@@ -239,7 +255,8 @@ const Lang kLangs[] = {
 		"Lobbykode: %s<br>Den er kopieret - indsæt den til din ven i en chat.",
 		"Kopiér først din vens lobbykode (Ctrl+C), og vælg så Deltag med kode.",
 		"OPRET LOBBY - du er vært og får en kode til din ven.<br>DELTAG MED KODE - kopiér først din vens kode (Ctrl+C).",
-		"Dette vindue opdateres ikke af sig selv: luk det, og åbn Multiplayer igen om et par sekunder." },
+		"Dette vindue opdateres ikke af sig selv: luk det, og åbn Multiplayer igen om et par sekunder.",
+		"Din makker forbinder stadig. Du kan starte spillet, når han er her." },
 	{ "POISTU KIRJASTOON", "MONINPELI",
 		"Luo aula ja kutsu Steam-kaveri pelaamaan tarina yhdessä.<br>Kaverillasi pitää olla myös tämä modi.",
 		"Aulasi on auki.<br>Kutsu kaveri: Steam-ikkuna aukeaa, valitse sieltä kaveri.<br>Kun hän hyväksyy, yhteys muodostuu automaattisesti.",
@@ -251,7 +268,8 @@ const Lang kLangs[] = {
 		"Aulan koodi: %s<br>Se on kopioitu - liitä se kaverillesi chattiin.",
 		"Kopioi ensin kaverisi aulan koodi (Ctrl+C) ja valitse sitten Liity koodilla.",
 		"LUO AULA - olet isäntä ja saat koodin kaverillesi.<br>LIITY KOODILLA - kopioi ensin kaverisi koodi (Ctrl+C).",
-		"Tämä ikkuna ei päivity itsestään: sulje se ja avaa Moninpeli uudelleen muutaman sekunnin päästä." },
+		"Tämä ikkuna ei päivity itsestään: sulje se ja avaa Moninpeli uudelleen muutaman sekunnin päästä.",
+		"Pelikaverisi yhdistää vielä. Voit aloittaa pelin, kun hän on paikalla." },
 	{ "GÅ TIL BIBLIOTEKET", "FLERSPILLER",
 		"Opprett en lobby og inviter en Steam-venn til å spille historien sammen.<br>Vennen din trenger også denne moden.",
 		"Lobbyen din er åpen.<br>Inviter en venn: Steam-vinduet åpnes, velg en venn der.<br>Når vennen godtar, kobles dere til automatisk.",
@@ -263,7 +281,8 @@ const Lang kLangs[] = {
 		"Lobbykode: %s<br>Den er kopiert - lim den inn til vennen din i en chat.",
 		"Kopier først lobbykoden til vennen din (Ctrl+C), og velg så Bli med med kode.",
 		"OPPRETT LOBBY - du er vert og får en kode til vennen din.<br>BLI MED MED KODE - kopier først koden til vennen din (Ctrl+C).",
-		"Dette vinduet oppdateres ikke av seg selv: lukk det og åpne Flerspiller igjen om noen sekunder." },
+		"Dette vinduet oppdateres ikke av seg selv: lukk det og åpne Flerspiller igjen om noen sekunder.",
+		"Partneren din kobler fortsatt til. Du kan starte når han er her." },
 	{ "AVSLUTA TILL BIBLIOTEKET", "FLERSPELARLÄGE",
 		"Skapa en lobby och bjud in en Steam-vän för att spela berättelsen tillsammans.<br>Din vän behöver också den här modden.",
 		"Din lobby är öppen.<br>Bjud in en vän: Steam-fönstret öppnas, välj en vän där.<br>När vännen tackar ja ansluter ni automatiskt.",
@@ -275,7 +294,8 @@ const Lang kLangs[] = {
 		"Lobbykod: %s<br>Den är kopierad - klistra in den till din vän i en chatt.",
 		"Kopiera först din väns lobbykod (Ctrl+C) och välj sedan Gå med med kod.",
 		"SKAPA LOBBY - du är värd och får en kod till din vän.<br>GÅ MED MED KOD - kopiera först din väns kod (Ctrl+C).",
-		"Det här fönstret uppdateras inte av sig självt: stäng det och öppna Flerspelarläge igen om några sekunder." },
+		"Det här fönstret uppdateras inte av sig självt: stäng det och öppna Flerspelarläge igen om några sekunder.",
+		"Din partner ansluter fortfarande. Du kan starta spelet när den är här." },
 	{ "VRATI SE U LIBRARY", "VIŠE IGRAČA",
 		"Napravi predvorje i pozovi prijatelja sa Steama da zajedno igrate priču.<br>Prijatelj također treba imati ovaj mod.",
 		"Tvoje predvorje je otvoreno.<br>Pozovi prijatelja: otvorit će se prozor Steama, ondje odaberi prijatelja.<br>Kad prihvati, povezat ćete se automatski.",
@@ -287,7 +307,8 @@ const Lang kLangs[] = {
 		"Kod predvorja: %s<br>Već je kopiran - zalijepi ga prijatelju u chat.",
 		"Najprije kopiraj prijateljev kod predvorja (Ctrl+C), a zatim odaberi Pridruži se kodom.",
 		"NAPRAVI PREDVORJE - ti si domaćin i dobivaš kod za prijatelja.<br>PRIDRUŽI SE KODOM - najprije kopiraj prijateljev kod (Ctrl+C).",
-		"Ovaj se prozor ne osvježava sam: zatvori ga i za nekoliko sekundi ponovno otvori Više igrača." },
+		"Ovaj se prozor ne osvježava sam: zatvori ga i za nekoliko sekundi ponovno otvori Više igrača.",
+		"Partner se još povezuje. Igru možeš pokrenuti kad stigne." },
 	{ "ライブラリに戻る", "マルチプレイ",
 		"ロビーを作成してSteamのフレンドを招待し、一緒にストーリーを遊びましょう。<br>フレンドにもこのMODが必要です。",
 		"ロビーを作成しました。<br>フレンドを招待: Steamのウィンドウが開くので、そこでフレンドを選んでください。<br>招待が承諾されると自動で接続します。",
@@ -299,7 +320,8 @@ const Lang kLangs[] = {
 		"ロビーコード: %s<br>コピー済みです。チャットでフレンドに貼り付けてください。",
 		"先にフレンドのロビーコードをコピー(Ctrl+C)してから「コードで参加」を選んでください。",
 		"ロビーを作成 - あなたがホストになり、フレンド用のコードを受け取ります。<br>コードで参加 - 先にフレンドのコードをコピー(Ctrl+C)してください。",
-		"このウィンドウは自動で更新されません。閉じて、数秒後にもう一度「マルチプレイ」を開いてください。" },
+		"このウィンドウは自動で更新されません。閉じて、数秒後にもう一度「マルチプレイ」を開いてください。",
+		"パートナーはまだ接続中です。接続されたらゲームを開始できます。" },
 	{ "라이브러리로 나가기", "멀티플레이",
 		"로비를 만들고 Steam 친구를 초대해 함께 스토리를 플레이하세요.<br>친구도 이 모드를 설치해야 합니다.",
 		"로비가 열렸습니다.<br>친구 초대: Steam 창이 열리면 그곳에서 친구를 고르세요.<br>친구가 수락하면 자동으로 연결됩니다.",
@@ -311,7 +333,8 @@ const Lang kLangs[] = {
 		"로비 코드: %s<br>복사되었습니다. 채팅으로 친구에게 붙여 넣으세요.",
 		"먼저 친구의 로비 코드를 복사(Ctrl+C)한 뒤 코드로 참가를 선택하세요.",
 		"로비 만들기 - 내가 호스트가 되고 친구에게 줄 코드를 받습니다.<br>코드로 참가 - 먼저 친구의 코드를 복사(Ctrl+C)하세요.",
-		"이 창은 자동으로 갱신되지 않습니다. 창을 닫고 몇 초 뒤에 멀티플레이를 다시 여세요." },
+		"이 창은 자동으로 갱신되지 않습니다. 창을 닫고 몇 초 뒤에 멀티플레이를 다시 여세요.",
+		"파트너가 아직 연결 중입니다. 연결되면 게임을 시작할 수 있습니다." },
 	{ "退出至游戏库", "多人游戏",
 		"创建大厅并邀请一位 Steam 好友，一起体验剧情。<br>你的好友也需要安装此模组。",
 		"大厅已创建。<br>邀请好友：Steam 窗口会打开，请在其中选择好友。<br>好友接受后会自动连接。",
@@ -323,7 +346,8 @@ const Lang kLangs[] = {
 		"大厅代码：%s<br>已复制，请在聊天中粘贴给好友。",
 		"请先复制好友的大厅代码（Ctrl+C），再选择“用代码加入”。",
 		"创建大厅 - 你是主机，并获得给好友的代码。<br>用代码加入 - 请先复制好友的代码（Ctrl+C）。",
-		"此窗口不会自动更新：请关闭它，几秒后再打开“多人游戏”。" },
+		"此窗口不会自动更新：请关闭它，几秒后再打开“多人游戏”。",
+		"同伴仍在连接中。连接后才能开始游戏。" },
 	{ "返回收藏庫", "多人遊戲",
 		"建立大廳並邀請一位 Steam 好友，一起體驗劇情。<br>你的好友也需要安裝此模組。",
 		"大廳已建立。<br>邀請好友：Steam 視窗會開啟，請在其中選擇好友。<br>好友接受後會自動連線。",
@@ -335,7 +359,8 @@ const Lang kLangs[] = {
 		"大廳代碼：%s<br>已複製，請在聊天中貼給好友。",
 		"請先複製好友的大廳代碼（Ctrl+C），再選擇「用代碼加入」。",
 		"建立大廳 - 你是主機，並取得給好友的代碼。<br>用代碼加入 - 請先複製好友的代碼（Ctrl+C）。",
-		"此視窗不會自動更新：請關閉它，幾秒後再開啟「多人遊戲」。" },
+		"此視窗不會自動更新：請關閉它，幾秒後再開啟「多人遊戲」。",
+		"夥伴仍在連線中。連線後才能開始遊戲。" },
 	{ "ออกไปยังคลังเกม", "ผู้เล่นหลายคน",
 		"สร้างล็อบบี้แล้วเชิญเพื่อนใน Steam มาเล่นเนื้อเรื่องด้วยกัน<br>เพื่อนของคุณต้องติดตั้งม็อดนี้ด้วย",
 		"ล็อบบี้ของคุณเปิดแล้ว<br>เชิญเพื่อน: หน้าต่าง Steam จะเปิดขึ้น ให้เลือกเพื่อนในนั้น<br>เมื่อเพื่อนตอบรับ จะเชื่อมต่อให้อัตโนมัติ",
@@ -347,7 +372,8 @@ const Lang kLangs[] = {
 		"รหัสล็อบบี้: %s<br>คัดลอกแล้ว วางให้เพื่อนในแชตได้เลย",
 		"คัดลอกรหัสล็อบบี้ของเพื่อนก่อน (Ctrl+C) แล้วเลือกเข้าร่วมด้วยรหัส",
 		"สร้างล็อบบี้ - คุณเป็นโฮสต์และได้รหัสไว้ให้เพื่อน<br>เข้าร่วมด้วยรหัส - คัดลอกรหัสของเพื่อนก่อน (Ctrl+C)",
-		"หน้าต่างนี้ไม่อัปเดตเอง ปิดแล้วเปิดผู้เล่นหลายคนอีกครั้งในอีกไม่กี่วินาที" },
+		"หน้าต่างนี้ไม่อัปเดตเอง ปิดแล้วเปิดผู้เล่นหลายคนอีกครั้งในอีกไม่กี่วินาที",
+		"คู่หูยังเชื่อมต่ออยู่ เริ่มเกมได้เมื่อเขาเข้ามาแล้ว" },
 };
 
 const Lang& LangFor(const char* library) {
@@ -360,7 +386,8 @@ const Lang& LangFor(const char* library) {
 LobbyFn g_lobby = nullptr;
 ActionFn g_action = nullptr;
 safetyhook::InlineHook g_textHook, g_visibleHook;
-safetyhook::MidHook g_pressHook, g_answerHook;
+safetyhook::MidHook g_pressHook, g_answerHook, g_startHook, g_startLbHook;
+std::atomic<ULONGLONG> g_waitUntil{ 0 };  // окно открыто из-за "начать игру" без напарника
 
 // Строки должны жить, пока игра их показывает: по два буфера на каждую, по очереди.
 template <size_t N>
@@ -392,7 +419,14 @@ const char* TitleText(const Lang& l) {
 const char* LobbyText(const Lang& l) {
 	const Lobby s = g_lobby ? g_lobby() : Lobby{};
 	char* buf = g_body.Next();
-	const size_t n = sizeof(g_body.buf[0]);
+	size_t n = sizeof(g_body.buf[0]);
+	if (GetTickCount64() < g_waitUntil) {  // почему не начали игру - первой строкой
+		const int k = snprintf(buf, n, "%s<br><br>", l.waitStart);
+		if (k > 0 && static_cast<size_t>(k) < n) {
+			buf += k;
+			n -= k;
+		}
+	}
 	if (s.connected) {
 		// "Подключено: Вася... <br><br>Вы: Sarah · Вася: Tess (напарник)".
 		auto who = [&](const std::string& c) {
@@ -489,6 +523,20 @@ void OnPress(safetyhook::Context& ctx) {
 	ctx.rip = engine::g_base + kPressDoneRva;
 }
 
+// Готовность: в лобби, а напарник ещё не подключился - игру не начинаем, а показываем лобби
+// с причиной (кнопки пригласить / покинуть лобби / отмена). Без лобби - как обычно.
+void OnStart(safetyhook::Context& ctx) {
+	const Lobby s = g_lobby ? g_lobby() : Lobby{};
+	if (!(s.lobby || s.busy) || s.connected) return;
+	g_waitUntil = GetTickCount64() + 1500;
+	const uintptr_t menu = ctx.r15;
+	using MainMenuFn = bool (*)(uintptr_t);
+	const auto mainMenu = reinterpret_cast<MainMenuFn>(*reinterpret_cast<uintptr_t*>(*reinterpret_cast<uintptr_t*>(menu) + kMainMenuVcall));
+	g_mainMenu = mainMenu(menu);
+	Log("menu: start pressed while the partner is connecting - lobby %s", OpenLobby(g_mainMenu) ? "shown" : "FAILED");
+	ctx.rip = engine::g_base + kPressDoneRva;
+}
+
 // Ответ в окне: наше - обрабатываем сами, а игре подсовываем id, которого она не знает.
 // Кнопки: messageBoxOk - первая, messageBoxCancel - вторая, messageBoxPop - "отмена"/назад.
 void OnAnswer(safetyhook::Context& ctx) {
@@ -532,9 +580,12 @@ bool Install(LobbyFn lobby, ActionFn action) {
 	// Порядок важен: сначала нажатие и ответ, видимость - последней. Если что-то не встало,
 	// снимаем всё: иначе видимый пункт выходил бы в библиотеку.
 	const bool ok = Make(g_pressHook, kPressRva, OnPress, "press") && Make(g_answerHook, kAnswerRva, OnAnswer, "answer") &&
+		Make(g_startHook, kStartTlouRva, OnStart, "start") && Make(g_startLbHook, kStartLeftBehindRva, OnStart, "start left behind") &&
 		Make(g_textHook, kTextLookupRva, TextLookup, "text") && Make(g_visibleHook, kVisibleRva, Visible, "visibility");
 	if (!ok) {
 		g_visibleHook = {};
+		g_startLbHook = {};
+		g_startHook = {};
 		g_textHook = {};
 		g_answerHook = {};
 		g_pressHook = {};
