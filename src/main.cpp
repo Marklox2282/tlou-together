@@ -17,6 +17,7 @@
 #include "enemies.hpp"
 #include "engine.hpp"
 #include "log.hpp"
+#include "menu.hpp"
 #include "net.hpp"
 #include "puppet.hpp"
 #include "update.hpp"
@@ -80,23 +81,47 @@ net::Config LoadConfig(std::string& name) {
 
 net::Link g_link(Log, kModVersion);
 
+// Лобби в меню игры: состояние для его текста (меню читает из своего потока) и "Да".
+std::atomic<bool> g_menuToggle{ false };
+SRWLOCK g_lobbyLock = SRWLOCK_INIT;
+menu::Lobby g_lobbyState;
+
+void PublishLobby() {
+	menu::Lobby s;
+	s.on = g_link.GetState() != net::State::Off;
+	s.connected = g_link.GetState() == net::State::Connected;
+	if (s.connected) s.partner = g_link.PeerName();
+	AcquireSRWLockExclusive(&g_lobbyLock);
+	g_lobbyState = s;
+	ReleaseSRWLockExclusive(&g_lobbyLock);
+}
+
+menu::Lobby ReadLobby() {
+	AcquireSRWLockShared(&g_lobbyLock);
+	menu::Lobby s = g_lobbyState;
+	ReleaseSRWLockShared(&g_lobbyLock);
+	return s;
+}
+
 // Все сетевые вызовы - из игрового кадра (основной поток): Link не потокобезопасен.
 void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	static bool f8Down = false, f6Down = false;
 	static ULONGLONG lastSend = 0;
-	if (KeyPressed(VK_F8, f8Down) && g_link.GetState() == net::State::Off) {
+	const bool toggle = g_menuToggle.exchange(false);  // "Да" в лобби меню игры
+	const bool off = g_link.GetState() == net::State::Off;
+	if ((KeyPressed(VK_F8, f8Down) || toggle) && off) {
 		std::string name;
 		const net::Config cfg = LoadConfig(name);
 		g_link.SetName(name);
 		enemies::Reset();
 		puppet::SetNetActive(g_link.Start(cfg, now));
-	}
-	if (KeyPressed(VK_F6, f6Down) && g_link.GetState() != net::State::Off) {
+	} else if ((KeyPressed(VK_F6, f6Down) || toggle) && !off) {
 		g_link.Stop();
 		puppet::SetNetActive(false);
 		puppet::SetPartnerChapter({});
 		puppet::UseNetwork(false);
 	}
+	PublishLobby();
 	if (g_link.GetState() == net::State::Off) return;
 
 	const engine::Chapter mine = puppet::MyChapter();
@@ -279,6 +304,7 @@ void Init() {
 	auto script = safetyhook::MidHook::create(reinterpret_cast<void*>(engine::g_base + engine::kScriptInvokeRva), ScriptInvoke);
 	if (script) g_scriptHook = std::move(*script);
 	Log("script hook: %s", g_scriptHook ? "ok" : "FAILED");
+	menu::Install(ReadLobby, [] { g_menuToggle = true; });
 	InstallCrashLog();
 }
 
