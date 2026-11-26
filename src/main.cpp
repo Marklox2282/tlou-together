@@ -17,6 +17,7 @@
 
 #include <safetyhook.hpp>
 
+#include "net.hpp"
 #include "winmm-proxy.hpp"
 
 namespace {
@@ -225,14 +226,23 @@ uint64_t SpawnPuppet(const Locator& at) {
 	return npc;
 }
 
-// Локальная проверка без сети: марионетка идёт по следу игрока с задержкой ~1 с,
-// как будто это позиция друга, пришедшая по сети.
+// След, по которому идёт марионетка: позы друга из сети (задержка 120 мс на сглаживание
+// неровной доставки) или, для локальной проверки без сети, свои позы с задержкой 1 с.
 constexpr int kTrail = 256;
-constexpr ULONGLONG kTrailDelayMs = 1000;
+constexpr ULONGLONG kLocalDelayMs = 1000, kNetDelayMs = 120;
+std::atomic<ULONGLONG> g_trailDelay{ kLocalDelayMs };
 struct Sample { ULONGLONG t; Locator l; };
 Sample g_trail[kTrail];
 int g_trailHead = 0;
 SRWLOCK g_trailLock = SRWLOCK_INIT;
+
+void ClearTrail(ULONGLONG delay) {
+	AcquireSRWLockExclusive(&g_trailLock);
+	memset(g_trail, 0, sizeof(g_trail));
+	g_trailHead = 0;
+	g_trailDelay = delay;
+	ReleaseSRWLockExclusive(&g_trailLock);
+}
 
 void RecordTrail(ULONGLONG now, const Locator& l) {
 	AcquireSRWLockExclusive(&g_trailLock);
@@ -241,7 +251,8 @@ void RecordTrail(ULONGLONG now, const Locator& l) {
 	ReleaseSRWLockExclusive(&g_trailLock);
 }
 
-bool DelayedTarget(ULONGLONG now, Locator& out, ULONGLONG delay = kTrailDelayMs) {
+bool DelayedTarget(ULONGLONG now, Locator& out, ULONGLONG extra = 0) {
+	const ULONGLONG delay = g_trailDelay.load() + extra;
 	AcquireSRWLockShared(&g_trailLock);
 	bool found = false;
 	for (int i = 1; i <= kTrail; ++i) {
@@ -293,7 +304,7 @@ void PuppetUpdate() {
 	static int lastMode = -1;
 	if (!g_follow || now - lastCmdAt < 100) return;
 	Locator cur{}, before{};
-	if (!NpcLocator(g_puppet, cur) || !DelayedTarget(now, before, kTrailDelayMs + 250)) {
+	if (!NpcLocator(g_puppet, cur) || !DelayedTarget(now, before, 250)) {
 		static ULONGLONG lastWarn = 0;
 		if (now - lastWarn > 5000) Log("puppet: can't read its position");
 		lastWarn = now;
@@ -347,6 +358,78 @@ bool KeyPressed(int vk, bool& wasDown) {
 	return pressed;
 }
 
+// ---- сеть ----------------------------------------------------------------------------------
+// tlou1-coop.ini рядом с игрой; без peer_ip связь идёт через Steam.
+net::Config LoadConfig() {
+	net::Config cfg;
+	wchar_t path[MAX_PATH];
+	const DWORD n = GetModuleFileNameW(nullptr, path, MAX_PATH);
+	wchar_t* slash = n && n < MAX_PATH ? wcsrchr(path, L'\\') : nullptr;
+	if (!slash) return cfg;
+	slash[1] = 0;
+	if (wcscat_s(path, L"tlou1-coop.ini")) return cfg;
+	FILE* f = nullptr;
+	if (_wfopen_s(&f, path, L"r") || !f) {
+		if (!_wfopen_s(&f, path, L"w") && f) {
+			fputs("; TLOU Part I co-op. Lines starting with ; are comments.\n"
+				"; peer_ip   = empty: F8 connects to a Steam friend who is in this game and also pressed F8.\n"
+				";             An IP (LAN): connect directly over UDP instead of Steam.\n"
+				"; port      = your UDP port for peer_ip mode; peer_port = your friend's.\n"
+				"peer_ip=\nport=7777\npeer_port=7777\n", f);
+			fclose(f);
+		}
+		return cfg;
+	}
+	char line[256];
+	while (fgets(line, sizeof(line), f)) {
+		char* eq = strchr(line, '=');
+		if (line[0] == ';' || !eq) continue;
+		*eq = 0;
+		std::string key = line, value = eq + 1;
+		while (!value.empty() && strchr(" \t\r\n", value.back())) value.pop_back();
+		while (!value.empty() && strchr(" \t", value.front())) value.erase(0, 1);
+		while (!key.empty() && strchr(" \t", key.back())) key.pop_back();
+		if (key == "peer_ip") cfg.peerIp = value;
+		else if (key == "port") cfg.port = static_cast<uint16_t>(atoi(value.c_str()));
+		else if (key == "peer_port") cfg.peerPort = static_cast<uint16_t>(atoi(value.c_str()));
+	}
+	fclose(f);
+	return cfg;
+}
+
+net::Link g_link(Log);
+
+// Все сетевые вызовы - из игрового кадра (основной поток): Link не потокобезопасен.
+void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
+	static bool f8Down = false, f6Down = false, remote = false;
+	static ULONGLONG lastSend = 0;
+	if (KeyPressed(VK_F8, f8Down) && g_link.GetState() == net::State::Off) g_link.Start(LoadConfig(), now);
+	if (KeyPressed(VK_F6, f6Down) && g_link.GetState() != net::State::Off) {
+		g_link.Stop();
+		remote = false;
+		ClearTrail(kLocalDelayMs);
+	}
+	if (g_link.GetState() == net::State::Off) return;
+
+	net::Packet pose;
+	if (g_link.Tick(now, pose)) {
+		if (!remote) {  // первая поза друга: марионетка теперь его
+			remote = true;
+			ClearTrail(kNetDelayMs);
+			g_puppetWanted = g_follow = true;
+			Log("net: driving the puppet from %s", g_link.PeerName().c_str());
+		}
+		Locator l{};
+		memcpy(l.pos, pose.pos, sizeof(pose.pos));
+		memcpy(l.rot, pose.rot, sizeof(pose.rot));
+		RecordTrail(now, l);
+	}
+	if (havePlayer && now - lastSend >= 50) {  // 20 раз в секунду
+		lastSend = now;
+		g_link.SendPose(me.pos, me.rot);
+	}
+}
+
 void FrameTick(safetyhook::Context&) {
 	static ULONGLONG lastLog = 0;
 	static unsigned frames = 0;
@@ -355,7 +438,9 @@ void FrameTick(safetyhook::Context&) {
 	const ULONGLONG now = GetTickCount64();
 
 	Locator me{};
-	if (PlayerLocator(me)) RecordTrail(now, me);
+	const bool havePlayer = PlayerLocator(me);
+	NetTick(now, havePlayer, me);
+	if (havePlayer && g_trailDelay.load() == kLocalDelayMs) RecordTrail(now, me);  // локальная проверка
 	// F10: включить/выключить тестовую марионетку. Выключение пока только перестаёт её двигать.
 	if (KeyPressed(VK_F10, f10Down)) {
 		g_puppetWanted = !g_puppetWanted;
@@ -446,7 +531,7 @@ void Init() {
 	if (!slash || _wcsicmp(slash + 1, L"tlou-i.exe")) return;
 	OpenLog();
 	const uint32_t stamp = Nt()->FileHeader.TimeDateStamp;
-	Log("tlou1-coop v5.1, base=%p build=%08X", reinterpret_cast<void*>(g_base), stamp);
+	Log("tlou1-coop v6, base=%p build=%08X", reinterpret_cast<void*>(g_base), stamp);
 	if (stamp != kBuildTimestamp) {
 		Log("unsupported game build, mod is off");
 		return;
