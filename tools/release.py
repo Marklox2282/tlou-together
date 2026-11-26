@@ -36,7 +36,8 @@ def main():
         sys.exit("есть незакоммиченные изменения: сначала закоммить, чтобы релиз совпадал с кодом")
     env = tool_env()
     run("cmake", "--build", "build", cwd=ROOT, env=env)
-    run(str(ROOT / "build/netsim.exe"), stdout=subprocess.DEVNULL)
+    for test in ("netsim", "enginetest"):
+        run(str(ROOT / f"build/{test}.exe"), stdout=subprocess.DEVNULL)
     with tempfile.TemporaryDirectory() as tmp:
         tmp = pathlib.Path(tmp)
         dll = tmp / "winmm.dll"
