@@ -139,7 +139,6 @@ void PublishLobby(ULONGLONG now) {
 	s.code = net::Link::LobbyCode(g_link.Lobby());
 	s.codeError = g_codeError;
 	s.failure = g_link.LobbyFailure();
-	s.iAmHero = puppet::GetRole() == puppet::Role::Hero;
 	s.myCharacter = puppet::CharacterName(puppet::MyCharacter());
 	s.partnerCharacter = puppet::CharacterName(puppet::PartnerCharacter());
 	s.heroName = puppet::HeroCharacter();
@@ -354,17 +353,6 @@ void ScriptInvoke(safetyhook::Context&) {
 	menu::ScriptTick();
 }
 
-// Диагностика (временно): внутри npc-fire-weapon перед вызовом метода NPC [vtable+0x18F0] -
-// какая функция стреляет у NPC (для перехвата выстрелов врагов).
-safetyhook::MidHook g_fireDiag;
-void FireDiag(safetyhook::Context& c) {
-	static int n = 0;
-	if (n >= 3) return;
-	++n;
-	const uintptr_t vt = c.r10, fn = vt ? *reinterpret_cast<const uintptr_t*>(vt + 0x18F0) : 0;
-	Log("fire diag: npc=%llX vtable=tlou+%llX fire=tlou+%llX edx=%llX", c.rcx, vt - engine::g_base, fn - engine::g_base, c.rdx);
-}
-
 // ---- журнал падений ------------------------------------------------------------------------
 // Windows пишет дамп не на каждое падение, поэтому при ошибке доступа мод сам пишет в
 // tlou1-coop-crash.log адрес, регистры и адреса возврата со стека. Обработку ошибки не меняет.
@@ -462,7 +450,6 @@ void Init() {
 	auto script = safetyhook::MidHook::create(reinterpret_cast<void*>(engine::g_base + engine::kScriptInvokeRva), ScriptInvoke);
 	if (script) g_scriptHook = std::move(*script);
 	Log("script hook: %s", g_scriptHook ? "ok" : "FAILED");
-	if (auto h = safetyhook::MidHook::create(reinterpret_cast<void*>(engine::g_base + 0x152EF1F), FireDiag)) g_fireDiag = std::move(*h);
 	{
 		std::string name;
 		LoadConfig(name);  // персонаж и режим врагов - сразу, не только по F8

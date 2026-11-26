@@ -446,7 +446,6 @@ struct Text {
 Text<512> g_desc;
 // Текст лобби и название пункта: всегда один и тот же буфер (см. LobbyText).
 char g_bodyLive[2048], g_titleLive[256];
-std::atomic<const Lang*> g_lastLang{ nullptr };
 
 std::string Escaped(const std::string& name) {  // ник не должен стать разметкой
 	std::string out;
@@ -471,7 +470,6 @@ const char* TitleText(const Lang& l) {
 const char* LobbyTextInto(const Lang& l, char* buf, size_t n);
 
 const char* LobbyText(const Lang& l) {
-	g_lastLang = &l;
 	char next[sizeof(g_bodyLive)];
 	LobbyTextInto(l, next, sizeof(next));
 	memcpy(g_bodyLive, next, strlen(next) + 1);

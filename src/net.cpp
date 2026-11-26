@@ -401,10 +401,6 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 			Disconnected("left");
 			continue;
 		}
-		if (p.type == kSwap) {
-			swapRequested_ = true;
-			continue;
-		}
 		if (p.type == kEnemy || p.type == kEnemyPos) {
 			if (enemyEvents_.size() < 1024) enemyEvents_.push_back(p);
 			continue;
@@ -475,16 +471,6 @@ bool Link::Authority() const {
 	if (lobby_) return lobbyHost_;
 	if (steam_) return g_steam.ok && g_steam.GetSteamID(g_steam.user) > peerSteam_;
 	return port_ < ntohs(peerPort_);
-}
-
-void Link::SendSwap() {
-	if (state_ == State::Connected) Send(Make(kSwap), true);
-}
-
-bool Link::TakeSwapRequest() {
-	const bool r = swapRequested_;
-	swapRequested_ = false;
-	return r;
 }
 
 // ---- лобби ---------------------------------------------------------------------------------

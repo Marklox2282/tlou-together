@@ -133,10 +133,6 @@ int main() {
 
 		puts("== roles");
 		Check(a.Authority() != b.Authority(), "exactly one side decides roles");
-		b.SendSwap();
-		Sleep(10);
-		Run(a, b, 2);
-		Check(a.TakeSwapRequest() && !a.TakeSwapRequest() && !b.TakeSwapRequest(), "swap request arrives once");
 		a.SendPose(pose.pos, pose.rot, false);
 		Sleep(10);
 		net::Packet got;

@@ -11,7 +11,7 @@ namespace net {
 
 constexpr uint32_t kMagic = 0x4F433154;  // "T1CO"
 constexpr uint8_t kProtocol = 3;          // 1 = v7 (без рукопожатия), 2 = v8 (без врагов)
-enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kSwap = 5, kEnemyPos = 6 };
+enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kEnemyPos = 6 };  // 5 - бывший обмен ролями
 constexpr uint16_t kFlagDead = 1;  // kEnemy: враг убит
 constexpr uint16_t kFlagHero = 2;  // kPose: отправитель играет за героя главы
 constexpr uint16_t kFlagFiring = 4;  // kPose: отправитель стреляет
@@ -63,10 +63,8 @@ public:
 	// look: облик отправителя ("t1x-sarah-costume-01"), в поле name.
 	void SendPose(const float pos[3], const float rot[4], bool hero = true, bool firing = false, uint64_t character = 0,
 		const std::string& look = {});
-	// Роли решает одна сторона: хозяин лобби; без лобби - больший Steam ID (по UDP - меньший порт).
+	// Ведущая сторона (позиции врагов): хозяин лобби; без лобби - больший Steam ID (по UDP - меньший порт).
 	bool Authority() const;
-	void SendSwap();             // просьба поменяться ролями (от второй стороны)
-	bool TakeSwapRequest();      // пришла такая просьба
 	void SendEnemy(uint64_t npc, float health, bool dead);  // через Steam - с гарантией доставки
 	std::vector<Packet> TakeEnemyEvents();                  // полученные kEnemy и kEnemyPos с прошлого раза
 	void SendEnemyPos(uint64_t npc, const float pos[3], const float rot[4]);  // хозяин: где его враг
@@ -133,7 +131,6 @@ private:
 	bool lobbyHost_ = false;
 	int lobbyFailure_ = 0;
 	uint16_t port_ = 0;
-	bool swapRequested_ = false;
 	bool beep_ = true;
 };
 

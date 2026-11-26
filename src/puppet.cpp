@@ -409,7 +409,7 @@ void Update() {
 	} else {
 		standingSince = 0;
 	}
-	if (standingSince && now - standingSince >= 700 && err < 3.0f) {
+	if (UsingNetwork() && standingSince && now - standingSince >= 700 && err < 3.0f) {  // без сети партнёр - мы сами: встала бы в нас
 		const float yawOff = std::fabs(YawDiff(cur.rot, target.rot));
 		if ((err > 0.4f || yawOff > 0.45f) && now - lastSettle >= 1500) {
 			lastSettle = lastCmdAt = now;
