@@ -531,6 +531,7 @@ void Link::CreateLobby(uint64_t nowMs) {
 	if (!SteamInit(log_) || !g_steam.mm || lobby_ || lobbyCall_) return;
 	if (state_ == State::Off) Start(Config{}, nowMs);
 	lobbyCall_ = g_steam.CreateLobby(g_steam.mm, 2 /* публичное: войти по коду может и не друг */, 2);
+	lobbyFailure_ = 0;
 	lobbyCallKind_ = 1;
 	log_("net: creating a lobby");
 }
@@ -540,6 +541,7 @@ void Link::JoinLobby(uint64_t lobby, uint64_t nowMs) {
 	LeaveLobby();
 	Start(Config{}, nowMs);
 	lobbyCall_ = g_steam.JoinLobby(g_steam.mm, lobby);
+	lobbyFailure_ = 0;
 	lobbyCallKind_ = 2;
 	log_("net: joining lobby %llu", static_cast<unsigned long long>(lobby));
 }
@@ -572,6 +574,7 @@ void Link::PollLobby(uint64_t nowMs) {
 		struct { int32_t result; uint64_t lobby; } r{};  // LobbyCreated_t
 		if (!g_steam.CallResult(g_steam.utils, call, &r, sizeof(r), kLobbyCreated, &failed) || failed || r.result != 1 || !r.lobby) {
 			log_("net: could not create a lobby (result %d)", r.result);
+			lobbyFailure_ = 1;
 			Stop();
 			return;
 		}
@@ -584,6 +587,7 @@ void Link::PollLobby(uint64_t nowMs) {
 		struct { uint64_t lobby; uint32_t permissions; bool locked; uint32_t response; } r{};  // LobbyEnter_t
 		if (!g_steam.CallResult(g_steam.utils, call, &r, sizeof(r), kLobbyEnter, &failed) || failed || r.response != 1) {
 			log_("net: could not join the lobby (response %u)", r.response);
+			lobbyFailure_ = 2;
 			Stop();
 			return;
 		}

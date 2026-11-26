@@ -138,6 +138,7 @@ void PublishLobby(ULONGLONG now) {
 	if (s.lobby && !s.host) s.owner = g_link.LobbyOwnerName();
 	s.code = net::Link::LobbyCode(g_link.Lobby());
 	s.codeError = g_codeError;
+	s.failure = g_link.LobbyFailure();
 	s.iAmHero = puppet::GetRole() == puppet::Role::Hero;
 	s.myCharacter = puppet::CharacterName(puppet::MyCharacter());
 	s.partnerCharacter = puppet::CharacterName(puppet::PartnerCharacter());
@@ -183,7 +184,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		const std::string text = ClipboardText();
 		const uint64_t lobby = net::Link::LobbyFromCode(text);
 		g_codeError = !lobby;
-		Log("net: join by code \"%s\" -> %s", text.c_str(), lobby ? "lobby found" : "not a lobby code");
+		Log("net: join by code -> %s", lobby ? "lobby found" : "the clipboard holds no lobby code");  // сам буфер не пишем
 		if (lobby) {
 			LoadConfig(name);
 			g_link.SetName(name);

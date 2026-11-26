@@ -83,6 +83,8 @@ public:
 	uint64_t Lobby() const { return lobby_; }
 	bool LobbyBusy() const { return lobbyCall_ != 0; }  // создаём или входим
 	bool LobbyHost() const { return lobbyHost_; }
+	// Последняя неудача с лобби: 0 нет, 1 не создалось, 2 не вошли; сбрасывается новой попыткой.
+	int LobbyFailure() const { return lobbyFailure_; }
 	std::string LobbyOwnerName() const;
 	// Приглашение, принятое в Steam (событие Steam или "+connect_lobby" в командной строке).
 	static uint64_t TakeInvite();
@@ -129,6 +131,7 @@ private:
 	uint64_t lobby_ = 0, lobbyCall_ = 0, target_ = 0;  // target_: хозяин лобби (гость шлёт только ему)
 	int lobbyCallKind_ = 0;                              // 1 создание, 2 вход
 	bool lobbyHost_ = false;
+	int lobbyFailure_ = 0;
 	uint16_t port_ = 0;
 	bool swapRequested_ = false;
 	bool beep_ = true;

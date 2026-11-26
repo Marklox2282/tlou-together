@@ -20,6 +20,7 @@ struct Lobby {
 	std::string owner;        // хозяин чужого лобби
 	std::string code;         // код своего лобби ("K7QX-92F")
 	bool codeError = false;   // пробовали войти по коду, а в буфере обмена не код
+	int failure = 0;          // лобби не создалось (1) / не вошли (2) - net::Link::LobbyFailure
 	bool iAmHero = true;      // роли: я герой главы или его спутник
 	std::string myCharacter, partnerCharacter;  // "auto", "companion", "joel"...
 	std::string heroName, companionName;  // "joel", "tess"; пусто - неизвестно
