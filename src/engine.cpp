@@ -201,16 +201,16 @@ bool InitNatives() {
 		FindNative("npc-set-script-mode"), FindNative("npc-set-ignore"), FindNative("npc-set-blind"),
 		FindNative("npc-set-deaf"), FindNative("npc-enable-hit-reactions"), FindNative("npc-enable-stun"),
 		FindNative("npc-enable-dodges"), FindNative("get-object-locator"), FindNative("npc-move-to"),
-		FindNative("new-boxed-value"), FindNative("send-event"), FindNative("task-get-current") };
+		FindNative("new-boxed-value"), FindNative("send-event"), FindNative("task-get-current"), FindNative("kill-entity-and-bound-entities") };
 	const std::pair<NativeFn, const char*> names[] = { { g_dc.allocVector, "alloc-vector" }, { g_dc.allocQuat, "alloc-quat" },
 		{ g_dc.allocBoundFrame, "alloc-bound-frame" }, { g_dc.spawnWithLook, "spawn" }, { g_dc.entityExists, "entity-exists?" },
 		{ g_dc.teleport, "npc-teleport-to" }, { g_dc.scriptMode, "script-mode" }, { g_dc.objectLocator, "get-object-locator" },
 		{ g_dc.moveTo, "npc-move-to" }, { g_dc.newBoxedValue, "new-boxed-value" }, { g_dc.sendEvent, "send-event" },
-		{ g_dc.taskGetCurrent, "task-get-current" } };
+		{ g_dc.taskGetCurrent, "task-get-current" }, { g_dc.killEntity, "kill-entity" } };
 	for (const auto& [fn, name] : names) NameNative(fn, name);
 	for (NativeFn f : { g_dc.allocVector, g_dc.allocQuat, g_dc.allocBoundFrame, g_dc.spawnWithLook, g_dc.entityExists,
 			g_dc.teleport, g_dc.scriptMode, g_dc.setIgnore, g_dc.setBlind, g_dc.setDeaf, g_dc.hitReactions, g_dc.stun,
-			g_dc.dodges, g_dc.objectLocator, g_dc.moveTo, g_dc.newBoxedValue, g_dc.sendEvent, g_dc.taskGetCurrent })
+			g_dc.dodges, g_dc.objectLocator, g_dc.moveTo, g_dc.newBoxedValue, g_dc.sendEvent, g_dc.taskGetCurrent, g_dc.killEntity })
 		if (!f) return false;
 	return true;
 }
@@ -308,9 +308,13 @@ bool PlayerLocator(Locator& l) {
 
 // get-object-locator отдаёт копию bound-frame объекта (объект+0x180, 0x50 байт) во временной
 // памяти кадра; сам локатор {pos, quat} в ней на +0x30 (у объекта это +0x1B0).
+// Указатель вернула сама игра и он живёт до конца кадра: читаем без VirtualQuery (проверка
+// адреса здесь только тратила время скриптового потока).
 bool NpcLocator(uint64_t npc, Locator& out) {
 	const uint64_t p = Call(g_dc.objectLocator, { npc });
-	return p && Read(p + 0x30, out) && std::isfinite(out.pos[0]) && std::isfinite(out.pos[2]);
+	if (p < 0x10000) return false;
+	memcpy(&out, reinterpret_cast<const void*>(p + 0x30), sizeof(out));
+	return std::isfinite(out.pos[0]) && std::isfinite(out.pos[2]);
 }
 
 uint64_t BoundFrame(const float pos[3], const float rot[4]) {

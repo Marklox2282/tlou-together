@@ -76,7 +76,17 @@ uint64_t Spawn(const Locator& at) {
 		g_badSpawners.clear();
 		g_badForChapter = g_myChapter;
 	}
-	const uintptr_t sp = FindBuddySpawner(HeroName(look), g_badSpawners, name);
+	// Персонаж, который сейчас сам есть на уровне по сюжету (Роберт в его миссии), не копируем:
+	// игрок видел "лишнего" Роберта. Имя (sid) NPC спавнера совпадает с sid самого спавнера.
+	uintptr_t sp = 0;
+	for (int tries = 0; tries < 8; ++tries) {
+		sp = FindBuddySpawner(HeroName(look), g_badSpawners, name);
+		uint64_t spSid = 0;
+		if (!sp || !Read(sp + kSpSid, spSid) || !Call(g_dc.entityExists, { spSid })) break;
+		Log("puppet: %s is in the scene already, skipping", name.c_str());
+		g_badSpawners.push_back(sp);
+		sp = 0;
+	}
 	g_lastSpawner = sp;
 	// Образ героя - только на скелет того же пола; иначе у NPC остаётся его собственный образ.
 	if (!SameSex(ReadName(ReadPtr(sp + kSpArt)), HeroName(look))) look.clear();
@@ -173,7 +183,11 @@ void Update() {
 		return;
 	}
 	wasFollowing = true;
-	if (now - lastCmdAt < 100) return;
+	// Не чаще 10 раз в секунду, даже если команда не понадобилась (раньше пауза отсчитывалась
+	// только от команды, и пока марионетка стояла рядом, позиция читалась каждый кадр).
+	static ULONGLONG lastCheckAt = 0;
+	if (now - lastCmdAt < 100 || now - lastCheckAt < 100) return;
+	lastCheckAt = now;
 	Locator cur{}, before{};
 	if (!NpcLocator(puppet, cur) || !DelayedTarget(now, before, 250)) {
 		static ULONGLONG lastWarn = 0;
@@ -234,6 +248,13 @@ void TeleportToPartner() {
 	Log("F7: teleport to partner at (%.1f %.1f %.1f) %s", partner.pos[0], partner.pos[1], partner.pos[2], boxed ? "sent" : "FAILED");
 }
 
+// F10 выкл: убрать марионетку (как в TLOU2-Coop - удаление процесса, а не смерть).
+void Remove() {
+	const uint64_t puppet = g_puppet.exchange(0);
+	if (puppet && Call(g_dc.entityExists, { puppet })) Call(g_dc.killEntity, { puppet });
+	Log("puppet %016llX removed", static_cast<unsigned long long>(puppet));
+}
+
 void ReadChapter() {
 	static ULONGLONG last = 0;
 	const ULONGLONG now = GetTickCount64();
@@ -277,7 +298,7 @@ uint64_t TakeWorkMicroseconds() { return g_workUs.exchange(0); }
 // Скрипты выполняются на нескольких потоках; работа - один раз за кадр, первым пришедшим.
 void ScriptTick() {
 	if (!g_wanted.load(std::memory_order_relaxed) && !g_teleport.load(std::memory_order_relaxed) &&
-		!g_netActive.load(std::memory_order_relaxed))
+		!g_netActive.load(std::memory_order_relaxed) && !g_puppet.load(std::memory_order_relaxed))
 		return;
 	const uint64_t frame = g_frame.load(std::memory_order_relaxed);
 	uint64_t done = g_doneFrame.load(std::memory_order_relaxed);
@@ -292,6 +313,7 @@ void ScriptTick() {
 	ReadChapter();
 	ProfileAdd("[chapter]", MicrosecondsSince(s));
 	if (g_teleport.exchange(false)) TeleportToPartner();
+	if (!g_wanted && g_puppet) Remove();
 	s = QpcNow();
 	if (g_wanted) Update();
 	ProfileAdd("[update]", MicrosecondsSince(s));

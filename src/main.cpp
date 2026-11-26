@@ -133,7 +133,7 @@ void FrameTick(safetyhook::Context&) {
 	const bool havePlayer = engine::PlayerLocator(me);
 	NetTick(now, havePlayer, me);
 	if (havePlayer && !puppet::UsingNetwork()) puppet::Record(now, me);  // локальная проверка
-	// F10: включить/выключить тестовую марионетку. Выключение пока только перестаёт её двигать.
+	// F10: включить/выключить тестовую марионетку (выключение её убирает).
 	if (KeyPressed(VK_F10, f10Down)) {
 		puppet::SetWanted(!puppet::Wanted());
 		Log("F10: puppet %s", puppet::Wanted() ? "on" : "off");
