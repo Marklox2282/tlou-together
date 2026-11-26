@@ -117,7 +117,7 @@ void PublishLobby(ULONGLONG now) {
 	s.host = g_link.LobbyHost();
 	s.busy = g_link.LobbyBusy();
 	if (s.lobby && !s.host) s.owner = g_link.LobbyOwnerName();
-	s.code = net::Link::LobbyCode(g_link.Lobby());
+	s.code = g_link.Code();
 	s.codeError = g_codeError;
 	s.failure = g_link.LobbyFailure();
 	s.version = kModVersion;
@@ -163,13 +163,14 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	if (action == menu::Invite) g_link.InviteToLobby();
 	if (action == menu::JoinByCode) {
 		const std::string text = clipboard::Text();
-		const uint64_t lobby = net::Link::LobbyFromCode(text);
+		const net::Link::LobbyKey key = net::Link::LobbyFromCode(text);
+		const uint64_t lobby = key.lobby;
 		g_codeError = !lobby;
 		Log("net: join by code -> %s", lobby ? "lobby found" : "the clipboard holds no lobby code");  // сам буфер не пишем
 		if (lobby) {
 			LoadConfig(name);
 			g_link.SetName(name);
-			g_link.JoinLobby(lobby, now);
+			g_link.JoinLobby(key, now);
 		}
 	}
 	if (action == menu::CreateLobby) g_codeError = false;
@@ -177,15 +178,15 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	static uint64_t copiedLobby = 0;
 	if (g_link.Lobby() && g_link.LobbyHost() && g_link.Lobby() != copiedLobby) {
 		copiedLobby = g_link.Lobby();
-		clipboard::Set(net::Link::LobbyCode(copiedLobby));
-		Log("net: lobby code %s copied to the clipboard", net::Link::LobbyCode(copiedLobby).c_str());
+		clipboard::Set(g_link.Code());
+		Log("net: lobby code copied to the clipboard");  // сам код в журнал не пишем: в нём секрет
 	}
 	// Персонаж: кнопка в лобби перебирает варианты (auto, спутник, joel, ellie...).
 	if (action == menu::SwapRoles) puppet::SetMyCharacter((puppet::MyCharacter() + 1) % puppet::kCharacterCount);
 	if (const uint64_t invite = net::Link::TakeInvite()) {  // приняли приглашение в Steam
 		LoadConfig(name);
 		g_link.SetName(name);
-		g_link.JoinLobby(invite, now);
+		g_link.JoinLobby({ invite, 0 }, now);  // приглашение Steam - от друга, секрет не нужен
 	}
 
 	net::Packet pose;
@@ -438,7 +439,7 @@ void Init() {
 	}
 	// Код лобби в буфере обмена (для окна "войти по коду"): "0D7C-RFW" или пусто.
 	menu::Install(ReadLobby, [](menu::Action a) { g_menuAction = a; },
-		[] { return net::Link::LobbyCode(net::Link::LobbyFromCode(clipboard::Text())); });
+		[] { return net::Link::LobbyCode(net::Link::LobbyFromCode(clipboard::Text())); });  // проверенный код, не сам буфер
 	InstallCrashLog();
 }
 

@@ -34,7 +34,7 @@ Uninstall: delete `winmm.dll` (and `tlou-together.*` files; older versions used 
 Main menu > **MULTIPLAYER** > **Create lobby**: the Steam invite window opens; pick your friend.
 Your friend accepts the invite in Steam (the game starts if it was closed) and joins your lobby;
 a beep means connected. Then both load the same chapter, or one of you presses **F5**.
-No Steam friendship needed: the lobby code (e.g. `K7QX-92F`) is shown in the lobby and copied to
+No Steam friendship needed: the lobby code (e.g. `0D7C-RFW-K3P9`, the last part is a secret: only people with the whole code or your Steam friends can connect) is shown in the lobby and copied to
 your clipboard; your partner copies it and picks **Join by code**.
 Without the menu: both press **F8** to connect to any friend who also pressed it. **F6** disconnects, **F7** teleports you to your partner,
 **F5** loads your partner's chapter and checkpoint and puts you next to them (Shift+F5 reloads your own, to test it).

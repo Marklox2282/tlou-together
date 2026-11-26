@@ -153,15 +153,19 @@ int main() {
 
 	puts("== lobby codes");
 	{
-		const uint64_t lobby = 109775241354494813ull;  // настоящий id лобби из игры
-		const std::string code = net::Link::LobbyCode(lobby);
-		Check(code.size() == 8 && code[4] == '-', "code looks like XXXX-XXX");
-		Check(net::Link::LobbyFromCode(code) == lobby, "code -> lobby id");
+		const net::Link::LobbyKey key{ 109775241354494813ull, 0xABCDE };  // настоящий id лобби из игры
+		const std::string code = net::Link::LobbyCode(key);
+		Check(code.size() == 13 && code[4] == '-' && code[8] == '-', "code looks like XXXX-XXX-XXXX");
+		const net::Link::LobbyKey back = net::Link::LobbyFromCode(code);
+		Check(back.lobby == key.lobby && back.secret == key.secret, "code -> lobby id and secret");
 		std::string messy = " " + code + "\r\n";
 		for (char& c : messy) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
-		Check(net::Link::LobbyFromCode(messy) == lobby, "lower case and spaces are fine");
-		Check(!net::Link::LobbyFromCode("hello world") && !net::Link::LobbyFromCode("") &&
-			!net::Link::LobbyFromCode("ABCD-EFGH"), "other text is not a code");
+		Check(net::Link::LobbyFromCode(messy).secret == key.secret, "lower case and spaces are fine");
+		Check(!net::Link::LobbyFromCode("hello world").lobby && !net::Link::LobbyFromCode("").lobby &&
+			!net::Link::LobbyFromCode("0D7C-RFW").lobby, "other text and old 7-character codes are not a code");
+		Check(net::Link::Admit(0xABCDE, 0xABCDE, false) && !net::Link::Admit(0xABCDE, 0, false) &&
+			!net::Link::Admit(0xABCDE, 0x12345, false) && net::Link::Admit(0xABCDE, 0, true),
+			"only the code's secret or a Steam friend gets in");
 	}
 
 	puts("== different mod versions do not connect");

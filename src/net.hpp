@@ -76,7 +76,11 @@ public:
 	// Участники лобби соединяются между собой обычным образом; гость шлёт приветствия хозяину.
 	void CreateLobby(uint64_t nowMs);
 	void InviteToLobby();        // окно приглашения Steam (как Shift+Tab)
-	void JoinLobby(uint64_t lobby, uint64_t nowMs);
+	// Код лобби: номер лобби Steam + секрет хозяина ("0D7C-RFW-K3P9"). Лобби публичное (иначе по коду
+	// не войти) и находится поиском, поэтому хозяин подключает только знающих секрет - или своих
+	// друзей в Steam (приглашение через Steam приходит без кода).
+	struct LobbyKey { uint64_t lobby = 0; uint32_t secret = 0; };
+	void JoinLobby(LobbyKey key, uint64_t nowMs);
 	void LeaveLobby();
 	uint64_t Lobby() const { return lobby_; }
 	bool LobbyBusy() const { return lobbyCall_ != 0; }  // создаём или входим
@@ -87,8 +91,11 @@ public:
 	// Приглашение, принятое в Steam (событие Steam или "+connect_lobby" в командной строке).
 	static uint64_t TakeInvite();
 	// Код лобби для входа без списка друзей: "K7QX-92F" (32-битный номер лобби в base32 Крокфорда).
-	static std::string LobbyCode(uint64_t lobby);
-	static uint64_t LobbyFromCode(const std::string& code);  // 0 - не код
+	static std::string LobbyCode(const LobbyKey& key);
+	static LobbyKey LobbyFromCode(const std::string& code);  // lobby 0 - не код
+	std::string Code() const { return lobbyHost_ && lobby_ ? LobbyCode({ lobby_, secret_ }) : std::string(); }
+	// Пускать ли в своё лобби: секрет из приветствия совпал или это друг в Steam.
+	static bool Admit(uint32_t mySecret, uint64_t helloSecret, bool isFriend) { return isFriend || helloSecret == mySecret; }
 	using Chapter = std::pair<uint64_t, uint64_t>;  // узел и задание (engine::Chapter)
 	void SetChapter(Chapter c) { chapter_ = c; }
 	void SetName(const std::string& name) { name_ = name; }
@@ -130,6 +137,8 @@ private:
 	int lobbyCallKind_ = 0;                              // 1 создание, 2 вход
 	bool lobbyHost_ = false;
 	int lobbyFailure_ = 0;
+	uint32_t secret_ = 0, joinSecret_ = 0;  // свой секрет (хозяин) и из кода (гость)
+	uint64_t lastRejectLog_ = 0;
 	uint16_t port_ = 0;
 	bool beep_ = true;
 };

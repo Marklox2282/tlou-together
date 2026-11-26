@@ -3,6 +3,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <bcrypt.h>
 
 #include <atomic>
 #include <cctype>
@@ -25,6 +26,7 @@ struct Steam {
 	int (*GetFriendCount)(void*, int) = nullptr;
 	uint64_t (*GetFriendByIndex)(void*, int, int) = nullptr;
 	bool (*GetFriendGamePlayed)(void*, uint64_t, void*) = nullptr;
+	int (*GetFriendRelationship)(void*, uint64_t) = nullptr;
 	const char* (*GetFriendPersonaName)(void*, uint64_t) = nullptr;
 	uint32_t (*GetAppID)(void*) = nullptr;
 	void (*IdentSet)(void*, uint64_t) = nullptr;
@@ -116,6 +118,7 @@ bool SteamInit(Link::LogFn log) {
 	Sym(m, "SteamAPI_ISteamFriends_GetFriendCount", s.GetFriendCount);
 	Sym(m, "SteamAPI_ISteamFriends_GetFriendByIndex", s.GetFriendByIndex);
 	Sym(m, "SteamAPI_ISteamFriends_GetFriendGamePlayed", s.GetFriendGamePlayed);
+	Sym(m, "SteamAPI_ISteamFriends_GetFriendRelationship", s.GetFriendRelationship);
 	Sym(m, "SteamAPI_ISteamFriends_GetFriendPersonaName", s.GetFriendPersonaName);
 	Sym(m, "SteamAPI_ISteamUtils_GetAppID", s.GetAppID);
 	Sym(m, "SteamAPI_SteamNetworkingIdentity_SetSteamID64", s.IdentSet);
@@ -268,7 +271,10 @@ Packet Link::Make(uint8_t type) const {
 	p.modVersion = modVersion_;
 	p.chapterNode = chapter_.first;
 	p.chapterTask = chapter_.second;
-	if (type == kHello) strncpy_s(p.name, name_.c_str(), _TRUNCATE);
+	if (type == kHello) {
+		strncpy_s(p.name, name_.c_str(), _TRUNCATE);
+		p.target = joinSecret_;  // гость лобби: секрет из кода
+	}
 	return p;
 }
 
@@ -330,6 +336,17 @@ void Link::OnHello(const Packet& p, uint64_t from, uint64_t nowMs) {
 		for (Heard& h : heard_)
 			if (h.steamId == from) h = { from, p.modVersion, nowMs }, known = true;
 		if (!known && heard_.size() < 64) heard_.push_back({ from, p.modVersion, nowMs });
+	}
+	// Своё лобби: незнакомцев, нашедших его поиском, не подключаем.
+	if (steam_ && lobby_ && lobbyHost_ && state_ != State::Connected) {
+		const bool isFriend = g_steam.GetFriendRelationship && g_steam.GetFriendRelationship(g_steam.friends, from) == 3;
+		if (!Admit(secret_, p.target, isFriend)) {
+			if (!lastRejectLog_ || nowMs - lastRejectLog_ >= 10000) {
+				lastRejectLog_ = nowMs;
+				log_("net: %s is in the lobby without the code's secret and is not a Steam friend - not connecting", name);
+			}
+			return;
+		}
 	}
 	if (p.modVersion != modVersion_) {
 		// Разные версии мода не соединяем: структуры и смещения могут отличаться.
@@ -478,15 +495,16 @@ bool Link::Authority() const {
 constexpr uint64_t kLobbyHigh = 0x0186000000000000ull;
 constexpr char kCodeAlphabet[] = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";  // base32 Крокфорда
 
-std::string Link::LobbyCode(uint64_t lobby) {
-	if ((lobby & 0xFFFFFFFF00000000ull) != kLobbyHigh) return {};
-	uint64_t v = lobby & 0xFFFFFFFFull;
-	char c[7];
-	for (int i = 6; i >= 0; --i, v >>= 5) c[i] = kCodeAlphabet[v & 31];
-	return std::string(c, 4) + "-" + std::string(c + 4, 3);
+// 7 символов номера + 4 символа секрета (20 бит): "0D7C-RFW-K3P9".
+std::string Link::LobbyCode(const LobbyKey& key) {
+	if ((key.lobby & 0xFFFFFFFF00000000ull) != kLobbyHigh) return {};
+	uint64_t v = ((key.lobby & 0xFFFFFFFFull) << 20) | (key.secret & 0xFFFFF);
+	char c[11];
+	for (int i = 10; i >= 0; --i, v >>= 5) c[i] = kCodeAlphabet[v & 31];
+	return std::string(c, 4) + "-" + std::string(c + 4, 3) + "-" + std::string(c + 7, 4);
 }
 
-uint64_t Link::LobbyFromCode(const std::string& code) {
+Link::LobbyKey Link::LobbyFromCode(const std::string& code) {
 	uint64_t v = 0;
 	int n = 0;
 	for (char ch : code) {
@@ -496,12 +514,15 @@ uint64_t Link::LobbyFromCode(const std::string& code) {
 		const char* p = ch ? strchr(kCodeAlphabet, ch) : nullptr;
 		if (!p) {
 			if (ch == '-' || ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') continue;
-			return 0;  // чужой текст в буфере обмена
+			return {};  // чужой текст в буфере обмена
 		}
 		v = (v << 5) | static_cast<uint64_t>(p - kCodeAlphabet);
-		if (++n > 7) return 0;
+		if (++n > 11) return {};
 	}
-	return n == 7 && v <= 0xFFFFFFFFull && v ? kLobbyHigh | v : 0;
+	if (n != 11) return {};  // и старые коды без секрета (7 символов) - не подходят
+	const uint64_t lobby = v >> 20;
+	if (!lobby || lobby > 0xFFFFFFFFull) return {};
+	return { kLobbyHigh | lobby, static_cast<uint32_t>(v & 0xFFFFF) };
 }
 
 uint64_t Link::TakeInvite() {
@@ -517,15 +538,21 @@ void Link::CreateLobby(uint64_t nowMs) {
 	if (!SteamInit(log_) || !g_steam.mm || lobby_ || lobbyCall_) return;
 	if (state_ == State::Off) Start(Config{}, nowMs);
 	lobbyCall_ = g_steam.CreateLobby(g_steam.mm, 2 /* публичное: войти по коду может и не друг */, 2);
+	// Секрет кода - из системного генератора случайных чисел.
+	if (BCryptGenRandom(nullptr, reinterpret_cast<PUCHAR>(&secret_), sizeof(secret_), BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0)
+		secret_ = static_cast<uint32_t>(GetTickCount64() * 2654435761u);
+	secret_ = (secret_ & 0xFFFFF) | 1;  // 20 бит, не 0 (0 - "секрета нет")
 	lobbyFailure_ = 0;
 	lobbyCallKind_ = 1;
 	log_("net: creating a lobby");
 }
 
-void Link::JoinLobby(uint64_t lobby, uint64_t nowMs) {
+void Link::JoinLobby(LobbyKey key, uint64_t nowMs) {
+	const uint64_t lobby = key.lobby;
 	if (!lobby || !SteamInit(log_) || !g_steam.mm || lobby == lobby_) return;
 	LeaveLobby();
 	Start(Config{}, nowMs);
+	joinSecret_ = key.secret;
 	lobbyCall_ = g_steam.JoinLobby(g_steam.mm, lobby);
 	lobbyFailure_ = 0;
 	lobbyCallKind_ = 2;
