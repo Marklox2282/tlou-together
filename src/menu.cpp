@@ -426,7 +426,6 @@ bool OpenLobby(bool mainMenu) {
 }
 
 std::atomic<bool> g_mainMenu{ true };
-std::atomic<ULONGLONG> g_reopenAt{ 0 };  // показать лобби снова, когда оно создастся
 
 void OnPress(safetyhook::Context& ctx) {
 	const uintptr_t menu = ctx.r15;
@@ -448,9 +447,6 @@ void OnAnswer(safetyhook::Context& ctx) {
 	if (a != None) {
 		Log("menu: lobby button %s", a == CreateLobby ? "create" : a == Invite ? "invite" : a == SwapRoles ? "change character" : a == JoinByCode ? "join by code" : "leave");
 		if (g_action) g_action(a);
-		if (a == CreateLobby) g_reopenAt = GetTickCount64() + 2500;  // уже с лобби, под окном приглашения Steam
-		if (a == SwapRoles) g_reopenAt = GetTickCount64() + 1500;    // показать новые роли
-		if (a == JoinByCode) g_reopenAt = GetTickCount64() + 2000;   // показать: входим или "нет кода"
 	}
 	ctx.rdi = 1;
 }
@@ -468,10 +464,6 @@ bool g_installed = false;
 }  // namespace
 
 void OnFrame() {
-	if (const ULONGLONG at = g_reopenAt; at && GetTickCount64() >= at) {
-		g_reopenAt = 0;
-		Log("menu: lobby reopened %s", OpenLobby(g_mainMenu) ? "ok" : "FAILED");
-	}
 	static bool registered = false;
 	if (registered || !g_installed) return;
 	registered = true;

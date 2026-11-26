@@ -27,7 +27,7 @@ namespace {
 
 // Номер версии мода: увеличивать при каждом выпуске (tools/release.py берёт его отсюда).
 // Игроки с разными версиями не соединяются.
-constexpr uint32_t kModVersion = 13;
+constexpr uint32_t kModVersion = 14;
 
 using engine::Locator;
 
@@ -125,7 +125,7 @@ menu::Lobby g_lobbyState;
 void PublishLobby(ULONGLONG now) {
 	static ULONGLONG lastFriends = 0;
 	static std::vector<menu::Lobby::Friend> friends;
-	if (!lastFriends || now - lastFriends >= 2000) {  // список друзей Steam - раз в 2 с
+	if (!lastFriends || now - lastFriends >= 10000) {  // список друзей Steam - раз в 10 с (перебор всех друзей)
 		lastFriends = now;
 		friends.clear();
 		for (const net::Friend& f : g_link.Friends(now)) friends.push_back({ f.name, static_cast<int>(f.status) });
