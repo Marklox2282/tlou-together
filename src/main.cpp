@@ -94,12 +94,13 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	if (KeyPressed(VK_F6, f6Down) && g_link.GetState() != net::State::Off) {
 		g_link.Stop();
 		puppet::SetNetActive(false);
-		puppet::SetPartnerChapter(0);
+		puppet::SetPartnerChapter({});
 		puppet::UseNetwork(false);
 	}
 	if (g_link.GetState() == net::State::Off) return;
 
-	g_link.SetChapter(puppet::MyChapter());
+	const engine::Chapter mine = puppet::MyChapter();
+	g_link.SetChapter({ mine.node, mine.task });
 	net::Packet pose;
 	if (g_link.Tick(now, pose)) {
 		if (!puppet::UsingNetwork()) {  // первая поза друга: марионетка теперь его
@@ -113,7 +114,15 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		memcpy(l.rot, pose.rot, sizeof(pose.rot));
 		puppet::Record(now, l);
 	}
-	puppet::SetPartnerChapter(g_link.GetState() == net::State::Connected ? g_link.PeerChapter() : 0);
+	const bool connected = g_link.GetState() == net::State::Connected;
+	const engine::Chapter theirs = connected ? engine::Chapter{ g_link.PeerChapter().first, g_link.PeerChapter().second } : engine::Chapter{};
+	puppet::SetPartnerChapter(theirs);
+	// Друг в другой главе - подсказка в журнал при каждой смене.
+	static engine::Chapter lastHint;
+	if (theirs && mine && !(theirs == mine) && !(theirs == lastHint)) {
+		lastHint = theirs;
+		Log("net: %s is in another chapter or checkpoint; F5 loads it", g_link.PeerName().c_str());
+	}
 	// Общие враги: свои удары - партнёру (без подключения просто в журнал), его - в игру.
 	for (const enemies::Change& c : enemies::TakeOutgoing()) g_link.SendEnemy(c.npc, c.health, c.dead);
 	for (const net::Packet& p : g_link.TakeEnemyEvents())
@@ -127,7 +136,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 void FrameTick(safetyhook::Context&) {
 	static ULONGLONG lastLog = 0;
 	static unsigned frames = 0;
-	static bool f10Down = false, f9Down = false, f7Down = false;
+	static bool f10Down = false, f9Down = false, f7Down = false, f5Down = false;
 	static uint64_t frameUs = 0;
 	LARGE_INTEGER start;
 	QueryPerformanceCounter(&start);
@@ -150,6 +159,8 @@ void FrameTick(safetyhook::Context&) {
 		Log("F9: follow %s", puppet::Follow() ? "on" : "off");
 	}
 	if (KeyPressed(VK_F7, f7Down)) puppet::RequestTeleport();
+	// F5: загрузить главу партнёра и встать рядом; Shift+F5 - перезагрузить свою (проверка).
+	if (KeyPressed(VK_F5, f5Down)) puppet::RequestJoin((GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0);
 
 	if (now - lastLog >= 2000) {
 		// Сколько мод тратит на кадр: в основном потоке и в скриптовом (среднее за 2 с).

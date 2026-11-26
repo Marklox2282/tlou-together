@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace net {
@@ -21,7 +22,7 @@ struct Packet {
 	uint16_t flags = 0;
 	uint32_t seq = 0;
 	uint32_t modVersion = 0;  // приветствие: версия мода отправителя
-	uint64_t chapter = 0;     // текущее сюжетное задание отправителя (0 = неизвестно)
+	uint64_t chapterNode = 0, chapterTask = 0;  // место отправителя в сюжете (0 = неизвестно)
 	float pos[3]{};
 	float rot[4]{};
 	char name[24]{};          // приветствие: ник отправителя
@@ -29,7 +30,7 @@ struct Packet {
 	float health = 0;         // kEnemy: его здоровье после удара
 };
 #pragma pack(pop)
-static_assert(sizeof(Packet) == 88);
+static_assert(sizeof(Packet) == 96);
 
 struct Config {
 	std::string peerIp;           // пусто = Steam; иначе UDP напрямую
@@ -53,13 +54,14 @@ public:
 	void SendPose(const float pos[3], const float rot[4]);
 	void SendEnemy(uint64_t npc, float health, bool dead);  // через Steam - с гарантией доставки
 	std::vector<Packet> TakeEnemyEvents();                  // полученные kEnemy с прошлого раза
-	void SetChapter(uint64_t chapter) { chapter_ = chapter; }
+	using Chapter = std::pair<uint64_t, uint64_t>;  // узел и задание (engine::Chapter)
+	void SetChapter(Chapter c) { chapter_ = c; }
 	void SetName(const std::string& name) { name_ = name; }
 	void SetBeep(bool on) { beep_ = on; }  // звук Windows при соединении (в игре - да, в тестах - нет)
 
 	State GetState() const { return state_; }
 	const std::string& PeerName() const { return peerName_; }
-	uint64_t PeerChapter() const { return peerChapter_; }
+	Chapter PeerChapter() const { return peerChapter_; }
 	uint64_t LastHeardMs() const { return lastHeard_; }
 
 private:
@@ -73,7 +75,7 @@ private:
 	LogFn log_;
 	uint32_t modVersion_;
 	std::string name_;
-	uint64_t chapter_ = 0;
+	Chapter chapter_{};
 	State state_ = State::Off;
 	bool steam_ = false;
 	uintptr_t sock_ = ~uintptr_t(0);
@@ -81,7 +83,7 @@ private:
 	uint16_t peerPort_ = 0;
 	uint64_t peerSteam_ = 0;
 	std::string peerName_;
-	uint64_t peerChapter_ = 0;
+	Chapter peerChapter_{};
 	uint64_t lastHello_ = 0, lastHeard_ = 0, lastMismatchLog_ = 0;
 	uint32_t seq_ = 0, lastSeq_ = 0;
 	bool oldProtocolLogged_ = false;

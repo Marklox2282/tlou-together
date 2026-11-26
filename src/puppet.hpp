@@ -17,9 +17,12 @@ bool Wanted();
 void SetFollow(bool on);
 bool Follow();
 void RequestTeleport();         // F7
+// F5: загрузить главу и чекпоинт партнёра и после загрузки встать рядом с ним;
+// own (Shift+F5) - перезагрузить свою, проверка без партнёра.
+void RequestJoin(bool own);
 void SetNetActive(bool on);     // сеть включена: читать свою главу для отправки
-void SetPartnerChapter(uint64_t chapter);
-uint64_t MyChapter();
+void SetPartnerChapter(const engine::Chapter& c);
+engine::Chapter MyChapter();
 
 // Раз за кадр в скриптовом контексте (хук интерпретатора); OnFrame - из обработчика кадра.
 void OnFrame();

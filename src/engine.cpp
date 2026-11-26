@@ -20,7 +20,6 @@ constexpr uintptr_t kProcessIdOffset = 0x98;
 constexpr uintptr_t kLocatorOffset = 0x1B0;        // pos xyz(w), затем quat
 constexpr uintptr_t kLevelMgrRva = 0x6433130;      // тот же менеджер, что обходит get-spawner
 constexpr uintptr_t kMgrLevels = 0x1E0, kMgrLevelCount = 0x1D8, kLevelSpawnData = 0x100;
-constexpr uintptr_t kTaskId = 0x08;                // task-get-current -> объект задания, id на +0x08
 
 const IMAGE_NT_HEADERS64* Nt() {
 	const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(g_base);
@@ -204,10 +203,12 @@ bool InitNatives() {
 		{ &g_dc.hitReactions, "npc-enable-hit-reactions" }, { &g_dc.stun, "npc-enable-stun" },
 		{ &g_dc.dodges, "npc-enable-dodges" }, { &g_dc.objectLocator, "get-object-locator" },
 		{ &g_dc.moveTo, "npc-move-to" }, { &g_dc.newBoxedValue, "new-boxed-value" }, { &g_dc.sendEvent, "send-event" },
-		{ &g_dc.taskGetCurrent, "task-get-current" }, { &g_dc.setVisible, "set-visible" },
+		{ &g_dc.setVisible, "set-visible" },
 		{ &g_dc.setUnshootable, "set-is-unshootable" }, { &g_dc.darrayCount, "darray-count" },
 		{ &g_dc.darrayAt, "darray-at" }, { &g_dc.getHealth, "get-object-health" },
-		{ &g_dc.setHealth, "set-object-health" }, { &g_dc.isDead, "character-is-dead?" }, { &g_dc.npcDie, "npc-die" } };
+		{ &g_dc.setHealth, "set-object-health" }, { &g_dc.isDead, "character-is-dead?" }, { &g_dc.npcDie, "npc-die" },
+		{ &g_dc.taskNode, "task-get-current-node-id" }, { &g_dc.taskSubnode, "task-get-current-subnode-id" },
+		{ &g_dc.taskPlay, "task-play-debug!" } };
 	for (const auto& [slot, name] : table) {
 		*slot = FindNative(name);
 		if (!*slot) return false;
@@ -325,13 +326,9 @@ uint64_t BoundFrame(const float pos[3], const float rot[4]) {
 	return v && q ? Call(g_dc.allocBoundFrame, { v, q, 0, 0, 0 }) : 0;
 }
 
-// task-get-current возвращает объект задания; id задания на +0x08, узел (чекпоинт) на +0x120.
-// Как в TLOU2-Coop; в Part I это подтверждено разбором task-get-current-node-id.
-uint64_t CurrentChapter() {
-	const uintptr_t task = static_cast<uintptr_t>(Call(g_dc.taskGetCurrent, {}));
-	uint64_t id = 0;
-	return task && Read(task + kTaskId, id) ? id : 0;
-}
+Chapter CurrentChapter() { return { Call(g_dc.taskNode, {}), Call(g_dc.taskSubnode, {}) }; }
+
+void PlayChapter(const Chapter& c) { Call(g_dc.taskPlay, { c.node, c.task, 0 }); }
 
 std::string HeroName(const std::string& art) {
 	if (art.rfind("t1x-", 0) != 0) return {};

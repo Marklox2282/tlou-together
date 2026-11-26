@@ -58,7 +58,23 @@ float Dist(const float a[3], const float b[3]) {
 
 // ---- состояние -----------------------------------------------------------------------------
 std::atomic<bool> g_wanted{ false }, g_follow{ false }, g_teleport{ false }, g_netActive{ false };
-std::atomic<uint64_t> g_myChapter{ 0 }, g_partnerChapter{ 0 }, g_puppet{ 0 }, g_doneFrame{ 0 };
+std::atomic<uint64_t> g_puppet{ 0 }, g_doneFrame{ 0 };
+// Место в сюжете: своё (читается в скриптовом потоке) и партнёра (из сети, игровой кадр).
+SRWLOCK g_chapterLock = SRWLOCK_INIT;
+Chapter g_myChapter, g_partnerChapter;
+
+Chapter LoadChapter(const Chapter& c) {
+	AcquireSRWLockShared(&g_chapterLock);
+	const Chapter out = c;
+	ReleaseSRWLockShared(&g_chapterLock);
+	return out;
+}
+
+void StoreChapter(Chapter& c, const Chapter& v) {
+	AcquireSRWLockExclusive(&g_chapterLock);
+	c = v;
+	ReleaseSRWLockExclusive(&g_chapterLock);
+}
 // Повторные попытки: спавнер, чья марионетка сразу исчезла (сюжетный NPC, которого скрипт
 // убирает, - npc-robert-1 в Бостоне), больше не берём; пауза растёт после неудач подряд, иначе
 // пересоздание каждые 3 с проседало FPS. Список сбрасывается при смене задания сюжета.
@@ -73,9 +89,9 @@ uint64_t Spawn(const Locator& at) {
 	Locator me{};
 	std::string look = PlayerLocator(me) ? HeroLook(me.pos) : std::string();
 	std::string name;
-	if (g_badForChapter != g_myChapter) {
+	if (g_badForChapter != LoadChapter(g_myChapter).task) {
 		g_badSpawners.clear();
-		g_badForChapter = g_myChapter;
+		g_badForChapter = LoadChapter(g_myChapter).task;
 	}
 	// Персонаж, который сейчас сам есть на уровне по сюжету (Роберт в его миссии), не копируем:
 	// игрок видел "лишнего" Роберта. Имя (sid) NPC спавнера совпадает с sid самого спавнера.
@@ -141,7 +157,8 @@ bool PartnerTooFar(const Locator& target) {
 		logged = tooFar;
 		if (tooFar)
 			Log("puppet: partner is more than %.0f m away (task %016llX, mine %016llX); waiting", kFar,
-				static_cast<unsigned long long>(g_partnerChapter.load()), static_cast<unsigned long long>(g_myChapter.load()));
+				static_cast<unsigned long long>(LoadChapter(g_partnerChapter).task),
+				static_cast<unsigned long long>(LoadChapter(g_myChapter).task));
 		else
 			Log("puppet: partner is near again");
 	}
@@ -308,9 +325,57 @@ void ReadChapter() {
 	const ULONGLONG now = GetTickCount64();
 	if (now - last < 1000) return;
 	last = now;
-	const uint64_t chapter = CurrentChapter();
-	if (chapter != g_myChapter.exchange(chapter))
-		Log("story task %016llX", static_cast<unsigned long long>(chapter));
+	const Chapter c = CurrentChapter();
+	if (c == LoadChapter(g_myChapter)) return;
+	StoreChapter(g_myChapter, c);
+	Log("story: chapter %016llX task %016llX", static_cast<unsigned long long>(c.node), static_cast<unsigned long long>(c.task));
+}
+
+// ---- F5: к партнёру в его главу ------------------------------------------------------------
+// task-play-debug! грузит главу с чекпоинта задания. Потом ждём, пока появятся игрок и
+// марионетка (партнёр шлёт позы и во время нашей загрузки), и переносим игрока к ней.
+constexpr ULONGLONG kJoinTimeoutMs = 90000, kJoinSettleMs = 4000;
+std::atomic<int> g_joinRequest{ 0 };  // 0 нет, 1 к партнёру, 2 своя глава
+std::atomic<ULONGLONG> g_joinAt{ 0 };  // идёт загрузка с F5 (проверяется вне блокировки)
+ULONGLONG g_joinReadyAt = 0;
+Chapter g_joinTarget;
+
+void StartJoin(bool own) {
+	const Chapter target = LoadChapter(own ? g_myChapter : g_partnerChapter);
+	if (!target) {
+		Log(own ? "F5: my chapter is unknown yet" : "F5: partner's chapter is unknown (not connected?)");
+		return;
+	}
+	Log("F5: loading %s chapter %016llX task %016llX", own ? "my own" : "partner's",
+		static_cast<unsigned long long>(target.node), static_cast<unsigned long long>(target.task));
+	PlayChapter(target);
+	g_joinTarget = target;
+	g_joinAt = GetTickCount64();
+	g_joinReadyAt = 0;
+}
+
+// После загрузки: игрок есть, глава та, марионетка рядом с партнёром - переносим (без сети -
+// просто сообщаем, что загрузилось).
+void FinishJoin() {
+	if (!g_joinAt) return;
+	const ULONGLONG now = GetTickCount64();
+	if (now - g_joinAt > kJoinTimeoutMs) {
+		Log("F5: gave up waiting for the load to finish");
+		g_joinAt = 0;
+		return;
+	}
+	Locator me{};
+	const bool ready = now - g_joinAt > kJoinSettleMs && PlayerLocator(me) && LoadChapter(g_myChapter) == g_joinTarget &&
+		(!UsingNetwork() || (g_puppet && !g_hidden));
+	if (!ready) {
+		g_joinReadyAt = 0;
+		return;
+	}
+	if (!g_joinReadyAt) g_joinReadyAt = now;
+	if (now - g_joinReadyAt < 1500) return;  // ещё пару кадров после загрузки
+	g_joinAt = 0;
+	if (UsingNetwork()) TeleportToPartner();
+	else Log("F5: chapter loaded");
 }
 
 }  // namespace
@@ -330,8 +395,9 @@ void SetFollow(bool on) { g_follow = on; }
 bool Follow() { return g_follow; }
 void RequestTeleport() { g_teleport = true; }
 void SetNetActive(bool on) { g_netActive = on; }
-void SetPartnerChapter(uint64_t chapter) { g_partnerChapter = chapter; }
-uint64_t MyChapter() { return g_myChapter; }
+void SetPartnerChapter(const Chapter& c) { StoreChapter(g_partnerChapter, c); }
+Chapter MyChapter() { return LoadChapter(g_myChapter); }
+void RequestJoin(bool own) { g_joinRequest = own ? 2 : 1; }
 uint64_t Current() { return g_puppet; }
 
 // Свой номер кадра: хук интерпретатора срабатывает на каждом вызове скриптовой функции (тысячи
@@ -346,6 +412,7 @@ uint64_t TakeWorkMicroseconds() { return g_workUs.exchange(0); }
 // Скрипты выполняются на нескольких потоках; работа - один раз за кадр, первым пришедшим.
 void ScriptTick() {
 	if (!g_wanted.load(std::memory_order_relaxed) && !g_teleport.load(std::memory_order_relaxed) &&
+		!g_joinRequest.load(std::memory_order_relaxed) && !g_joinAt &&
 		!g_netActive.load(std::memory_order_relaxed) && !g_puppet.load(std::memory_order_relaxed))
 		return;
 	const uint64_t frame = g_frame.load(std::memory_order_relaxed);
@@ -361,6 +428,8 @@ void ScriptTick() {
 	ReadChapter();
 	ProfileAdd("[chapter]", MicrosecondsSince(s));
 	if (g_teleport.exchange(false)) TeleportToPartner();
+	if (const int join = g_joinRequest.exchange(0)) StartJoin(join == 2);
+	FinishJoin();
 	if (!g_wanted && g_puppet) Hide();
 	s = QpcNow();
 	if (g_wanted) Update();

@@ -19,7 +19,7 @@ Based on the reverse-engineering and approach of [TLOU2-Coop](https://github.com
   (each game still runs its own enemy AI).
 - The mod updates itself from this repository's releases; every update is signed and checked.
 
-Not yet: shared enemy movement, doors, items, chapter sync, cutscenes, real partner animations and look.
+Not yet: shared enemy movement, doors, items, automatic chapter sync, cutscenes, real partner animations and look.
 
 ## Install
 
@@ -31,7 +31,8 @@ Uninstall: delete `winmm.dll` (and `tlou1-coop.*` files) from the game folder.
 
 ## Play
 
-Both players load the same chapter, then both press **F8**; a beep means connected. **F6** disconnects, **F7** teleports you to your partner.
+Both players load the same chapter, then both press **F8**; a beep means connected. **F6** disconnects, **F7** teleports you to your partner,
+**F5** loads your partner's chapter and checkpoint and puts you next to them (Shift+F5 reloads your own, to test it).
 For LAN play without Steam set `peer_ip` in `tlou1-coop.ini` (created next to the game on first F8).
 Log: `tlou1-coop.log` in the game folder.
 

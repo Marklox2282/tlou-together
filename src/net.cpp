@@ -181,7 +181,7 @@ void Link::Stop() {
 	if (state_ != State::Off) log_("net: off");
 	state_ = State::Off;
 	peerSteam_ = 0;
-	peerChapter_ = 0;
+	peerChapter_ = {};
 	lastSeq_ = 0;
 	enemyEvents_.clear();
 }
@@ -190,7 +190,8 @@ Packet Link::Make(uint8_t type) const {
 	Packet p;
 	p.type = type;
 	p.modVersion = modVersion_;
-	p.chapter = chapter_;
+	p.chapterNode = chapter_.first;
+	p.chapterTask = chapter_.second;
 	if (type == kHello) strncpy_s(p.name, name_.c_str(), _TRUNCATE);
 	return p;
 }
@@ -263,7 +264,7 @@ void Link::OnHello(const Packet& p, uint64_t from, uint64_t nowMs) {
 	}
 	peerSteam_ = from;
 	peerName_ = name[0] ? name : (steam_ ? g_steam.GetFriendPersonaName(g_steam.friends, from) : "partner");
-	peerChapter_ = p.chapter;
+	peerChapter_ = { p.chapterNode, p.chapterTask };
 	state_ = State::Connected;
 	lastHeard_ = nowMs;
 	lastSeq_ = 0;
@@ -276,7 +277,7 @@ void Link::Disconnected(const char* why) {
 	log_("net: %s %s, searching again", peerName_.c_str(), why);
 	state_ = State::Searching;
 	peerSteam_ = 0;
-	peerChapter_ = 0;
+	peerChapter_ = {};
 	lastHello_ = 0;
 }
 
@@ -314,7 +315,7 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 		// Без надёжной доставки пакеты могут прийти не по порядку: старые позы отбрасываем.
 		if (p.type == kPose && static_cast<int32_t>(p.seq - lastSeq_) > 0) {
 			lastSeq_ = p.seq;
-			peerChapter_ = p.chapter;
+			peerChapter_ = { p.chapterNode, p.chapterTask };
 			pose = p;
 			gotPose = true;
 		}

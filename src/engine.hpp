@@ -44,7 +44,7 @@ using NativeFn = void (*)(uint64_t* ret, int argc, const uint64_t* argv, uint64_
 struct Natives {
 	NativeFn allocVector, allocQuat, allocBoundFrame, spawnWithLook, entityExists, teleport, scriptMode,
 		setIgnore, setBlind, setDeaf, hitReactions, stun, dodges, objectLocator, moveTo, newBoxedValue, sendEvent,
-		taskGetCurrent, setVisible, setUnshootable, darrayCount, darrayAt, getHealth, setHealth, isDead, npcDie;
+		setVisible, setUnshootable, darrayCount, darrayAt, getHealth, setHealth, isDead, npcDie, taskNode, taskSubnode, taskPlay;
 };
 extern Natives g_dc;
 bool InitNatives();  // false, если какой-то не найден
@@ -64,8 +64,15 @@ struct Locator { float pos[4], rot[4]; };
 bool PlayerLocator(Locator& l);            // без скриптового контекста, только чтение
 bool NpcLocator(uint64_t npc, Locator& out);
 uint64_t BoundFrame(const float pos[3], const float rot[4]);
-// Текущее сюжетное задание (id из task-get-current), 0 - нет. Скриптовый контекст.
-uint64_t CurrentChapter();
+// Место в сюжете: узел графа заданий (глава) и задание в нём (чекпоинт). Скриптовый контекст.
+struct Chapter {
+	uint64_t node = 0, task = 0;
+	bool operator==(const Chapter&) const = default;
+	explicit operator bool() const { return node && task; }
+};
+Chapter CurrentChapter();
+// Загрузить это место сюжета (task-play-debug!, как "join" в TLOU2-Coop). Скриптовый контекст.
+void PlayChapter(const Chapter& c);
 
 // ---- спавнеры ------------------------------------------------------------------------------
 constexpr uintptr_t kSpSid = 0x38, kSpName = 0x50, kSpType = 0x70, kSpArt = 0x78, kSpFlags0 = 0x80, kSpFlags1 = 0x81;

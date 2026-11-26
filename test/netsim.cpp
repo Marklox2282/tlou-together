@@ -74,7 +74,7 @@ static void SendRaw(uint16_t fromPort, uint16_t toPort, const void* data, int le
 }
 
 int main() {
-	const uint64_t kPrologue = 0x1111, kBoston = 0x2222;
+	const net::Link::Chapter kPrologue{ 0x1111, 0xA }, kBoston{ 0x2222, 0xB };
 
 	puts("== connect, names and chapters");
 	{
