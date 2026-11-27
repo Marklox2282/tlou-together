@@ -3,6 +3,18 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## v38
+
+- Much less desync: the partner's copy stays within half a metre of the partner's real position and jumps to them at once when more than 8 m away.
+- The copy no longer disappears or freezes because of a falsely detected cutscene.
+- F7 takes you to your partner's real position, not to where their copy is.
+
+---
+
+- Намного меньше рассинхрона: копия напарника держится в полуметре от его настоящей позиции и сразу переносится к нему, если отстала больше чем на 8 м.
+- Копия больше не пропадает и не замирает из-за ложно определённой катсцены.
+- F7 переносит к настоящей позиции напарника, а не туда, где стоит его копия.
+
 ## v37
 
 - Ladders, jumps and climbs: while your partner climbs, their copy follows them exactly and copies their animation (`climb_anims=off` in `tlou-together.ini` turns the animation copy off).

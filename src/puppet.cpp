@@ -565,9 +565,9 @@ void Update() {
 	static ULONGLONG snapWantedSince = 0;
 	const CameraView view = CurrentView();
 	const bool onScreen = Seen(view, cur.pos, 40.0f) || Seen(view, target.pos, 40.0f);
-	const bool wantSnap = err > 15.0f || stuck || (UsingNetwork() && err > 4.0f && !onScreen);
+	const bool wantSnap = err > 15.0f || stuck || (UsingNetwork() && (err > 8.0f || (err > 4.0f && !onScreen)));
 	bool snapNow = wantSnap;
-	if (snapNow && err < 30.0f) {
+	if (snapNow && err < 30.0f && !UsingNetwork()) {  // по сети - сразу: рассинхрон хуже рывка
 		if (!snapWantedSince) snapWantedSince = now;
 		if (now - snapWantedSince < 3000 && onScreen) snapNow = false;
 	}
@@ -612,6 +612,15 @@ void Update() {
 		return;
 	}
 	if (targetSpeed < 0.5f && err < 1.5f) return;
+	// Догон по месту (как в v36): ИИ бежит своей дорогой, а сюжетный NPC (например, Тесс из
+	// скрипта уровня) команд движения почти не слушается и стоит. Сверх 1.5 м подтягиваем копию
+	// к настоящей позиции партнёра - половину лишнего раз в 0.1 с; бег (анимацию) ведёт команда ниже.
+	if (UsingNetwork() && g_dc.setObjectLocator && err > 0.75f && err < 15.0f) {
+		const float k = (err - 0.5f) / err;  // сразу до 0.5 м от настоящей позиции
+		float pulled[3];
+		for (int i = 0; i < 3; ++i) pulled[i] = cur.pos[i] + (target.pos[i] - cur.pos[i]) * k;
+		if (const uint64_t frame = BoundFrame(pulled, cur.rot)) Call(g_dc.setObjectLocator, { puppet, frame });
+	}
 	// Скорость партнёра плюс догон: чем больше отстала, тем быстрее (бег - с 1.5 м/с, спринт - с 3.5).
 	const float speed = targetSpeed + (err > 1.0f ? (err - 1.0f) * 1.2f : 0.0f);
 	const int mode = speed < 1.5f ? 0 : (speed < 3.5f ? 1 : 2);
@@ -639,9 +648,11 @@ void Update() {
 constexpr uint64_t kBoxedBoundFrame = 18;
 
 void TeleportToPartner() {
+	// По сети - к настоящей позиции партнёра (копия могла застрять в другом месте), без сети - к копии.
 	Locator partner{};
 	const uint64_t puppet = g_puppet;
-	if (!puppet || !NpcLocator(puppet, partner)) {
+	const bool real = UsingNetwork() && DelayedTarget(GetTickCount64(), partner);
+	if (!real && (!puppet || !NpcLocator(puppet, partner))) {
 		Log("F7: no partner to teleport to");
 		return;
 	}
@@ -1081,7 +1092,9 @@ void ScriptTick() {
 	if (!g_wanted && g_puppet) Hide();
 	static bool cutscenePausedBuddy = false;
 	static bool cutsceneHidClone = false;
-	const bool inCutsceneNow = g_inCutscene.load(std::memory_order_relaxed);
+	// Копию на катсцену не прячем и спутника не отпускаем: определение катсцены срабатывало ложно
+	// (40 с, пока игрок жал F7), копия пропадала и стояла - жёсткий рассинхрон. Как до v31.
+	const bool inCutsceneNow = false;
 	if (inCutsceneNow) {
 		if (g_puppet && g_puppetIsBuddy && !cutscenePausedBuddy) {
 			cutscenePausedBuddy = true;
@@ -1221,7 +1234,7 @@ void ScriptTick() {
 		}
 	}
 	static ULONGLONG lastStance = 0;
-	if (GetTickCount64() - lastStance >= 200) {
+	if (GetTickCount64() - lastStance >= 100) {  // присед/прицел - без заметной задержки
 		lastStance = GetTickCount64();
 		g_meCrouched = (Call(g_dc.isCrouched, {}) & 1) != 0;
 		g_meAiming = (Call(g_dc.isAiming, {}) & 1) != 0;
@@ -1396,7 +1409,7 @@ void ScriptTick() {
 		healShown = heal;
 	}
 	s = QpcNow();
-	if (g_wanted && !g_inCutscene) Update();
+	if (g_wanted) Update();
 	ProfileAdd("[update]", MicrosecondsSince(s));
 	if (g_netActive) enemies::Tick(g_puppet);
 	if (g_netActive) objects::Tick();

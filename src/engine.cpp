@@ -135,9 +135,12 @@ int64_t QpcNow();
 // чтобы освобождённая игрой память не считалась доступной надолго.
 namespace {
 
+// Кэш общий для всех потоков: скрипты идут то на одном потоке, то на другом, и у каждого потока
+// свой кэш почти всегда промахивался (VirtualQuery ~1-2 мс за вызов, 300+ мс за 2 с).
 struct Region { uintptr_t begin, end; ULONGLONG at; };
-thread_local Region t_regions[32];
-thread_local unsigned t_nextRegion = 0;
+Region g_regions[64];
+unsigned g_nextRegion = 0;
+SRWLOCK g_regionLock = SRWLOCK_INIT;
 
 bool IsReadableProtect(DWORD p) {
 	if (p & (PAGE_GUARD | PAGE_NOACCESS)) return false;
@@ -149,12 +152,14 @@ bool Readable(uintptr_t begin, uintptr_t end) {
 	const ULONGLONG now = GetTickCount64();
 	for (uintptr_t p = begin; p < end;) {
 		bool cached = false;
-		for (const Region& r : t_regions)
+		AcquireSRWLockShared(&g_regionLock);
+		for (const Region& r : g_regions)
 			if (p >= r.begin && p < r.end && now - r.at < 200) {
 				p = r.end;
 				cached = true;
 				break;
 			}
+		ReleaseSRWLockShared(&g_regionLock);
 		if (cached) continue;
 		MEMORY_BASIC_INFORMATION mbi{};
 		const int64_t q0 = QpcNow();
@@ -164,7 +169,9 @@ bool Readable(uintptr_t begin, uintptr_t end) {
 			!IsReadableProtect(mbi.Protect))
 			return false;
 		const uintptr_t rb = reinterpret_cast<uintptr_t>(mbi.BaseAddress), re = rb + mbi.RegionSize;
-		t_regions[t_nextRegion++ % 32] = { rb, re, now };
+		AcquireSRWLockExclusive(&g_regionLock);
+		g_regions[g_nextRegion++ % 64] = { rb, re, now };
+		ReleaseSRWLockExclusive(&g_regionLock);
 		p = re;
 	}
 	return true;
