@@ -299,9 +299,20 @@ uint64_t Spawn(const Locator& at) {
 	uintptr_t sp = 0;
 	// Сюжетного персонажа проверяем по всем его спавнерам: настоящую Марлин уровень создал из
 	// другого спавнера, и рядом с ней появлялась вторая.
-	auto inScene = [](uintptr_t spawner) {
+	// Спутники главы, живые сейчас (Тесс, Элли...): их спавнер игра отдаёт вместе с настоящим
+	// сюжетным персонажем - мод выключал ему ИИ, скрипты уровня тянули своё, игра падала.
+	std::vector<uint64_t> buddies;
+	std::vector<std::string> buddyHeroes;
+	for (uint64_t b = CurrentBuddy(0); b && buddies.size() < 4; b = CurrentBuddy(b)) {
+		if (std::find(buddies.begin(), buddies.end(), b) != buddies.end()) break;
+		buddies.push_back(b);
+		if (const std::string h = HeroName(ArtOfNpc(b)); !h.empty()) buddyHeroes.push_back(h);
+	}
+	auto inScene = [&](uintptr_t spawner) {
 		uint64_t spSid = 0;
 		if (Read(spawner + kSpSid, spSid) && Call(g_dc.entityExists, { spSid })) return true;
+		const std::string hero = HeroName(ReadName(ReadPtr(spawner + kSpArt)));
+		if (!hero.empty() && std::find(buddyHeroes.begin(), buddyHeroes.end(), hero) != buddyHeroes.end()) return true;
 		for (uint64_t sid : CharacterSids(HeroName(ReadName(ReadPtr(spawner + kSpArt)))))
 			if (Call(g_dc.entityExists, { sid })) return true;
 		return false;
@@ -317,7 +328,13 @@ uint64_t Spawn(const Locator& at) {
 	// Ничего не осталось (партнёр выбрал персонажа, который и так здесь, а других NPC нет - пролог):
 	// берём любой NPC и надеваем выбранный облик. Двойник лучше невидимого партнёра.
 	if (!sp && !look.empty()) {
-		sp = FindBuddySpawner(std::string(), g_badSpawners, name);
+		std::vector<uintptr_t> skipAny = g_badSpawners;
+		for (int tries = 0; tries < 8; ++tries) {
+			sp = FindBuddySpawner(std::string(), skipAny, name);
+			if (!sp || !inScene(sp)) break;
+			skipAny.push_back(sp);
+			sp = 0;
+		}
 		if (sp) Log("puppet: no other NPC to use; %s will wear the look", name.c_str());
 	}
 	g_lastSpawner = sp;
@@ -351,6 +368,13 @@ uint64_t Spawn(const Locator& at) {
 	*flags1 = f1;
 	if (!npc || npc == sid) {
 		Log("puppet: spawn from %s failed (npc=%016llX)", name.c_str(), static_cast<unsigned long long>(npc));
+		return 0;
+	}
+	// Игра отдала настоящего спутника главы вместо новой копии - не трогаем его, спавнер в чёрный список.
+	if (std::find(buddies.begin(), buddies.end(), npc) != buddies.end() || npc == CurrentBuddy(0)) {
+		Log("puppet: %s gave the chapter's real companion %016llX, not a copy - leaving it alone", name.c_str(),
+			static_cast<unsigned long long>(npc));
+		g_badSpawners.push_back(sp);
 		return 0;
 	}
 	AiOff(npc);

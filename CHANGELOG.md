@@ -3,6 +3,14 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## v39
+
+- Fixed a crash when the partner joined: the mod could take the chapter's real companion (Tess) as the partner's copy, and the level's scripts fought over her.
+
+---
+
+- Исправлено падение при входе напарника: мод мог взять настоящую спутницу главы (Тесс) как копию напарника, и скрипты уровня тянули её в другую сторону.
+
 ## v38
 
 - Much less desync: the partner's copy stays within half a metre of the partner's real position and jumps to them at once when more than 8 m away.
