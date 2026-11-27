@@ -3,6 +3,16 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## 0.41.1
+
+- Fixed a crowd of Tess clones appearing on levels where Tess is the companion; the partner was invisible there.
+- When no story character fits, the partner's copy can now be any ordinary human NPC on the level.
+
+---
+
+- Исправлено: на уровнях, где Тесс — спутница, появлялась толпа Тесс, а напарника не было видно.
+- Если сюжетного персонажа для копии нет, напарником может стать любой обычный NPC-человек на уровне.
+
 ## 0.41.0
 
 - Melee, grabs and climbing are copied onto the partner's copy by default now (`climb_anims=off` in `tlou-together.ini` turns it off if the game becomes unstable).

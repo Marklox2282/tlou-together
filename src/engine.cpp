@@ -105,9 +105,12 @@ int SpawnerRank(const std::string& art, const std::string& hero) {
 		// Сюжетные персонажи (Марлин, Тесс) надёжно слушаются команд движения - всегда впереди.
 		return SameSex(art, hero) ? 4 : 3;
 	}
-	// Обычные NPC (контрабандист в Бостоне) появляются, но не реагируют ни на телепорт, ни на
-	// npc-move-to - только если сюжетных нет.
-	if (art.rfind("survivor-", 0) && art.rfind("smuggler-", 0) && art.rfind("military-", 0)) return 0;
+	// Обычные NPC (контрабандист в Бостоне) хуже слушаются npc-move-to - только если сюжетных нет
+	// (позицию им всё равно выставляет подтягивание к партнёру). Люди: известные виды или любой облик
+	// с полом в имени (-m- / -f-); заражённые и прочее - нет.
+	if (art.find("infected") != std::string::npos) return 0;
+	const bool known = !art.rfind("survivor-", 0) || !art.rfind("smuggler-", 0) || !art.rfind("military-", 0);
+	if (!known && art.find("-m-") == std::string::npos && art.find("-f-") == std::string::npos) return 0;
 	return SameSex(art, hero) ? 2 : 1;
 }
 
@@ -528,7 +531,18 @@ std::string ArtOfCharacter(const std::string& character) {
 	return art;
 }
 
-// Имя NPC, созданного спавнером, совпадает с sid спавнера.
+std::vector<std::string> SpawnerArts(size_t max) {
+	std::vector<std::string> arts;
+	ForEachSpawner([&](uintptr_t, const SpawnerHead& h) {
+		std::string a = ReadName(h.art);
+		if (!a.empty() && std::find(arts.begin(), arts.end(), a) == arts.end()) arts.push_back(std::move(a));
+		return arts.size() < max;
+	});
+	return arts;
+}
+
+// Облик NPC: имя NPC, созданного спавнером, обычно совпадает с sid спавнера; у сюжетных (Тесс)
+// имя своё - тогда ищем спавнер с той же группой внешности (get-art-group), как у игрока.
 std::string ArtOfNpc(uint64_t npc) {
 	std::string art;
 	ForEachSpawner([&](uintptr_t, const SpawnerHead& h) {
@@ -536,6 +550,13 @@ std::string ArtOfNpc(uint64_t npc) {
 		art = ReadName(h.art);
 		return false;
 	});
+	if (const uint64_t group = art.empty() && npc ? Call(g_dc.artGroup, { npc }) : 0)
+		ForEachSpawner([&](uintptr_t, const SpawnerHead& h) {
+			std::string a = ReadName(h.art);
+			if (a.empty() || Sid(a.c_str()) != group) return true;
+			art = std::move(a);
+			return false;
+		});
 	return art;
 }
 

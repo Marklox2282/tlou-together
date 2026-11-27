@@ -138,6 +138,7 @@ void StoreChapter(Chapter& c, const Chapter& v) {
 ULONGLONG g_lastSpawnTry = 0, g_spawnedAt = 0;
 uintptr_t g_lastSpawner = 0;
 std::vector<uintptr_t> g_badSpawners;
+std::vector<std::string> g_badHeroes;  // сюжетные персонажи, чей спавнер отдаёт настоящего спутника
 int g_failures = 0;
 uint64_t g_badForChapter = 0;
 
@@ -296,6 +297,7 @@ uint64_t Spawn(const Locator& at) {
 	std::string name;
 	if (g_badForChapter != LoadChapter(g_myChapter).task) {
 		g_badSpawners.clear();
+		g_badHeroes.clear();
 		g_badForChapter = LoadChapter(g_myChapter).task;
 	}
 	// Персонаж, который сейчас сам есть на уровне по сюжету (Роберт в его миссии), не копируем:
@@ -317,6 +319,7 @@ uint64_t Spawn(const Locator& at) {
 		if (Read(spawner + kSpSid, spSid) && Call(g_dc.entityExists, { spSid })) return true;
 		const std::string hero = HeroName(ReadName(ReadPtr(spawner + kSpArt)));
 		if (!hero.empty() && std::find(buddyHeroes.begin(), buddyHeroes.end(), hero) != buddyHeroes.end()) return true;
+		if (!hero.empty() && std::find(g_badHeroes.begin(), g_badHeroes.end(), hero) != g_badHeroes.end()) return true;
 		for (uint64_t sid : CharacterSids(HeroName(ReadName(ReadPtr(spawner + kSpArt)))))
 			if (Call(g_dc.entityExists, { sid })) return true;
 		return false;
@@ -356,6 +359,15 @@ uint64_t Spawn(const Locator& at) {
 	uint64_t sid = 0;
 	uint8_t f1 = 0;
 	if (!sp || !Read(sp + kSpSid, sid) || !Read(sp + kSpFlags1, f1)) {
+		// Для разбора: какие облики вообще есть на загруженных уровнях (раз за главу).
+		static uint64_t listedFor = 0;
+		if (listedFor != g_badForChapter) {
+			listedFor = g_badForChapter;
+			std::string list;
+			const std::vector<std::string> arts = SpawnerArts(40);
+			for (const std::string& a : arts) list += (list.empty() ? "" : ", ") + a;
+			Log("puppet: spawner looks here: %s", list.c_str());
+		}
 		Log("puppet: no buddy spawner in loaded levels");
 		return 0;
 	}
@@ -379,6 +391,9 @@ uint64_t Spawn(const Locator& at) {
 		Log("puppet: %s gave the chapter's real companion %016llX, not a copy - leaving it alone", name.c_str(),
 			static_cast<unsigned long long>(npc));
 		g_badSpawners.push_back(sp);
+		// Все спавнеры этого персонажа дадут то же самое (у Тесс их на уровне 7): больше не пробуем,
+		// иначе каждые несколько секунд появлялась новая Тесс.
+		if (const std::string hero = HeroName(ReadName(ReadPtr(sp + kSpArt))); !hero.empty()) g_badHeroes.push_back(hero);
 		return 0;
 	}
 	AiOff(npc);

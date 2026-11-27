@@ -137,6 +137,7 @@ uint64_t CurrentBuddy(uint64_t exclude);
 std::string ArtOfCharacter(const std::string& character);
 // Арт спавнера, из которого создан NPC с этим именем ("t1x-tess-costume-01"); пусто - не нашли.
 std::string ArtOfNpc(uint64_t npc);
+std::vector<std::string> SpawnerArts(size_t max);  // разные облики спавнеров загруженных уровней (для журнала)
 // Костюм героя главы: арт ближайшей к точке точки появления игрока ("t1x-joel-costume-01").
 std::string HeroLook(const float around[3]);
 // Облик самого игрока ("t1x-sarah-costume-01"): get-art-group игрока, сверенный с артами
