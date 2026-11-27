@@ -3,6 +3,16 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## 0.41.0
+
+- Melee, grabs and climbing are copied onto the partner's copy by default now (`climb_anims=off` in `tlou-together.ini` turns it off if the game becomes unstable).
+- Development: if the host sends their logs to a Discord webhook, a guest who is the host's Steam friend gets the same setting automatically (`log_webhook=off` in the ini to refuse).
+
+---
+
+- Рукопашка, захваты и лазанье теперь по умолчанию копируются на копию напарника (`climb_anims=off` в `tlou-together.ini` выключает, если игра станет падать).
+- Для разработки: если хост отправляет логи на вебхук Discord, гость, который у него в друзьях Steam, получает эту настройку сам (`log_webhook=off` в ini — отказаться).
+
 ## 0.40.0
 
 - Versions are now numbered like 0.40.0 (MAJOR.MINOR.PATCH); this one follows v39.

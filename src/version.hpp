@@ -8,7 +8,7 @@
 
 namespace version {
 
-constexpr uint32_t kMajor = 0, kMinor = 40, kPatch = 0;
+constexpr uint32_t kMajor = 0, kMinor = 41, kPatch = 0;
 constexpr uint32_t kCode = kMajor * 10000 + kMinor * 100 + kPatch;
 
 // "0.40.0"; старые номера (до 100) - "v39".

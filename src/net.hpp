@@ -11,7 +11,7 @@ namespace net {
 
 constexpr uint32_t kMagic = 0x4F433154;  // "T1CO"
 constexpr uint8_t kProtocol = 3;          // 1 = v7 (без рукопожатия), 2 = v8 (без врагов)
-enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kEnemyPos = 6, kDeath = 7, kSettings = 8, kWeapon = 9, kStart = 10, kAnim = 11, kReady = 12, kPing = 13, kPong = 14, kThrow = 15, kObjectPos = 16 };  // 5 - бывший обмен ролями
+enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kEnemyPos = 6, kDeath = 7, kSettings = 8, kWeapon = 9, kStart = 10, kAnim = 11, kReady = 12, kPing = 13, kPong = 14, kThrow = 15, kObjectPos = 16, kWebhook = 17 };  // 5 - бывший обмен ролями
 constexpr uint16_t kFlagDead = 1;  // kEnemy: враг убит
 constexpr uint16_t kFlagHero = 2;  // kPose: отправитель играет за героя главы
 constexpr uint16_t kFlagFiring = 4;  // kPose: отправитель стреляет
@@ -90,6 +90,10 @@ public:
 	void SetReady(bool ready); // готовность игрока в лобби
 	bool MyReady() const { return myReady_; }
 	bool PeerReady() const { return peerReady_; }
+	// Адрес вебхука для логов (разработка): хост отдаёт его гостю, только если тот у него в друзьях
+	// Steam, и принимает гость тоже только от друга. Частями по 24 байта (поле name пакета).
+	bool SendWebhook(const std::string& url);
+	std::string TakePeerWebhook();
 	int Ping() const { return ping_; }  // задержка до партнёра туда-обратно, мс (-1 - ещё не знаем)
 	void SetInCutscene(bool on);
 	bool PeerInCutscene() const { return peerCutscene_; }
@@ -175,6 +179,10 @@ private:
 	bool partnerStarted_ = false;
 	std::vector<Throw> throws_;
 	int ping_ = -1;
+	std::string webhookParts_[16];
+	uint32_t webhookHave_ = 0, webhookCount_ = 0;
+	std::string peerWebhook_;
+	bool PeerIsSteamFriend() const;
 	int pongs_ = 0;  // первый ответ не считаем: в нём ещё установка соединения
 	uint64_t lastPing_ = 0;
 	bool myReady_ = false, peerReady_ = false;

@@ -51,7 +51,7 @@ bool KeyPressed(int vk, bool& wasDown) {
 bool g_storySync = true;  // ini story_sync=off - не подтягиваться к чекпоинту партнёра
 bool g_sharedDeath = true;  // ini shared_death=off - смерть партнёра не перезагружает нас
 bool g_animSync = false;
-bool g_climbAnims = false;  // ini climb_anims=on (по умолчанию выкл: хук анимаций пишет в память игры): перенос анимаций только на время подъёма/прыжка
+bool g_climbAnims = true;  // ini climb_anims=off - выключить (хук анимаций пишет в память игры): перенос анимаций только на время подъёма/прыжка
 ULONGLONG g_lastStoryJoin = 0;  // последняя загрузка главы партнёра (общая пауза для всех причин)  // ini anim_sync=on - экспериментальный перенос анимаций игрока (по умолчанию выкл)
 // tlou-together.ini рядом с игрой; без peer_ip связь идёт через Steam.
 net::Config LoadConfig(std::string& name) {
@@ -59,7 +59,7 @@ net::Config LoadConfig(std::string& name) {
 	g_storySync = true;
 	g_sharedDeath = true;
 	g_animSync = false;
-	g_climbAnims = false;
+	g_climbAnims = true;
 	const std::wstring path = GameDirFile(L"tlou-together.ini");
 	// Мод назывался tlou1-coop: настройки из старого файла переносим один раз.
 	if (const std::wstring old = GameDirFile(L"tlou1-coop.ini"); !path.empty() && !old.empty())
@@ -84,7 +84,7 @@ net::Config LoadConfig(std::string& name) {
 				"; enemy_sync = soft (default): enemies keep their AI, moved to the host's spot off-screen.\n"
 				";             full (experimental): the guest's enemies copy the host's moves; they don't attack yet.\n"
 				"; anim_sync  = off (default) / on (experimental): direct bone animation replication for partner.\n"
-				"; climb_anims = off (default) / on (experimental): your animation is copied to your partner only while you climb a ladder,\n"
+				"; climb_anims = on (default) / off: your animation is copied to your partner only while you climb a ladder,\n"
 				";             jump or vault (off: the copy just slides along). Needs a game restart.\n"
 				"name=\npeer_ip=\nport=7777\npeer_port=7777\ncharacter=auto\nanim_sync=off\n", f);
 			fclose(f);
@@ -112,7 +112,7 @@ net::Config LoadConfig(std::string& name) {
 		else if (key == "partner_outline") puppet::SetPartnerOutline(value != "off");
 		else if (key == "character") puppet::SetMyCharacter(puppet::CharacterFromName(value));
 		else if (key == "anim_sync") g_animSync = (value == "on" || value == "1" || value == "true");
-		else if (key == "climb_anims") g_climbAnims = (value == "on" || value == "1" || value == "true");
+		else if (key == "climb_anims") g_climbAnims = value != "off";
 	}
 	fclose(f);
 	puppet::SetAnimSync(g_animSync);
@@ -289,6 +289,34 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		}
 	}
 	PublishLobby(now);
+	// Логи для разработки: хост отдаёт адрес вебхука другу Steam при каждом подключении; гость
+	// записывает его в свой ini (если там нет своей строки log_webhook, в том числе "off").
+	{
+		static bool sharedThisLink = false;
+		const bool linkedNow = g_link.GetState() == net::State::Connected;
+		if (!linkedNow) sharedThisLink = false;
+		if (linkedNow && !sharedThisLink && g_link.Authority() && logsend::Enabled()) {
+			sharedThisLink = true;
+			if (g_link.SendWebhook(logsend::Webhook())) Log("logs: webhook shared with %s (Steam friend)", g_link.PeerName().c_str());
+		}
+		if (const std::string url = g_link.TakePeerWebhook(); !url.empty() && !logsend::Enabled()) {
+			const std::wstring ini = GameDirFile(L"tlou-together.ini");
+			bool hasLine = false;
+			if (FILE* f = nullptr; _wfopen_s(&f, ini.c_str(), L"r") == 0 && f) {
+				char line[512];
+				while (fgets(line, sizeof(line), f)) hasLine |= strncmp(line, "log_webhook", 11) == 0;
+				fclose(f);
+			}
+			if (!hasLine) {
+				if (FILE* f = nullptr; _wfopen_s(&f, ini.c_str(), L"a") == 0 && f) {
+					fprintf(f, "\n; From your partner (development): logs go to their Discord. Set log_webhook=off to stop.\nlog_webhook=%s\n", url.c_str());
+					fclose(f);
+				}
+				logsend::SetWebhook(url);
+				Log("logs: %s's log webhook saved to tlou-together.ini", g_link.PeerName().c_str());
+			}
+		}
+	}
 	// Броски: свои - партнёру, его - копии.
 	for (const puppet::Throw& t : puppet::TakeMyThrows()) {
 		net::Link::Throw w{ t.item, {}, {} };

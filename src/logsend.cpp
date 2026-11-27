@@ -134,10 +134,11 @@ void SetWebhook(const std::string& url) {
 	AcquireSRWLockExclusive(&g_lock);
 	g_url = ok ? url : std::string();
 	ReleaseSRWLockExclusive(&g_lock);
-	if (!url.empty() && !ok) Log("logs: log_webhook is not a Discord webhook address - not sending");
+	if (!url.empty() && url != "off" && !ok) Log("logs: log_webhook is not a Discord webhook address - not sending");
 }
 
 bool Enabled() { return !Url().empty(); }
+std::string Webhook() { return Url(); }
 
 void SendPreviousSession(unsigned modVersion) {
 	if (!Enabled()) return;

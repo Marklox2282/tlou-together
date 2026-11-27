@@ -487,6 +487,25 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 			Disconnected("left");
 			continue;
 		}
+		if (p.type == kWebhook) {
+			const uint32_t index = static_cast<uint32_t>(p.target), count = p.flags;
+			if (count && count <= 16 && index < count && PeerIsSteamFriend()) {
+				if (count != webhookCount_) {
+					webhookCount_ = count;
+					webhookHave_ = 0;
+				}
+				char part[sizeof(p.name) + 1]{};
+				memcpy(part, p.name, sizeof(p.name));
+				webhookParts_[index] = part;
+				webhookHave_ |= 1u << index;
+				if (webhookHave_ == (1u << count) - 1) {
+					peerWebhook_.clear();
+					for (uint32_t i = 0; i < count; ++i) peerWebhook_ += webhookParts_[i];
+					webhookHave_ = webhookCount_ = 0;
+				}
+			}
+			continue;
+		}
 		if (p.type == kThrow) {
 			if (throws_.size() < 16) {
 				Throw t{ p.target, {}, {} };
@@ -654,6 +673,31 @@ void Link::SetInCutscene(bool on) {
 	if (myCutscene_ == on) return;
 	myCutscene_ = on;
 	if (state_ == State::Connected) Send(Make(kReady), true);
+}
+
+bool Link::PeerIsSteamFriend() const {
+	return steam_ && peerSteam_ && g_steam.GetFriendRelationship && g_steam.GetFriendRelationship(g_steam.friends, peerSteam_) == 3;
+}
+
+bool Link::SendWebhook(const std::string& url) {
+	if (state_ != State::Connected || url.empty() || !PeerIsSteamFriend()) return false;
+	constexpr size_t kPart = sizeof(Packet::name);
+	const size_t count = (url.size() + kPart - 1) / kPart;
+	if (count > 16) return false;
+	for (size_t i = 0; i < count; ++i) {
+		Packet p = Make(kWebhook);
+		p.target = i;
+		p.flags = static_cast<uint16_t>(count);
+		memcpy(p.name, url.data() + i * kPart, (std::min)(kPart, url.size() - i * kPart));
+		Send(p, true);
+	}
+	return true;
+}
+
+std::string Link::TakePeerWebhook() {
+	std::string u;
+	u.swap(peerWebhook_);
+	return u;
 }
 
 bool Link::TakePartnerStarted() {
