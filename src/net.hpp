@@ -130,7 +130,6 @@ public:
 	using Chapter = std::pair<uint64_t, uint64_t>;  // узел и задание (engine::Chapter)
 	void SetChapter(Chapter c) { chapter_ = c; }
 	void SetName(const std::string& name) { name_ = name; }
-	void SetBeep(bool on) { beep_ = on; }  // звук Windows при соединении (в игре - да, в тестах - нет)
 
 	State GetState() const { return state_; }
 	const std::string& PeerName() const { return peerName_; }
@@ -190,7 +189,6 @@ private:
 	uint64_t lastReadySent_ = 0;
 	Chapter lastSentChapter_{};
 	uint16_t port_ = 0;
-	bool beep_ = true;
 };
 
 }  // namespace net

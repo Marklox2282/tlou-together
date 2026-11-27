@@ -79,8 +79,6 @@ int main() {
 	puts("== connect, names and chapters");
 	{
 		net::Link a(Log, 8), b(Log, 8);
-		a.SetBeep(false);
-		b.SetBeep(false);
 		a.SetName("Alice");
 		b.SetName("Bob");
 		a.SetChapter(kPrologue);
@@ -259,8 +257,6 @@ int main() {
 	{
 		g_log.clear();
 		net::Link a(Log, 8), b(Log, 9);
-		a.SetBeep(false);
-		b.SetBeep(false);
 		a.Start(Cfg(7811, 7812), t);
 		b.Start(Cfg(7812, 7811), t);
 		Run(a, b, 40);
@@ -272,7 +268,6 @@ int main() {
 	{
 		g_log.clear();
 		net::Link b(Log, 8);
-		b.SetBeep(false);
 		b.Start(Cfg(7822, 7821), t);
 		uint8_t old[40]{};
 		const uint32_t magic = net::kMagic;
@@ -290,7 +285,6 @@ int main() {
 	{
 		g_log.clear();
 		net::Link a(Log, 8);
-		a.SetBeep(false);
 		a.Start(Cfg(7831, 7832), t);
 		net::Packet hello;
 		hello.type = net::kHello;
@@ -301,7 +295,6 @@ int main() {
 		Run(a, a, 1);
 		Check(a.GetState() == net::State::Connected, "a connected from a single hello");
 		net::Link b(Log, 8);
-		b.SetBeep(false);
 		b.Start(Cfg(7832, 7831), t);
 		Run(a, b, 40);
 		Check(b.GetState() == net::State::Connected, "b connects anyway");
@@ -310,8 +303,6 @@ int main() {
 	puts("== silence for 10 s -> searching");
 	{
 		net::Link a(Log, 8), b(Log, 8);
-		a.SetBeep(false);
-		b.SetBeep(false);
 		a.Start(Cfg(7841, 7842), t);
 		b.Start(Cfg(7842, 7841), t);
 		Run(a, b, 20);

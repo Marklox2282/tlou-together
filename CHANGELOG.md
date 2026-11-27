@@ -3,6 +3,14 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## 0.42.4
+
+- The partner's join/leave/ready/start messages play the game's own interface sound instead of the Windows beep.
+
+---
+
+- Сообщения «напарник подключился / отключился / готов / начал игру» звучат звуком интерфейса самой игры вместо звука Windows.
+
 ## 0.42.3
 
 - Fixed: the partner's copy stood in a fighting stance with fists up and did not crouch (the stance command got a wrong value).

@@ -955,6 +955,9 @@ void ScriptTick() {
 			lastNote = GetTickCount64();
 			snprintf(g_noteText, sizeof(g_noteText), "%s", next.c_str());
 			Call(g_dc.hudMessage, { 0, kNoteText, F(4.0f), 2, Sid("none"), F(0.5f) });
+			// Звук интерфейса игры (как в её меню) вместо звука Windows - на события напарника.
+			if (g_dc.playSound && (note.id == NoteJoined || note.id == NoteLeft || note.id == NoteReady || note.id == NoteStarted))
+				Call(g_dc.playSound, { Sid("hfx-ui-cycle"), 0 });
 			Log("note: %s", next.c_str());
 		}
 	}
