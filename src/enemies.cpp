@@ -158,7 +158,7 @@ void FollowHost(uint64_t puppet) {
 		const uint64_t frame = BoundFrame(r.p.pos, r.p.rot);
 		if (!frame) continue;
 		if (err > 4.0f) {
-			Call(g_dc.teleport, { npc, frame });
+			PlaceNpc(npc, frame);
 			r.mode = -1;
 		} else if (g_dc.setObjectLocator) {
 			Call(g_dc.setObjectLocator, { npc, frame });
@@ -204,7 +204,7 @@ void CorrectPositions(uint64_t puppet) {
 			viewRead = true;
 		}
 		if (Seen(view, cur.pos) || Seen(view, p.pos)) continue;  // на глазах - не переносим
-		if (const uint64_t frame = BoundFrame(p.pos, p.rot)) Call(g_dc.teleport, { p.npc, frame });
+		if (const uint64_t frame = BoundFrame(p.pos, p.rot)) PlaceNpc(p.npc, frame);
 		AcquireSRWLockExclusive(&g_lock);
 		if (auto it = g_remote.find(p.npc); it != g_remote.end()) it->second.snappedAt = now;
 		ReleaseSRWLockExclusive(&g_lock);

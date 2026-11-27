@@ -90,6 +90,9 @@ CameraView CurrentView();                  // скриптовый контек�
 bool Seen(const CameraView& v, const float p[3], float maxDist = 25.0f);
 bool NpcLocator(uint64_t npc, Locator& out);
 uint64_t BoundFrame(const float pos[3], const float rot[4]);
+// Поставить NPC в точку (frame - из BoundFrame). set-object-locator, если есть: npc-teleport-to
+// изредка ронял игру внутри своей машины состояний (краш-логи 0.42.1, стек через 0x1544EFC).
+void PlaceNpc(uint64_t npc, uint64_t frame);
 // Место в сюжете: узел графа заданий (глава) и задание в нём (чекпоинт). Скриптовый контекст.
 struct Chapter {
 	uint64_t node = 0, task = 0;

@@ -5,11 +5,13 @@ The mod updates itself: a new version downloads when the game starts and is used
 
 ## 0.42.2
 
+- Fixed a crash: moving the partner's copy (when it fell behind or settled on the spot) could crash the game; it is now placed a safer way.
 - The partner's copy no longer stays in a combat stance: it lowers its weapon and raises it only while the partner aims.
 - If you pick a character who is not on the current level (for example Ellie early in the game), an on-screen message says so; your partner sees the chapter's hero instead.
 
 ---
 
+- Исправлено падение: перенос копии напарника (когда она отставала или вставала на место) мог уронить игру; теперь её ставят на место безопаснее.
 - Копия напарника больше не стоит в боевой стойке: опускает оружие и поднимает его, только когда напарник целится.
 - Если выбрать персонажа, которого нет на этом уровне (например, Элли в начале игры), на экране появится сообщение об этом; напарник видит героя главы.
 

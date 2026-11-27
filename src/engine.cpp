@@ -435,6 +435,11 @@ uint64_t BoundFrame(const float pos[3], const float rot[4]) {
 	return v && q ? Call(g_dc.allocBoundFrame, { v, q, 0, 0, 0 }) : 0;
 }
 
+void PlaceNpc(uint64_t npc, uint64_t frame) {
+	if (!npc || !frame) return;
+	Call(g_dc.setObjectLocator ? g_dc.setObjectLocator : g_dc.teleport, { npc, frame });
+}
+
 Chapter CurrentChapter() { return { Call(g_dc.taskNode, {}), Call(g_dc.taskSubnode, {}) }; }
 
 bool InCutscene() {

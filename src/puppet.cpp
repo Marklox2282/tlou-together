@@ -457,7 +457,7 @@ void Hide() {
 void Show(uint64_t puppet, const Locator& at) {
 	Call(g_dc.sendEvent, { Sid("physicalize"), puppet });
 	Call(g_dc.setVisible, { puppet, 1 });
-	if (const uint64_t frame = BoundFrame(at.pos, at.rot)) Call(g_dc.teleport, { puppet, frame });
+	if (const uint64_t frame = BoundFrame(at.pos, at.rot)) PlaceNpc(puppet, frame);
 	g_hidden = false;
 	Log("puppet %016llX shown again", static_cast<unsigned long long>(puppet));
 }
@@ -564,7 +564,7 @@ void Update() {
 		const float err = haveCur ? Dist(cur.pos, target.pos) : 999.0f;
 		if (const uint64_t frame = BoundFrame(target.pos, target.rot)) {
 			if (!placedPuppet || err > 15.0f) {
-				Call(g_dc.teleport, { puppet, frame });
+				PlaceNpc(puppet, frame);
 				placedPuppet = puppet;
 			} else {
 				Call(g_dc.setObjectLocator, { puppet, frame });
@@ -630,7 +630,7 @@ void Update() {
 		judged = false;
 		lastSnapAt = lastCmdAt = now;
 		lastMode = -1;
-		if (const uint64_t frame = BoundFrame(target.pos, target.rot)) Call(g_dc.teleport, { puppet, frame });
+		if (const uint64_t frame = BoundFrame(target.pos, target.rot)) PlaceNpc(puppet, frame);
 		Log("puppet: snapped (%.1f m behind%s)", err, stuck ? ", stuck" : "");
 		return;
 	}
@@ -648,7 +648,7 @@ void Update() {
 		if ((err > 1.0f || yawOff > 1.0f) && now - lastSettle >= 3000) {  // реже и только при заметной разнице (рывки)
 			lastSettle = lastCmdAt = now;
 			lastMode = -1;
-			if (const uint64_t frame = BoundFrame(target.pos, target.rot)) Call(g_dc.teleport, { puppet, frame });
+			if (const uint64_t frame = BoundFrame(target.pos, target.rot)) PlaceNpc(puppet, frame);
 		}
 		// Долго стоит без команд - игра включает ей анимации ожидания; раз в 4 с повторяем
 		// "стой здесь" и манеру стойки (0 = ambient, 3 = crouch).
@@ -1136,7 +1136,7 @@ void ScriptTick() {
 		Hide();
 		if (NpcLocator(old, at)) {
 			at.pos[1] -= 1000.0f;
-			if (const uint64_t frame = BoundFrame(at.pos, at.rot)) Call(g_dc.teleport, { old, frame });
+			if (const uint64_t frame = BoundFrame(at.pos, at.rot)) PlaceNpc(old, frame);
 		}
 		Log("puppet: old copy %016llX put away, making a new one", static_cast<unsigned long long>(old));
 		g_puppet = 0;
