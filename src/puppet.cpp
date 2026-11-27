@@ -318,6 +318,10 @@ uint64_t Spawn(const Locator& at) {
 		uint64_t spSid = 0;
 		if (Read(spawner + kSpSid, spSid) && Call(g_dc.entityExists, { spSid })) return true;
 		const std::string hero = HeroName(ReadName(ReadPtr(spawner + kSpArt)));
+		// Сюжетный персонаж в игре называется своим именем ("tess"): если он уже в сцене, его спавнер
+		// отдаёт его самого или двойника с тем же именем - не трогаем (не зависит от списка спутников,
+		// который сразу после загрузки уровня ещё пуст).
+		if (!hero.empty() && Call(g_dc.entityExists, { Sid(hero.c_str()) })) return true;
 		if (!hero.empty() && std::find(buddyHeroes.begin(), buddyHeroes.end(), hero) != buddyHeroes.end()) return true;
 		if (!hero.empty() && std::find(g_badHeroes.begin(), g_badHeroes.end(), hero) != g_badHeroes.end()) return true;
 		for (uint64_t sid : CharacterSids(HeroName(ReadName(ReadPtr(spawner + kSpArt)))))
@@ -387,7 +391,9 @@ uint64_t Spawn(const Locator& at) {
 		return 0;
 	}
 	// Игра отдала настоящего спутника главы вместо новой копии - не трогаем его, спавнер в чёрный список.
-	if (std::find(buddies.begin(), buddies.end(), npc) != buddies.end() || npc == CurrentBuddy(0)) {
+	const std::string spawnedHero = HeroName(ReadName(ReadPtr(sp + kSpArt)));
+	if (std::find(buddies.begin(), buddies.end(), npc) != buddies.end() || npc == CurrentBuddy(0) ||
+		(!spawnedHero.empty() && npc == Sid(spawnedHero.c_str()))) {
 		Log("puppet: %s gave the chapter's real companion %016llX, not a copy - leaving it alone", name.c_str(),
 			static_cast<unsigned long long>(npc));
 		g_badSpawners.push_back(sp);
@@ -662,6 +668,7 @@ void Update() {
 		const float k = (err - 0.5f) / err;  // сразу до 0.5 м от настоящей позиции
 		float pulled[3];
 		for (int i = 0; i < 3; ++i) pulled[i] = cur.pos[i] + (target.pos[i] - cur.pos[i]) * k;
+		pulled[1] = cur.pos[1];  // только по горизонтали: высоту держит сама игра (иначе копия "летала")
 		if (const uint64_t frame = BoundFrame(pulled, cur.rot)) Call(g_dc.setObjectLocator, { puppet, frame });
 	}
 	// Скорость партнёра плюс догон: чем больше отстала, тем быстрее (бег - с 1.5 м/с, спринт - с 3.5).

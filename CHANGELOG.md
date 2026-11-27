@@ -6,11 +6,15 @@ The mod updates itself: a new version downloads when the game starts and is used
 ## 0.41.1
 
 - Fixed a crowd of Tess clones appearing on levels where Tess is the companion; the partner was invisible there.
+- Fixed: the real Tess could become the partner's copy right after a level loaded (she then followed the partner around and the game could crash).
+- The partner's copy no longer floats in the air: it is only pulled sideways, the game keeps it on the ground.
 - When no story character fits, the partner's copy can now be any ordinary human NPC on the level.
 
 ---
 
 - Исправлено: на уровнях, где Тесс — спутница, появлялась толпа Тесс, а напарника не было видно.
+- Исправлено: сразу после загрузки уровня копией напарника могла стать настоящая Тесс (она ходила за напарником, игра могла упасть).
+- Копия напарника больше не летает: её подтягивает только по горизонтали, на земле её держит игра.
 - Если сюжетного персонажа для копии нет, напарником может стать любой обычный NPC-человек на уровне.
 
 ## 0.41.0
