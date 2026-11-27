@@ -72,6 +72,7 @@ bool MeFlashlight();
 void SetPartnerStance(bool crouched, bool aiming);
 void SetPartnerAimPitch(float pitch);
 void SetPartnerFlashlight(bool on);
+void SetPartnerInCutscene(bool on);  // у партнёра катсцена: его позиция не место на карте - к нему не переносим
 // Броски: свои (для отправки) и партнёра (повторяются настоящим предметом throw-projectile).
 struct Throw { uint64_t item; float from[3], to[3]; };
 std::vector<Throw> TakeMyThrows();

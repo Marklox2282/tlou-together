@@ -8,14 +8,14 @@ The mod updates itself: a new version downloads when the game starts and is used
 - Fixed: the partner's copy stood in a fighting stance with fists up and did not crouch (the stance command got a wrong value).
 - Fewer jumps of the copy: it is corrected only when it falls more than 3 m behind, or more than 2 m off while the partner stands.
 - The copy no longer sinks into the floor on stairs and slopes.
-- Cutscenes: when your partner's cutscene starts and yours does not, you are moved to your partner so it starts for you too.
+- Fixed: during cutscenes a player could be teleported under the map (after loading the partner's checkpoint or with F7); no teleports while a cutscene plays.
 
 ---
 
 - Исправлено: копия напарника стояла в боевой стойке с кулаками и не приседала (в команду стойки уходило неверное значение).
 - Меньше рывков копии: её поправляют, только если она отстала больше чем на 3 м, или отошла больше чем на 2 м, когда напарник стоит.
 - Копия больше не проваливается в пол на ступеньках и уклонах.
-- Катсцены: если у напарника началась катсцена, а у вас нет, вас переносит к нему, и она начинается и у вас.
+- Исправлено: во время катсцен игрока могло перенести под карту (после загрузки чекпоинта напарника или по F7); пока идёт катсцена, никого не переносит.
 
 ## 0.42.2
 

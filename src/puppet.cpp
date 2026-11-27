@@ -163,7 +163,7 @@ std::atomic<int> g_myDifficulty{ -1 }, g_wantDifficulty{ -1 };
 std::atomic<int> g_ownDifficulty{ -1 };  // своя сложность до хоста - вернуть при отключении
 uint64_t g_buddyFaction = 0;  // фракция спутника до нас - вернуть при отпускании
 std::atomic<bool> g_meCrouched{ false }, g_meAiming{ false }, g_partnerCrouched{ false }, g_partnerAiming{ false };
-std::atomic<bool> g_meFlashlight{ false }, g_partnerFlashlight{ false };
+std::atomic<bool> g_meFlashlight{ false }, g_partnerFlashlight{ false }, g_partnerInCutscene{ false };
 std::atomic<bool> g_meHealing{ false }, g_partnerHealing{ false };
 SRWLOCK g_throwLock = SRWLOCK_INIT;
 std::vector<Throw> g_myThrows, g_partnerThrows;  // под g_throwLock
@@ -700,6 +700,11 @@ void Update() {
 constexpr uint64_t kBoxedBoundFrame = 18;
 
 void TeleportToPartner() {
+	// В катсцене (своей или партнёра) позиция партнёра - не место на карте: переносило под карту.
+	if (g_inCutscene || g_partnerInCutscene) {
+		Log("F7: not now - a cutscene is playing");
+		return;
+	}
 	// По сети - к настоящей позиции партнёра (копия могла застрять в другом месте), без сети - к копии.
 	Locator partner{};
 	const uint64_t puppet = g_puppet;
@@ -972,6 +977,7 @@ void SetPartnerStance(bool crouched, bool aiming) {
 }
 void SetPartnerAimPitch(float pitch) { g_partnerAimPitch = pitch; }
 void SetPartnerFlashlight(bool on) { g_partnerFlashlight = on; }
+void SetPartnerInCutscene(bool on) { g_partnerInCutscene = on; }
 std::vector<Throw> TakeMyThrows() {
 	std::vector<Throw> out;
 	AcquireSRWLockExclusive(&g_throwLock);
