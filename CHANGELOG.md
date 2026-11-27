@@ -6,10 +6,12 @@ The mod updates itself: a new version downloads when the game starts and is used
 ## v36
 
 - No more T-pose: when there is no NPC of your sex on the level, your partner's copy keeps its own look (for example Marlene) but moves properly, crouches and stands. Where such an NPC exists, it looks like your character as before.
+- The partner's copy no longer falls far behind when running: it is pulled to the partner's real position.
 
 ---
 
 - Больше нет Т-позы: если на уровне нет NPC вашего пола, копия напарника остаётся в своём облике (например, Марлин), но нормально двигается, приседает и стоит. Где такой NPC есть, напарник выглядит как ваш персонаж, как и раньше.
+- Копия напарника больше не отстаёт далеко на бегу: её подтягивает к настоящей позиции напарника.
 
 ## v35
 

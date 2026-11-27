@@ -548,6 +548,15 @@ void Update() {
 		return;
 	}
 	if (targetSpeed < 0.5f && err < 1.5f) return;
+	// Догон по месту: ИИ бежит своей дорогой (обходы, прыжки) и отстаёт на десятки метров. Сверх
+	// 1.5 м подтягиваем копию к партнёру - половину лишнего раз в 0.1 с; бег (анимацию) ведёт
+	// команда ниже. Позиция у партнёра - настоящая, рассинхрона "бегу сзади, а я впереди" нет.
+	if (UsingNetwork() && g_dc.setObjectLocator && err > 1.5f && err < 15.0f) {
+		const float k = 0.5f * (err - 1.5f) / err;
+		float pulled[3];
+		for (int i = 0; i < 3; ++i) pulled[i] = cur.pos[i] + (target.pos[i] - cur.pos[i]) * k;
+		if (const uint64_t frame = BoundFrame(pulled, cur.rot)) Call(g_dc.setObjectLocator, { puppet, frame });
+	}
 	// Скорость партнёра плюс догон: чем больше отстала, тем быстрее (бег - с 1.5 м/с, спринт - с 3.5).
 	const float speed = targetSpeed + (err > 1.0f ? (err - 1.0f) * 1.2f : 0.0f);
 	const int mode = speed < 1.5f ? 0 : (speed < 3.5f ? 1 : 2);
