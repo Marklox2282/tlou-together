@@ -23,7 +23,7 @@ namespace {
 
 // ---- след ----------------------------------------------------------------------------------
 constexpr int kTrail = 256;
-constexpr ULONGLONG kLocalDelayMs = 1000, kNetDelayMs = 70;
+constexpr ULONGLONG kLocalDelayMs = 1000, kNetDelayMs = 120;
 std::atomic<ULONGLONG> g_trailDelay{ kLocalDelayMs };
 struct Sample { ULONGLONG t; Locator l; };
 Sample g_trail[kTrail];
@@ -752,6 +752,9 @@ void FinishJoin() {
 void Record(uint64_t nowMs, const Locator& l, uint32_t senderMs) {
 	AcquireSRWLockExclusive(&g_trailLock);
 	ULONGLONG t = nowMs;
+	// Время по часам отправителя (с v31) давало копии старые позиции, когда часы съезжали:
+	// раскладываем позы по времени прихода, как до v31 (копия была видна всегда).
+	senderMs = 0;
 	if (senderMs) {
 		if (!g_lastArrivalMs || nowMs - g_lastArrivalMs > 500 || senderMs < g_lastSenderMs || senderMs - g_lastSenderMs > 500) {
 			g_senderBase = senderMs;
@@ -977,17 +980,18 @@ void ScriptTick() {
 	if (!g_wanted && g_puppet) Hide();
 	static bool cutscenePausedBuddy = false;
 	static bool cutsceneHidClone = false;
-	const bool inCutsceneNow = g_inCutscene.load(std::memory_order_relaxed);
+	// Отдавать спутника ИИ на катсцену не будем: определение катсцены ложно срабатывало, и спутник,
+	// изображающий партнёра, уходил сам по себе. Как до v31.
+	const bool inCutsceneNow = false;
 	if (inCutsceneNow) {
 		if (g_puppet && g_puppetIsBuddy && !cutscenePausedBuddy) {
 			cutscenePausedBuddy = true;
 			Call(g_dc.scriptMode, { g_puppet, g_buddyMode, 1 });
 			for (NativeFn off : { g_dc.setIgnore, g_dc.setBlind, g_dc.setDeaf }) Call(off, { g_puppet, 0 });
 			Log("puppet: yielded companion to cutscene");
-		} else if (g_puppet && !g_puppetIsBuddy && !g_hidden) {
-			cutsceneHidClone = true;
-			Hide();
 		}
+		// Копию NPC в катсцене не прячем: определение катсцены срабатывало ложно (40 с во время F7),
+		// и партнёр пропадал.
 	} else {
 		if (cutscenePausedBuddy && g_puppet && g_puppetIsBuddy) {
 			AiOff(g_puppet);
@@ -1289,7 +1293,7 @@ void ScriptTick() {
 		healShown = heal;
 	}
 	s = QpcNow();
-	if (g_wanted && !g_inCutscene) Update();
+	if (g_wanted) Update();
 	ProfileAdd("[update]", MicrosecondsSince(s));
 	if (g_netActive) enemies::Tick(g_puppet);
 	QueryPerformanceCounter(&b);

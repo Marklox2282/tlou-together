@@ -3,6 +3,14 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## v37
+
+- Less desync: the partner's copy uses the arrival time of positions again (as before v31) and is no longer hidden or left uncontrolled by a falsely detected cutscene.
+
+---
+
+- Меньше рассинхрона: копия напарника снова раскладывает позиции по времени прихода (как до v31) и больше не прячется и не отпускается из-за ложно определённой катсцены.
+
 ## v36
 
 - No more T-pose: when there is no NPC of your sex on the level, your partner's copy keeps its own look (for example Marlene) but moves properly, crouches and stands. Where such an NPC exists, it looks like your character as before.
