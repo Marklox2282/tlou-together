@@ -61,7 +61,8 @@ struct Natives {
 		healProgress,     // необязательная: player-get-heal-progress
 		gesture,          // необязательная: gesture_ (жест/анимация NPC)
 		gestureParams,    // необязательная: alloc-gesture-play-params
-		animState;        // необязательная: get-object-anim-state (состояние анимации, sid)
+		animState,        // необязательная: get-object-anim-state (состояние анимации, sid)
+		meleeTarget;      // необязательная: get-melee-target (цель рукопашки, 0 - не дерётся)
 };
 extern Natives g_dc;
 bool InitNatives();  // false, если какой-то не найден

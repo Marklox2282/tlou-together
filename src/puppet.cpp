@@ -197,6 +197,10 @@ const char* const kTraversalStates[] = {
 	"s_rope-climb-start-swim", "s_rope-climb-swing", "s_rope-climb-up", "s_rope-climb-up^idle", "s_slide-fall",
 	"s_slide-intro", "s_slide-land", "s_slide-loop-l", "s_slide-loop-r", "s_slide-run-up-intro",
 	"s_slide-sit-land", "s_slide-sit-loop-r", "s_wall-landing", "s_jump", "s_jump-up", "s_jump-down", "s_vault",
+	// Захваты и удушения (anim-player/player-grapple): тоже копируем анимацию.
+	"s_grapple-180", "s_grapple-aim-idle", "s_grapple-aim^stand", "s_grapple-counter", "s_grapple-idle",
+	"s_grapple-npc-death", "s_grapple-npc-death-aim", "s_grapple-stand", "s_grapple-strafe-backward",
+	"s_grapple-strafe-forward", "s_grapple-struggle", "s_grapple-death",
 	"s_mantle", "s_climb-up", "s_climb-down", "s_fall", "s_falling", "s_land",
 };
 const char* TraversalStateName(uint64_t state) {
@@ -1011,6 +1015,9 @@ static void TraversalTick() {
 	}
 	memcpy(prev, me.pos, sizeof(prev));
 	prevAt = now;
+	// Рукопашка: у игрока есть цель удара (get-melee-target) - анимацию тоже копируем.
+	const bool melee = g_dc.meleeTarget && Call(g_dc.meleeTarget, { Sid("player") }) != 0;
+	if (melee && !stateName) stateName = "melee";
 	if (stateName || vertical) g_meTraversalAt = now;
 	const ULONGLONG at = g_meTraversalAt;
 	const bool on = at && now - at < 600;

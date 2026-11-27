@@ -260,7 +260,8 @@ bool InitNatives() {
 	// сразу при появлении копии, и с v31 копия стояла в Т-позе.
 	for (const auto& [slot, name] : { std::pair<NativeFn*, const char*>{ &g_dc.throwProjectile, "throw-projectile" },
 			{ &g_dc.healProgress, "player-get-heal-progress" }, { &g_dc.gesture, "gesture_" },
-			{ &g_dc.gestureParams, "alloc-gesture-play-params" }, { &g_dc.animState, "get-object-anim-state" } }) {
+			{ &g_dc.gestureParams, "alloc-gesture-play-params" }, { &g_dc.animState, "get-object-anim-state" },
+			{ &g_dc.meleeTarget, "get-melee-target" } }) {
 		if ((*slot = FindNative(name))) NameNative(*slot, name);
 		else Log("natives: %s not found (optional)", name);
 	}

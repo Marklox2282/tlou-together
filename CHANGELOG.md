@@ -9,6 +9,7 @@ The mod updates itself: a new version downloads when the game starts and is used
 - Tess and other companions: when the guest's companion wanders more than 6 m away from where the host's is and you can't see it, it is moved there.
 - More stable: animation copying while climbing is off by default (`climb_anims=on` in `tlou-together.ini` to try it).
 - The partner's copy raises its weapon and fires again without that option.
+- Experimental (with `climb_anims=on`): melee and grabs/chokes are copied onto the partner's copy too.
 
 ---
 
@@ -16,6 +17,7 @@ The mod updates itself: a new version downloads when the game starts and is used
 - Тесс и другие спутники: если у гостя спутник ушёл дальше 6 м от того места, где он у хоста, и его не видно, его переносит туда.
 - Стабильнее: перенос анимаций при лазанье по умолчанию выключен (`climb_anims=on` в `tlou-together.ini`, чтобы попробовать).
 - Копия напарника снова поднимает оружие и стреляет и без этой настройки.
+- Экспериментально (с `climb_anims=on`): рукопашка и захваты/удушения тоже копируются на копию напарника.
 
 ## v39
 
