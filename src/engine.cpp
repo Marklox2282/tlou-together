@@ -246,12 +246,14 @@ bool InitNatives() {
 	else Log("natives: cinematic-transition-movie-playing? not found (optional)");
 	if ((g_dc.flashlightOn = FindNative("player-flashlight-on?"))) NameNative(g_dc.flashlightOn, "player-flashlight-on?");
 	else Log("natives: player-flashlight-on? not found (optional)");
-	// Не подключаем (остаются nullptr): set-prop-flashlight-on-off, player-ignore-object-collision,
+	if ((g_dc.setPropFlashlight = FindNative("set-prop-flashlight-on-off"))) NameNative(g_dc.setPropFlashlight, "set-prop-flashlight-on-off");
+	else Log("natives: set-prop-flashlight-on-off not found (optional)");
+	// Не подключаем (остаются nullptr): player-ignore-object-collision,
 	// set-collision-between-bodies, npc-set-force-player-push - вызывались с угаданными аргументами
 	// сразу при появлении копии, и с v31 копия стояла в Т-позе.
 	for (const auto& [slot, name] : { std::pair<NativeFn*, const char*>{ &g_dc.throwProjectile, "throw-projectile" },
 			{ &g_dc.healProgress, "player-get-heal-progress" }, { &g_dc.gesture, "gesture_" },
-			{ &g_dc.gestureParams, "alloc-gesture-play-params" } }) {
+			{ &g_dc.gestureParams, "alloc-gesture-play-params" }, { &g_dc.animState, "get-object-anim-state" } }) {
 		if ((*slot = FindNative(name))) NameNative(*slot, name);
 		else Log("natives: %s not found (optional)", name);
 	}
@@ -448,6 +450,23 @@ std::vector<uint64_t> CharacterSids(const std::string& character) {
 	return out;
 }
 
+std::vector<uint64_t> CarryableSids(std::vector<std::string>& names) {
+	std::vector<uint64_t> out;
+	names.clear();
+	ForEachSpawner([&](uintptr_t, const SpawnerHead& h) {
+		if (!h.type || !h.sid) return true;
+		const std::string name = ReadName(h.name), art = ReadName(h.art);
+		auto has = [](const std::string& s, const char* w) { return s.find(w) != std::string::npos; };
+		if (has(name, "npc") || has(art, "costume")) return true;
+		if (has(name, "plank") || has(art, "plank") || has(name, "ladder") || has(art, "ladder")) {
+			out.push_back(h.sid);
+			names.push_back(name + " (" + art + ")");
+		}
+		return out.size() < 64;
+	});
+	return out;
+}
+
 uintptr_t FindBuddySpawner(const std::string& hero, const std::vector<uintptr_t>& exclude, std::string& nameOut) {
 	uintptr_t best = 0;
 	int bestRank = 0;
@@ -455,19 +474,25 @@ uintptr_t FindBuddySpawner(const std::string& hero, const std::vector<uintptr_t>
 		if (!h.type || (h.flags0 & kSpDisabled)) return true;
 		for (uintptr_t bad : exclude)
 			if (bad == sp) return true;
-		const std::string art = ReadName(h.art);
-		int rank = SpawnerRank(art, hero) * 2;
-		if (!rank) return true;
-		// "snpc-..." - упрощённая массовка; полноценный NPC ("npc-...", сюжетный) надёжнее
-		// принимает команды движения, поэтому при равном ранге он впереди.
 		const std::string name = ReadName(h.name);
-		if (name.rfind("snpc-", 0) != 0) ++rank;
+		// Чекпоинт/катсцен-спаунеры (continue-*, igc-*, movie-*) не являются обычными NPC-спаунерами.
+		if (name.rfind("continue-", 0) == 0 || name.rfind("igc-", 0) == 0 || name.rfind("movie-", 0) == 0)
+			return true;
+		const std::string art = ReadName(h.art);
+		const int artRank = SpawnerRank(art, hero);
+		if (!artRank) return true;
+		// Полноценные NPC ("npc-..." / "...-npc-...") надёжнее принимают команды и анимации,
+		// чем "snpc-..." (упрощённая массовка) или прочие служебные спаунеры.
+		const bool isNpc = name.rfind("npc-", 0) == 0 || name.find("-npc-") != std::string::npos;
+		const bool isSnpc = name.rfind("snpc-", 0) == 0 || name.find("-snpc-") != std::string::npos;
+		const int nameBonus = isNpc ? 3 : (isSnpc ? 0 : 1);
+		const int rank = artRank * 4 + nameBonus;
 		if (rank > bestRank) {
 			best = sp;
 			bestRank = rank;
 			nameOut = name + " (" + art + ")";
 		}
-		return bestRank < 9;
+		return bestRank < 19;
 	});
 	return best;
 }

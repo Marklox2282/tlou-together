@@ -987,6 +987,12 @@ void ShowLobbyAgain() {
 	if (g_mainMenu) RequestReopen(300);
 }
 
+void OnEnterGame() {
+	g_boxOpen = false;
+	g_reopen = false;
+	g_startGame = false;
+}
+
 void Notify(Note id, const std::string& name) {
 	AcquireSRWLockExclusive(&g_noteLock);
 	if (g_notes.size() < 8) g_notes.push_back({ id, name });

@@ -16,6 +16,7 @@
 
 #include "anim.hpp"
 #include "enemies.hpp"
+#include "objects.hpp"
 #include "engine.hpp"
 #include "clipboard.hpp"
 #include "log.hpp"
@@ -48,6 +49,7 @@ bool KeyPressed(int vk, bool& wasDown) {
 bool g_storySync = true;  // ini story_sync=off - не подтягиваться к чекпоинту партнёра
 bool g_sharedDeath = true;  // ini shared_death=off - смерть партнёра не перезагружает нас
 bool g_animSync = false;
+bool g_climbAnims = true;  // ini climb_anims: перенос анимаций только на время подъёма/прыжка
 ULONGLONG g_lastStoryJoin = 0;  // последняя загрузка главы партнёра (общая пауза для всех причин)  // ini anim_sync=on - экспериментальный перенос анимаций игрока (по умолчанию выкл)
 // tlou-together.ini рядом с игрой; без peer_ip связь идёт через Steam.
 net::Config LoadConfig(std::string& name) {
@@ -55,6 +57,7 @@ net::Config LoadConfig(std::string& name) {
 	g_storySync = true;
 	g_sharedDeath = true;
 	g_animSync = false;
+	g_climbAnims = true;
 	const std::wstring path = GameDirFile(L"tlou-together.ini");
 	// Мод назывался tlou1-coop: настройки из старого файла переносим один раз.
 	if (const std::wstring old = GameDirFile(L"tlou1-coop.ini"); !path.empty() && !old.empty())
@@ -79,6 +82,8 @@ net::Config LoadConfig(std::string& name) {
 				"; enemy_sync = soft (default): enemies keep their AI, moved to the host's spot off-screen.\n"
 				";             full (experimental): the guest's enemies copy the host's moves; they don't attack yet.\n"
 				"; anim_sync  = off (default) / on (experimental): direct bone animation replication for partner.\n"
+				"; climb_anims = on (default): your animation is copied to your partner only while you climb a ladder,\n"
+				";             jump or vault (off: the copy just slides along). Needs a game restart.\n"
 				"name=\npeer_ip=\nport=7777\npeer_port=7777\ncharacter=auto\nanim_sync=off\n", f);
 			fclose(f);
 		}
@@ -104,9 +109,11 @@ net::Config LoadConfig(std::string& name) {
 		else if (key == "partner_outline") puppet::SetPartnerOutline(value != "off");
 		else if (key == "character") puppet::SetMyCharacter(puppet::CharacterFromName(value));
 		else if (key == "anim_sync") g_animSync = (value == "on" || value == "1" || value == "true");
+		else if (key == "climb_anims") g_climbAnims = value != "off";
 	}
 	fclose(f);
 	puppet::SetAnimSync(g_animSync);
+	puppet::SetClimbAnims(g_climbAnims);
 	return cfg;
 }
 
@@ -267,6 +274,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	if (on != wasOn) {  // сеть включилась или выключилась (клавиши, меню, лобби)
 		wasOn = on;
 		if (on) enemies::Reset();
+		if (on) objects::Reset();
 		if (on) menu::Notify(menu::NoteSearching);
 		puppet::SetNetActive(on);
 		if (!on) {
@@ -321,6 +329,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		puppet::SetPartnerStance((pose.flags & net::kFlagCrouch) != 0, (pose.flags & net::kFlagAim) != 0);
 		puppet::SetPartnerFlashlight((pose.flags & net::kFlagFlashlight) != 0);
 		puppet::SetPartnerHealing((pose.flags & net::kFlagHealing) != 0);
+		puppet::SetPartnerTraversing((pose.flags & net::kFlagTraversal) != 0);
 		if (std::isfinite(pose.health)) puppet::SetPartnerAimPitch(pose.health);
 		puppet::SetPartnerCharacter(puppet::CharacterFromSid(pose.target));
 		char look[sizeof(pose.name) + 1]{};
@@ -340,7 +349,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		puppet::Record(now, l, pose.modVersion);
 	}
 	const bool connected = g_link.GetState() == net::State::Connected;
-	if (connected && g_animSync) {
+	if (connected && (g_animSync || g_climbAnims)) {
 		for (const auto& frame : g_link.TakeAnimFrames())
 			anim::PushRx(frame.data(), frame.size(), now);
 		static std::vector<uint8_t> animTx;
@@ -351,26 +360,57 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	}
 	const engine::Chapter theirs = connected ? engine::Chapter{ g_link.PeerChapter().first, g_link.PeerChapter().second } : engine::Chapter{};
 	puppet::SetPartnerChapter(theirs);
-	// Хозяин нажал "Продолжить" / "Новая игра": у гостя само открывается меню сюжета, он жмёт
-	// "Продолжить". Когда оба в игре (от хоста пошли позы - их шлют только из игры, не из меню),
-	// гость один раз грузит главу хоста. Из главного меню ничего не грузим.
-	static bool joinHost = false;
-	static ULONGLONG hostStartedAt = 0, lastPoseAt = 0, enteredAt = 0;
+	// Хозяин нажал "Продолжить" / "Новая игра": у гостя как только приходят позы и живая глава
+	// хоста (т.е. хост уже точно загрузился в уровень, глава не устаревшая), грузим ту же главу
+	// напрямую из главного меню через task-play-debug! без необходимости жать "Продолжить" вручную.
+	static bool joinHost = false, autoLaunchHost = false, everHadPlayer = false, menuJoinSent = false;
+	static ULONGLONG autoLaunchSince = 0, firstLivePoseAt = 0, lastPoseAt = 0, enteredAt = 0;
 	static bool hadPlayer = false;
 	if (gotPose) lastPoseAt = now;
 	const bool entered = havePlayer && !hadPlayer;  // только что появились в игре (загрузка закончилась)
 	hadPlayer = havePlayer;
+	if (havePlayer) everHadPlayer = true;
+	if (!connected) everHadPlayer = false;
+	// Загрузка из меню уже запущена: пока идёт загрузка (игрока ещё нет), позы хоста идут дальше -
+	// не запускаем task-play-debug! второй раз посреди загрузки.
+	if (havePlayer || !connected) menuJoinSent = false;
+	if (entered) menu::OnEnterGame();
 	// Хост: сигнал гостю, как только сам оказался в игре - неважно, какой кнопкой (Продолжить,
 	// Новая игра, глава): кнопки меню ловятся не всегда.
 	if (entered && connected && g_link.Authority()) {
 		g_link.SendStart();
 		Log("net: in the game - telling %s to start", g_link.PeerName().c_str());
 	}
-	if (g_link.TakePartnerStarted() && !havePlayer && !g_link.Authority()) {
+	if (g_link.TakePartnerStarted() && !havePlayer && !g_link.Authority() && !menuJoinSent) {
 		const bool opened = menu::StartGameFromPartner();
-		Log("net: %s started the game - %s", g_link.PeerName().c_str(), opened ? "opening the story menu" : "open the story yourself");
+		Log("net: %s started the game - auto-joining when host enters level (%s)", g_link.PeerName().c_str(),
+			opened ? "story menu opened" : "waiting for host chapter");
 		menu::Notify(menu::NoteStarted, g_link.PeerName());
-		hostStartedAt = now;
+		autoLaunchHost = true;
+		autoLaunchSince = now;
+		firstLivePoseAt = 0;
+	}
+	// Если гость подключился из главного меню, когда хост уже в игре — тоже закидываем автоматически.
+	if (!autoLaunchHost && !menuJoinSent && connected && !g_link.Authority() && !havePlayer && !everHadPlayer &&
+		theirs && lastPoseAt && now - lastPoseAt < 1000) {
+		autoLaunchHost = true;
+		autoLaunchSince = now;
+		firstLivePoseAt = now;
+	}
+	if (!connected || g_link.Authority() || havePlayer || (autoLaunchHost && now - autoLaunchSince > 300000)) {
+		autoLaunchHost = false;
+		firstLivePoseAt = 0;
+	}
+	if (autoLaunchHost && theirs && lastPoseAt && now - lastPoseAt < 1000) {
+		if (!firstLivePoseAt) firstLivePoseAt = now;
+		if (now - firstLivePoseAt >= 300 && now - g_lastStoryJoin > 15000) {
+			autoLaunchHost = false;
+			menuJoinSent = true;
+			firstLivePoseAt = 0;
+			g_lastStoryJoin = now;
+			Log("net: %s is in game - auto-loading host chapter from menu", g_link.PeerName().c_str());
+			puppet::RequestJoin(false);
+		}
 	}
 	// Гость: вошёл в игру - один раз к хосту (как F5), когда и хост в игре (от него идут позы), а главы
 	// разные. Ждём 3 с после входа, чтобы своя глава успела прочитаться.
@@ -387,7 +427,6 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 			puppet::RequestJoin(false);
 		}
 	}
-	(void)hostStartedAt;
 	// Друг в другой главе - подсказка в журнал при каждой смене.
 	static engine::Chapter lastHint;
 	if (theirs && mine && !(theirs == mine) && !(theirs == lastHint)) {
@@ -396,10 +435,16 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	}
 	// Общие враги: свои удары - партнёру (без подключения просто в журнал), его - в игру.
 	for (const enemies::Change& c : enemies::TakeOutgoing()) g_link.SendEnemy(c.npc, c.health, c.dead);
+	for (const objects::Placement& o : objects::TakeOutgoing()) g_link.SendObjectPos(o.object, o.pos, o.rot);
 	enemies::SetSendPositions(connected && g_link.Authority());
 	for (const enemies::Position& p : enemies::TakePositions()) g_link.SendEnemyPos(p.npc, p.pos, p.rot);
 	for (const net::Packet& p : g_link.TakeEnemyEvents()) {
-		if (p.type == net::kEnemyPos) {
+		if (p.type == net::kObjectPos) {
+			objects::Placement o{ p.target, {}, {} };
+			memcpy(o.pos, p.pos, sizeof(o.pos));
+			memcpy(o.rot, p.rot, sizeof(o.rot));
+			objects::Receive(o);
+		} else if (p.type == net::kEnemyPos) {
 			enemies::Position e{ p.target, {}, {} };
 			memcpy(e.pos, p.pos, sizeof(e.pos));
 			memcpy(e.rot, p.rot, sizeof(e.rot));
@@ -411,8 +456,12 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	// Общий сюжет: партнёр продвинулся (новый чекпоинт, катсцена, пропуск заставки) - синхронизируем
 	// чекпоинт быстрее при катсцене (600 мс вместо 2 с) и без долгого 20-секундного блока (6 с).
 	// Если оба сменили главу почти одновременно — не-хост следует за хостом.
-	static engine::Chapter lastTheirs;
-	static ULONGLONG followAt = 0;
+	static engine::Chapter lastTheirs, lastMine;
+	static ULONGLONG followAt = 0, mineChangedAt = 0;
+	if (!(mine == lastMine)) {
+		lastMine = mine;
+		mineChangedAt = now;
+	}
 	static bool wasSameChapter = false;
 	const bool meCut = puppet::MeInCutscene();
 	const bool partnerCut = g_link.PeerInCutscene();
@@ -428,13 +477,21 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 			lastTheirs = theirs;
 		}
 		if (followAt && now >= followAt && havePlayer) {  // из главного меню не грузим
-			followAt = 0;
-			constexpr ULONGLONG kJoinCooldownMs = 20000;
-			if (g_storySync && !(theirs == mine) && now - g_lastStoryJoin > kJoinCooldownMs) {
+			const ULONGLONG cooldownMs = (partnerCut && !meCut) ? 2500 : 6000;
+			// Оба сменили чекпоинт почти одновременно (каждый в свой): хост остаётся, следует только гость,
+			// иначе оба грузили бы чекпоинт друг друга и менялись местами по кругу.
+			const bool hostStays = g_link.Authority() && now - mineChangedAt < 5000;
+			if (!g_storySync || (theirs == mine) || hostStays) {
+				if (hostStays && g_storySync && !(theirs == mine)) Log("net: both reached new checkpoints at once - %s follows me", g_link.PeerName().c_str());
+				followAt = 0;
+			} else if (now - g_lastStoryJoin > cooldownMs) {
+				followAt = 0;
 				g_lastStoryJoin = now;
 				Log("net: %s reached a new checkpoint%s; loading it to stay together", g_link.PeerName().c_str(),
 					partnerCut ? " (cutscene)" : (meCut && !partnerCut ? " (skipped cutscene)" : ""));
 				puppet::RequestJoin(false);
+			} else {
+				followAt = g_lastStoryJoin + cooldownMs;
 			}
 		}
 	} else if (!connected) {
@@ -448,7 +505,8 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 			static_cast<uint16_t>((puppet::MeCrouched() ? net::kFlagCrouch : 0) |
 				(puppet::MeAiming() ? net::kFlagAim : 0) |
 				(puppet::MeFlashlight() ? net::kFlagFlashlight : 0) |
-				(puppet::MeHealing() ? net::kFlagHealing : 0)),
+				(puppet::MeHealing() ? net::kFlagHealing : 0) |
+				(puppet::MeTraversing() ? net::kFlagTraversal : 0)),
 			now, puppet::MeAimPitch());
 	}
 }
@@ -617,8 +675,9 @@ void Init() {
 		std::string name;
 		LoadConfig(name);  // персонаж, anim_sync и режим врагов - сразу, до установки хуков
 	}
-	if (g_animSync) anim::Init(engine::g_base, Log);
-	else Log("anim: off (set anim_sync=on in tlou-together.ini to test)");
+	if (g_animSync || g_climbAnims) anim::Init(engine::g_base, Log);
+	else Log("anim: off (climb_anims=off and anim_sync=off in tlou-together.ini)");
+	Log("anim: %s", g_animSync ? "full copy (anim_sync=on)" : g_climbAnims ? "copied only while climbing/jumping" : "not copied");
 	// Код лобби в буфере обмена (для окна "войти по коду"): "0D7C-RFW" или пусто.
 	menu::Install(ReadLobby, [](menu::Action a) { g_menuAction = a; },
 		[] { return net::Link::LobbyCode(net::Link::LobbyFromCode(clipboard::Text())); });  // проверенный код, не сам буфер

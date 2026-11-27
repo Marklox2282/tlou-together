@@ -26,6 +26,11 @@ void PushRx(const uint8_t* data, size_t len, uint64_t nowMs);
 // Есть ли свежие кадры анимации от партнёра (чтобы не конфликтовать с setDemeanor/weaponUp).
 bool HasActiveRx(uint64_t nowMs);
 
+// Сколько кадров подряд игра строит копии только bindpose без клипов (Т-поза); 0 - норма.
+uint32_t PuppetTposeStreak();
+// Хук CreateAnimCmds стоит (иначе ни переноса анимаций, ни сторожа Т-позы).
+bool HooksOk();
+
 // Диагностика / статистика.
 struct Stats {
 	uint64_t txFrames = 0;

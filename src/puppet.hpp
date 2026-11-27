@@ -86,6 +86,11 @@ void SetEnemiesSeePartner(bool on);
 void SetPartnerOutline(bool on);
 // Экспериментальная покадровая синхронизация анимаций (ini anim_sync, по умолчанию выкл).
 void SetAnimSync(bool on);
+// Перенос анимаций только на время подъёма/прыжка (ini climb_anims, по умолчанию вкл).
+void SetClimbAnims(bool on);
+bool ClimbAnims();
+bool MeTraversing();                // лезу по лестнице / прыгаю / перелезаю (для позы)
+void SetPartnerTraversing(bool on); // из позы партнёра
 // Сложность: своя (для ведущей стороны) и "играть на сложности хоста" (гость); -1 - вернуть свою.
 int MyDifficulty();
 void FollowDifficulty(int difficulty);

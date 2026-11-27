@@ -50,5 +50,7 @@ void Notify(Note id, const std::string& name = {});  // текст - на язы
 bool StartGameFromPartner();
 // Показать лобби заново, как только наше окно закрыто (например, друг подключился).
 void ShowLobbyAgain();
+// Перешли из главного меню в игру: сбросить состояние всплывающих окон главного меню.
+void OnEnterGame();
 
 }  // namespace menu

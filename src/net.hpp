@@ -11,7 +11,7 @@ namespace net {
 
 constexpr uint32_t kMagic = 0x4F433154;  // "T1CO"
 constexpr uint8_t kProtocol = 3;          // 1 = v7 (без рукопожатия), 2 = v8 (без врагов)
-enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kEnemyPos = 6, kDeath = 7, kSettings = 8, kWeapon = 9, kStart = 10, kAnim = 11, kReady = 12, kPing = 13, kPong = 14, kThrow = 15 };  // 5 - бывший обмен ролями
+enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kEnemyPos = 6, kDeath = 7, kSettings = 8, kWeapon = 9, kStart = 10, kAnim = 11, kReady = 12, kPing = 13, kPong = 14, kThrow = 15, kObjectPos = 16 };  // 5 - бывший обмен ролями
 constexpr uint16_t kFlagDead = 1;  // kEnemy: враг убит
 constexpr uint16_t kFlagHero = 2;  // kPose: отправитель играет за героя главы
 constexpr uint16_t kFlagFiring = 4;  // kPose: отправитель стреляет
@@ -20,6 +20,7 @@ constexpr uint16_t kFlagReady = 32;  // kReady/kHello/kPose: игрок нажа
 constexpr uint16_t kFlagCutscene = 64;  // kReady/kPose: сейчас идёт катсцена/заставка
 constexpr uint16_t kFlagFlashlight = 128;  // kPose: включён фонарик игрока
 constexpr uint16_t kFlagHealing = 256;  // kPose: лечится (аптечка)
+constexpr uint16_t kFlagTraversal = 512;  // kPose: лезет по лестнице / прыгает / перелезает
 
 #pragma pack(push, 1)
 struct Packet {
@@ -73,7 +74,8 @@ public:
 	// Ведущая сторона (позиции врагов): хозяин лобби; без лобби - больший Steam ID (по UDP - меньший порт).
 	bool Authority() const;
 	void SendEnemy(uint64_t npc, float health, bool dead);  // через Steam - с гарантией доставки
-	std::vector<Packet> TakeEnemyEvents();                  // полученные kEnemy и kEnemyPos с прошлого раза
+	std::vector<Packet> TakeEnemyEvents();                  // полученные kEnemy, kEnemyPos и kObjectPos с прошлого раза
+	void SendObjectPos(uint64_t object, const float pos[3], const float rot[4]);  // переносной предмет поставлен сюда
 	void SendEnemyPos(uint64_t npc, const float pos[3], const float rot[4]);  // хозяин: где его враг
 	void SendDeath();          // свой игрок погиб (с гарантией доставки)
 	void SendSettings(uint32_t difficulty);  // ведущая сторона: её сложность

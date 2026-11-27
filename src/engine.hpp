@@ -60,7 +60,8 @@ struct Natives {
 		throwProjectile,  // необязательная: бросок предмета (throw-projectile)
 		healProgress,     // необязательная: player-get-heal-progress
 		gesture,          // необязательная: gesture_ (жест/анимация NPC)
-		gestureParams;    // необязательная: alloc-gesture-play-params
+		gestureParams,    // необязательная: alloc-gesture-play-params
+		animState;        // необязательная: get-object-anim-state (состояние анимации, sid)
 };
 extern Natives g_dc;
 bool InitNatives();  // false, если какой-то не найден
@@ -125,6 +126,9 @@ static_assert(offsetof(SpawnerHead, sid) == kSpSid && offsetof(SpawnerHead, name
 uintptr_t FindBuddySpawner(const std::string& hero, const std::vector<uintptr_t>& exclude, std::string& nameOut);
 // Имена (sid) NPC всех спавнеров этого сюжетного персонажа ("marlene") на загруженных уровнях.
 std::vector<uint64_t> CharacterSids(const std::string& character);
+// Переносные предметы (доски, лестницы): имена (sid) объектов спавнеров с "plank"/"ladder" в имени
+// или арте; names - их имена для журнала. Перебор всех спавнеров: звать редко.
+std::vector<uint64_t> CarryableSids(std::vector<std::string>& names);
 // Спутник главы (Тесс, Элли, Билл...): первый живой NPC из списка спутников игры
 // ('all-buddy-npcs), кроме exclude. 0 - спутника нет. Скриптовый контекст.
 uint64_t CurrentBuddy(uint64_t exclude);

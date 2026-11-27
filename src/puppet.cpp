@@ -8,11 +8,14 @@
 #include <cstring>
 #include <deque>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "anim.hpp"
 #include "enemies.hpp"
 #include "log.hpp"
+#include "objects.hpp"
 #include "puppet.hpp"
 
 using namespace engine;
@@ -169,6 +172,52 @@ bool IsThrowable(uint64_t w) {
 }
 std::atomic<float> g_meAimPitch{ 0.0f }, g_partnerAimPitch{ 0.0f };
 std::atomic<bool> g_inCutscene{ false };
+// Подъём по лестнице, прыжок, перелезание, перенос доски: в это время npc-move-to копию туда не
+// ведёт, поэтому копию ставим точно по позиции партнёра и (если стоит хук) берём его анимацию.
+std::atomic<bool> g_meTraversing{ false }, g_climbAnims{ true };
+std::atomic<ULONGLONG> g_meTraversalAt{ 0 }, g_partnerTraversalAt{ 0 };
+// Состояния анимации игрока (из anim-player*.bin игры), при которых он лезет/прыгает/падает.
+const char* const kTraversalStates[] = {
+	"s_climb-idle-shake", "s_climb-idle-shake-m", "s_climb-reach-back-shake", "s_climb-reach-shake-1000",
+	"s_climb-reach-shake-1200", "s_climb-reach-shake-130", "s_climb-reach-shake-300", "s_climb-reach-shake-430",
+	"s_climb-reach-shake-600", "s_climb-reach-shake-foot", "s_fall-slope", "s_ground-landing",
+	"s_hit-wall-jump-up", "s_hit-wall-jump-up^fall", "s_ladder-climb-dn", "s_ladder-climb-dn-1^2rung",
+	"s_ladder-climb-dn-2^1rung", "s_ladder-climb-dn-2rung", "s_ladder-climb-dn-slide",
+	"s_ladder-climb-off-top-fall", "s_ladder-climb-off-top-stand", "s_ladder-climb-up",
+	"s_ladder-climb-up-1^2rung", "s_ladder-climb-up-2^1rung", "s_ladder-climb-up-2rung", "s_ladder-drop",
+	"s_ladder-enter-bot", "s_ladder-enter-bot-bw", "s_ladder-enter-jump-landing", "s_ladder-enter-placeholder",
+	"s_ladder-enter-top", "s_ladder-idle", "s_ladder-look-down", "s_ladder-swim-enter-bot",
+	"s_ledge-climb-up^stand", "s_ledge-climb-up^vault", "s_ledge-drop-start", "s_pickup-plank-partial",
+	"s_pickup-plank-single", "s_piton-drop-to-wall-land", "s_piton-jump-to-wall-land", "s_pre-ledge-climb-up",
+	"s_prone-exit-fall", "s_putdown-plank-single", "s_rope-climb-2-75m", "s_rope-climb-dn",
+	"s_rope-climb-dn^idle", "s_rope-climb-drop-down", "s_rope-climb-drop-down-backwards",
+	"s_rope-climb-drop-down-left", "s_rope-climb-drop-down-right", "s_rope-climb-exit-dn^idle",
+	"s_rope-climb-idle", "s_rope-climb-ledge-chest^knee", "s_rope-climb-ledge-idle^chest",
+	"s_rope-climb-ledge-knee^idle", "s_rope-climb-start-custom", "s_rope-climb-start-fall",
+	"s_rope-climb-start-swim", "s_rope-climb-swing", "s_rope-climb-up", "s_rope-climb-up^idle", "s_slide-fall",
+	"s_slide-intro", "s_slide-land", "s_slide-loop-l", "s_slide-loop-r", "s_slide-run-up-intro",
+	"s_slide-sit-land", "s_slide-sit-loop-r", "s_wall-landing", "s_jump", "s_jump-up", "s_jump-down", "s_vault",
+	"s_mantle", "s_climb-up", "s_climb-down", "s_fall", "s_falling", "s_land",
+};
+const char* TraversalStateName(uint64_t state) {
+	static const std::unordered_map<uint64_t, const char*> map = [] {
+		std::unordered_map<uint64_t, const char*> m;
+		for (const char* n : kTraversalStates) m[Sid(n)] = n;
+		return m;
+	}();
+	if (!state) return nullptr;
+	const auto it = map.find(state);
+	return it == map.end() ? nullptr : it->second;
+}
+// Партнёр (без сети - мы сами, с задержкой локальной петли) сейчас лезет/прыгает.
+bool PartnerClimbs(ULONGLONG now) {
+	if (UsingNetwork()) {
+		const ULONGLONG at = g_partnerTraversalAt;
+		return at && now - at < 400;
+	}
+	const ULONGLONG at = g_meTraversalAt;
+	return at && now - at < kLocalDelayMs + 600;
+}
 bool g_puppetIsBuddy = false;  // марионетка - настоящий спутник главы (у героя)
 uint64_t g_buddyMode = 0;      // его режим скрипта до нас - вернуть при отпускании
 SRWLOCK g_namesLock = SRWLOCK_INIT;
@@ -384,8 +433,9 @@ void Update() {
 		g_hidden = false;
 		g_puppetIsBuddy = false;
 	}
-	Locator target{};
-	if (!DelayedTarget(now, target) || PartnerTooFar(target)) return;
+	Locator target{}, me{};
+	if (!PlayerLocator(me) || !DelayedTarget(now, target) || PartnerTooFar(target)) return;
+	(void)me;
 	if (!puppet) {
 		if (now - g_lastSpawnTry < (g_failures >= 3 ? 15000u : 3000u)) return;
 		// Облик партнёра приходит с его позами: ждём его до 5 с, иначе создали бы копию по догадке
@@ -432,8 +482,9 @@ void Update() {
 	static bool wasFollowing = false;
 	static uint64_t placedPuppet = 0;
 	if (puppet != placedPuppet) placedPuppet = 0;
+	const bool animRx = anim::HasActiveRx(now);
 	if (!g_follow) {
-		if (wasFollowing && (!g_dc.setObjectLocator || !g_animSync.load(std::memory_order_relaxed) || !anim::HasActiveRx(now))) {
+		if (wasFollowing && (!g_dc.setObjectLocator || !animRx)) {
 			Locator here{};
 			if (NpcLocator(puppet, here))
 				if (const uint64_t frame = BoundFrame(here.pos, here.rot)) Call(g_dc.moveTo, { puppet, frame, 0, 0, 0, 0, 0, 0 });
@@ -443,9 +494,21 @@ void Update() {
 		return;
 	}
 	wasFollowing = true;
-	// Точное покадровое позиционирование через set-object-locator используем только когда включён
-	// anim_sync и реально приходят анимации; иначе копия двигалась бы без шагов.
-	if (g_dc.setObjectLocator && g_animSync.load(std::memory_order_relaxed) && anim::HasActiveRx(now)) {
+	// Точное покадровое позиционирование через set-object-locator: когда приходят анимации партнёра
+	// (anim_sync или подъём/прыжок) или партнёр лезет по лестнице/прыгает - туда npc-move-to не ведёт.
+	static bool wasExact = false;
+	const bool climbing = PartnerClimbs(now);
+	const bool exact = g_dc.setObjectLocator && (animRx || climbing);
+	if (exact != wasExact) {
+		wasExact = exact;
+		lastMode = -1;
+		Log("puppet: %s", exact ? (climbing ? "partner climbs/jumps - copy follows exactly" : "follows partner's animation exactly")
+								: "back to walking on its own");
+		Locator here{};
+		if (exact && NpcLocator(puppet, here))  // остановить свой путь ИИ, чтобы не тянул в сторону
+			if (const uint64_t frame = BoundFrame(here.pos, here.rot)) Call(g_dc.moveTo, { puppet, frame, 0, 0, 0, 0, 0, 0 });
+	}
+	if (exact) {
 		Locator cur{};
 		const bool haveCur = NpcLocator(puppet, cur);
 		const float err = haveCur ? Dist(cur.pos, target.pos) : 999.0f;
@@ -537,26 +600,18 @@ void Update() {
 			lastMode = -1;
 			if (const uint64_t frame = BoundFrame(target.pos, target.rot)) Call(g_dc.teleport, { puppet, frame });
 		}
-		// Долго стоит без команд - игра включает ей анимации ожидания; на чужом скелете (облик Джоэла
-		// на Марлин) они дают Т-позу. Раз в 4 с - снова "стой здесь" и та же манера: обычная стойка.
+		// Долго стоит без команд - игра включает ей анимации ожидания; раз в 4 с повторяем
+		// "стой здесь" и манеру стойки (0 = ambient, 3 = crouch).
 		static ULONGLONG lastIdleRefresh = 0;
 		if (now - standingSince >= 4000 && now - lastIdleRefresh >= 4000 && now - lastSettle >= 1000) {
 			lastIdleRefresh = lastCmdAt = now;
+			const bool crouch = UsingNetwork() ? g_partnerCrouched.load() : g_meCrouched.load();
 			if (const uint64_t frame = BoundFrame(cur.pos, target.rot)) Call(g_dc.moveTo, { puppet, frame, 0, 0, 0, 0, 0, 0 });
-			Call(g_dc.setDemeanor, { puppet, Sid(g_partnerCrouched ? "crouch" : "ambient") });
+			Call(g_dc.setDemeanor, { puppet, crouch ? 3ull : 0ull, 0ull });
 		}
 		return;
 	}
 	if (targetSpeed < 0.5f && err < 1.5f) return;
-	// Догон по месту: ИИ бежит своей дорогой (обходы, прыжки) и отстаёт на десятки метров. Сверх
-	// 1.5 м подтягиваем копию к партнёру - половину лишнего раз в 0.1 с; бег (анимацию) ведёт
-	// команда ниже. Позиция у партнёра - настоящая, рассинхрона "бегу сзади, а я впереди" нет.
-	if (UsingNetwork() && g_dc.setObjectLocator && err > 1.5f && err < 15.0f) {
-		const float k = 0.5f * (err - 1.5f) / err;
-		float pulled[3];
-		for (int i = 0; i < 3; ++i) pulled[i] = cur.pos[i] + (target.pos[i] - cur.pos[i]) * k;
-		if (const uint64_t frame = BoundFrame(pulled, cur.rot)) Call(g_dc.setObjectLocator, { puppet, frame });
-	}
 	// Скорость партнёра плюс догон: чем больше отстала, тем быстрее (бег - с 1.5 м/с, спринт - с 3.5).
 	const float speed = targetSpeed + (err > 1.0f ? (err - 1.0f) * 1.2f : 0.0f);
 	const int mode = speed < 1.5f ? 0 : (speed < 3.5f ? 1 : 2);
@@ -840,6 +895,12 @@ bool MeFlashlight() { return g_meFlashlight; }
 void SetEnemiesSeePartner(bool on) { g_enemiesSee = on; }
 void SetPartnerOutline(bool on) { g_outline = on; }
 void SetAnimSync(bool on) { g_animSync = on; }
+void SetClimbAnims(bool on) { g_climbAnims = on; }
+bool ClimbAnims() { return g_climbAnims; }
+bool MeTraversing() { return g_meTraversing; }
+void SetPartnerTraversing(bool on) {
+	if (on) g_partnerTraversalAt = GetTickCount64();
+}
 int MyDifficulty() { return g_myDifficulty; }
 void FollowDifficulty(int difficulty) { g_wantDifficulty = difficulty; }
 void SetPartnerStance(bool crouched, bool aiming) {
@@ -889,6 +950,45 @@ std::atomic<uint64_t> g_workUs{ 0 };
 void OnFrame() { g_frame.fetch_add(1, std::memory_order_relaxed); }
 uint64_t TakeWorkMicroseconds() { return g_workUs.exchange(0); }
 
+// Свой подъём/прыжок (раз в 0.1 с): состояние анимации игрока из списка или почти вертикальное
+// движение (лестница, уступ, падение; лестницы в домах - пологие и сюда не попадают).
+static void TraversalTick() {
+	static ULONGLONG last = 0, prevAt = 0;
+	static float prev[3]{};
+	const ULONGLONG now = GetTickCount64();
+	if (now - last < 100) return;
+	last = now;
+	Locator me{};
+	if (!PlayerLocator(me)) {
+		g_meTraversing = false;
+		prevAt = 0;
+		return;
+	}
+	const uint64_t state = g_dc.animState ? Call(g_dc.animState, { Sid("player") }) : 0;
+	const char* stateName = TraversalStateName(state);
+	bool vertical = false;
+	if (prevAt && now - prevAt < 500) {
+		const float dt = (now - prevAt) / 1000.0f;
+		const float vy = (me.pos[1] - prev[1]) / dt;
+		const float dx = me.pos[0] - prev[0], dz = me.pos[2] - prev[2];
+		const float vh = std::sqrt(dx * dx + dz * dz) / dt;
+		vertical = std::fabs(vy) > 0.6f && std::fabs(vy) > 1.5f * vh;
+	}
+	memcpy(prev, me.pos, sizeof(prev));
+	prevAt = now;
+	if (stateName || vertical) g_meTraversalAt = now;
+	const ULONGLONG at = g_meTraversalAt;
+	const bool on = at && now - at < 600;
+	if (on != g_meTraversing.exchange(on)) {
+		if (on) Log("me: climbing/jumping (%s)", stateName ? stateName : "vertical move");
+		else Log("me: back on the ground");
+	}
+	// Для настройки списка: первые 80 разных состояний анимации в журнал.
+	static std::unordered_set<uint64_t> seen;
+	if (state && seen.size() < 80 && seen.insert(state).second)
+		Log("me: anim state %016llX%s%s", static_cast<unsigned long long>(state), stateName ? " " : "", stateName ? stateName : "");
+}
+
 // Скрипты выполняются на нескольких потоках; работа - один раз за кадр, первым пришедшим.
 void ScriptTick() {
 	if (!g_wanted.load(std::memory_order_relaxed) && !g_teleport.load(std::memory_order_relaxed) &&
@@ -920,6 +1020,7 @@ void ScriptTick() {
 	ProfileAdd("[chapter]", MicrosecondsSince(s));
 	if (g_teleport.exchange(false)) TeleportToPartner();
 	if (const int join = g_joinRequest.exchange(0)) StartJoin(join == 2);
+	if (g_netActive || g_wanted) TraversalTick();
 	// Своя смерть: здоровье упало до 0 (раз за жизнь; снова живы - снова следим).
 	static ULONGLONG lastHealth = 0;
 	static bool deadNow = false;
@@ -980,18 +1081,18 @@ void ScriptTick() {
 	if (!g_wanted && g_puppet) Hide();
 	static bool cutscenePausedBuddy = false;
 	static bool cutsceneHidClone = false;
-	// Отдавать спутника ИИ на катсцену не будем: определение катсцены ложно срабатывало, и спутник,
-	// изображающий партнёра, уходил сам по себе. Как до v31.
-	const bool inCutsceneNow = false;
+	const bool inCutsceneNow = g_inCutscene.load(std::memory_order_relaxed);
 	if (inCutsceneNow) {
 		if (g_puppet && g_puppetIsBuddy && !cutscenePausedBuddy) {
 			cutscenePausedBuddy = true;
 			Call(g_dc.scriptMode, { g_puppet, g_buddyMode, 1 });
 			for (NativeFn off : { g_dc.setIgnore, g_dc.setBlind, g_dc.setDeaf }) Call(off, { g_puppet, 0 });
 			Log("puppet: yielded companion to cutscene");
+		} else if (g_puppet && !g_puppetIsBuddy && !g_hidden && !cutsceneHidClone) {
+			cutsceneHidClone = true;
+			Hide();
+			Log("puppet: hidden during cutscene");
 		}
-		// Копию NPC в катсцене не прячем: определение катсцены срабатывало ложно (40 с во время F7),
-		// и партнёр пропадал.
 	} else {
 		if (cutscenePausedBuddy && g_puppet && g_puppetIsBuddy) {
 			AiOff(g_puppet);
@@ -1130,8 +1231,8 @@ void ScriptTick() {
 			const CameraView cam = CurrentView();
 			if (cam.ok) g_meAimPitch = std::asin(std::clamp(cam.fwd[1], -0.98f, 0.98f));
 		}
-		static uint64_t appliedTo = 0, flOf = 0, colOf = 0;
-		static bool crouchNow = false, flNow = false, colHidden = true;
+		static uint64_t appliedTo = 0, flOf = 0, colOf = 0, aimOf = 0, aimBanned = 0;
+		static bool crouchNow = false, flNow = false, colHidden = true, aimNow = false;
 		const uint64_t puppet = g_puppet;
 		const bool crouch = UsingNetwork() ? g_partnerCrouched.load() : g_meCrouched.load();
 		const bool fl = UsingNetwork() ? g_partnerFlashlight.load() : g_meFlashlight.load();
@@ -1145,28 +1246,25 @@ void ScriptTick() {
 			colOf = 0;
 			colHidden = true;
 		}
+		if (!puppet || g_hidden) {
+			appliedTo = 0;
+			flOf = 0;
+		}
 		// Фонарик партнёра (в тёмных локациях).
 		if (g_dc.setPropFlashlight && puppet && !g_hidden && (puppet != flOf || fl != flNow)) {
 			Call(g_dc.setPropFlashlight, { puppet, fl ? 1ull : 0ull });
 			flOf = puppet;
 			flNow = fl;
 		}
-		// Когда активна прямая репликация анимаций (anim::HasActiveRx), манеры NPC ИИ отключаем,
-		// иначе они перебивают слои приседания/прицеливания. npc-weapon-up убран полностью,
-		// т.к. на сторонних скелетах он перезаписывает слои bindpose'ом (Т-поза).
-		const bool animOn = g_animSync.load(std::memory_order_relaxed);
-		const bool aiDriven = !animOn || !anim::HasActiveRx(GetTickCount64());  // позу ведёт не перенос анимаций
+		// Когда приходят анимации партнёра (anim::HasActiveRx), манеры NPC ИИ не трогаем, иначе
+		// они перебивают перенесённые слои. npc-set-demeanor ждёт число (0=ambient, 3=crouch) и флаг force.
+		const bool aiDriven = !anim::HasActiveRx(GetTickCount64());  // позу ведёт не перенос анимаций
 		if (puppet && !g_hidden && aiDriven && (puppet != appliedTo || crouch != crouchNow)) {
-			Call(g_dc.setDemeanor, { puppet, Sid(crouch ? "crouch" : "ambient") });
+			Call(g_dc.setDemeanor, { puppet, crouch ? 3ull : 0ull, 0ull });
 			if (crouch != crouchNow) Log("puppet: %s", crouch ? "crouches" : "stands up");
+			appliedTo = puppet;
+			crouchNow = crouch;
 		}
-		// Прицел партнёра: оружие вверх/вниз (как в v30). При переносе анимаций не трогаем - там
-		// npc-weapon-up на чужом скелете давал Т-позу.
-		static bool aimNow = false;
-		const bool aimWant = UsingNetwork() ? g_partnerAiming.load() : g_meAiming.load();
-		if (puppet && !g_hidden && aiDriven && (puppet != appliedTo || aimWant != aimNow))
-			Call(aimWant ? g_dc.weaponUp : g_dc.weaponDown, { puppet });
-		aimNow = aimWant;
 		// Оружие: у марионетки в руках то же, что у партнёра (без него npc-fire-weapon не стреляет).
 		g_myWeapon = Call(g_dc.playerWeapon, {});
 		static uint64_t weaponOf = 0, weaponNow = 0;
@@ -1180,21 +1278,34 @@ void ScriptTick() {
 			}
 			Log("puppet: weapon %016llX -> %016llX (now %016llX)", static_cast<unsigned long long>(had),
 				static_cast<unsigned long long>(weapon), static_cast<unsigned long long>(Call(g_dc.npcWeapon, { puppet })));
-			if (aimWant && aiDriven) Call(g_dc.weaponUp, { puppet });  // новое оружие - снова в руки
 			weaponNow = weapon;
+			aimNow = false;  // новое оружие - поднять снова, если партнёр целится
 		}
 		weaponOf = puppet;
-		appliedTo = puppet;
-		crouchNow = crouch;
-	}
-	// Вертикальный наклон прицеливания партнёра (npc-aim-at-point): чтобы ствол и выстрелы
-	// смотрели по высоте туда же, куда целится игрок/напарник.
-	{
-		static uint64_t aimedPuppet = 0;
-		static bool wasAiming = false;
-		const uint64_t puppet = g_puppet;
-		const bool aim = UsingNetwork() ? g_partnerAiming.load() : g_meAiming.load();
-		if (puppet && !g_hidden && g_dc.aimAtPoint && aim) {
+		// Прицел партнёра: оружие вверх/вниз и наклон ствола (npc-aim-at-point). На скелете без
+		// анимаций прицеливания игра даёт Т-позу: это видит сторож в хуке анимаций (только
+		// bindpose, ни одного клипа) - тогда оружие вниз и прицел у этой копии больше не включаем.
+		// Без хука сторожа нет - прицел не включаем вовсе.
+		const bool aimWant = UsingNetwork() ? g_partnerAiming.load() : g_meAiming.load();
+		if (puppet != aimOf) {
+			aimOf = puppet;
+			aimNow = false;  // новая копия: без "оружие вниз" на первом тике
+		}
+		if (puppet && aimNow && anim::PuppetTposeStreak() >= 3 && aimBanned != puppet) {
+			aimBanned = puppet;
+			Call(g_dc.weaponDown, { puppet });
+			if (g_dc.clearAimAt) Call(g_dc.clearAimAt, { puppet });
+			aimNow = false;
+			Log("puppet: aiming gives this copy a T-pose - aiming off for it");
+		}
+		const bool aimOk = anim::HooksOk() && puppet && puppet != aimBanned && !g_hidden && aiDriven && !g_inCutscene;
+		const bool aimTarget = aimOk && aimWant;
+		if (puppet && !g_hidden && aimTarget != aimNow && (aimOk || aimNow)) {
+			Call(aimTarget ? g_dc.weaponUp : g_dc.weaponDown, { puppet });
+			if (!aimTarget && g_dc.clearAimAt) Call(g_dc.clearAimAt, { puppet });
+			aimNow = aimTarget;
+		}
+		if (aimNow && g_dc.aimAtPoint) {
 			Locator tgt{};
 			if (DelayedTarget(GetTickCount64(), tgt)) {
 				const float pitch = std::clamp(UsingNetwork() ? g_partnerAimPitch.load() : g_meAimPitch.load(), -1.2f, 1.2f);
@@ -1204,24 +1315,14 @@ void ScriptTick() {
 				const float hlen = std::sqrt(hx * hx + hz * hz);
 				if (hlen > 1e-4f) { hx /= hlen; hz /= hlen; } else { hx = 0.0f; hz = 1.0f; }
 				const float cp = std::cos(pitch), sp = std::sin(pitch);
-				const uint64_t pt = Call(g_dc.allocVector, {
-					F(tgt.pos[0] + hx * cp * 20.0f),
-					F(tgt.pos[1] + 1.35f + sp * 20.0f),
-					F(tgt.pos[2] + hz * cp * 20.0f),
-					F(1.0f), 0 });
+				const uint64_t pt = Call(g_dc.allocVector, { F(tgt.pos[0] + hx * cp * 20.0f), F(tgt.pos[1] + 1.35f + sp * 20.0f),
+					F(tgt.pos[2] + hz * cp * 20.0f), F(1.0f), 0 });
 				if (pt) Call(g_dc.aimAtPoint, { puppet, pt, F(0.15f), 0 });
 			}
-			aimedPuppet = puppet;
-			wasAiming = true;
-		} else if (wasAiming && g_dc.clearAimAt && aimedPuppet && (aimedPuppet == puppet) && !g_hidden) {
-			Call(g_dc.clearAimAt, { puppet });
-			wasAiming = false;
-		} else if (!aim) {
-			wasAiming = false;
 		}
 	}
 	// Привязка реальных указателей игрока (TX) и марионетки (RX) для хука CreateAnimCmds.
-	if (g_animSync.load(std::memory_order_relaxed)) {
+	if (anim::HooksOk()) {  // anim_sync или анимации подъёма (climb_anims), плюс сторож Т-позы
 		static ULONGLONG lastAnimBind = 0;
 		static uint64_t lastBoundPuppet = 0;
 		static uintptr_t cachedPuppetPtr = 0;
@@ -1233,7 +1334,9 @@ void ScriptTick() {
 			cachedPuppetPtr = curPuppet && !g_hidden ? ResolveEntity(curPuppet) : 0;
 		}
 		anim::SetTargets(PlayerEntity(), cachedPuppetPtr);
-		anim::SetTxEnabled((UsingNetwork() && g_netActive.load()) || (!UsingNetwork() && g_wanted.load()));
+		// Без anim_sync свои анимации шлём только на время подъёма/прыжка.
+		const bool txWanted = (UsingNetwork() && g_netActive.load()) || (!UsingNetwork() && g_wanted.load());
+		anim::SetTxEnabled(txWanted && (g_animSync.load(std::memory_order_relaxed) || g_meTraversing.load()));
 		anim::SetRxEnabled(!g_inCutscene.load(std::memory_order_relaxed));
 	} else {
 		anim::SetTxEnabled(false);
@@ -1293,9 +1396,10 @@ void ScriptTick() {
 		healShown = heal;
 	}
 	s = QpcNow();
-	if (g_wanted) Update();
+	if (g_wanted && !g_inCutscene) Update();
 	ProfileAdd("[update]", MicrosecondsSince(s));
 	if (g_netActive) enemies::Tick(g_puppet);
+	if (g_netActive) objects::Tick();
 	QueryPerformanceCounter(&b);
 	QueryPerformanceFrequency(&f);
 	g_workUs.fetch_add(static_cast<uint64_t>((b.QuadPart - a.QuadPart) * 1000000 / f.QuadPart), std::memory_order_relaxed);

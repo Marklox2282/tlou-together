@@ -100,6 +100,7 @@ std::atomic<uint64_t> g_txCount{ 0 };
 std::atomic<uint64_t> g_rxCount{ 0 };
 std::atomic<uint64_t> g_rxMissClips{ 0 };
 std::atomic<uint64_t> g_rxRetargeted{ 0 };
+std::atomic<uint32_t> g_puppetTposeStreak{ 0 };  // кадров подряд копия в Т-позе (только bindpose, ни одного клипа)
 
 std::mutex g_txMu;
 std::vector<uint8_t> g_pendingTx;
@@ -545,6 +546,26 @@ int64_t __fastcall Hook_CreateAnimCmds(uintptr_t animCtrl, void* a2, AnimCmdList
 
 	const int64_t ret = g_hookCreateAnimCmds.call<int64_t>(animCtrl, a2, cmdList);
 
+	// Сторож Т-позы копии: игра не нашла ей анимаций и выдала только bindpose без единого клипа.
+	if (puppetAc && animCtrl == puppetAc && cmdList && cmdList->buf) {
+		const uint32_t endCursor = cmdList->cursor;
+		if (endCursor > startCursor && endCursor - startCursor <= kMaxCmdDwords) {
+			const uint32_t* c = cmdList->buf + startCursor;
+			const uint32_t n = endCursor - startCursor;
+			uint32_t clips = 0, binds = 0;
+			for (uint32_t i = 0; i < n;) {
+				const uint16_t op = static_cast<uint16_t>(c[i] & 0xFFFFu);
+				const uint16_t wc = static_cast<uint16_t>(c[i] >> 16);
+				if (wc == 0 || i + wc > n || op == kOpTerm) break;
+				if (op == kOpClip) ++clips;
+				else if (op == kOpBindpose) ++binds;
+				i += wc;
+			}
+			if (binds && !clips) g_puppetTposeStreak.fetch_add(1, std::memory_order_relaxed);
+			else g_puppetTposeStreak.store(0, std::memory_order_relaxed);
+		}
+	}
+
 	if (playerAc && animCtrl == playerAc && g_txEnabled.load(std::memory_order_acquire) && cmdList && cmdList->buf) {
 		const uint32_t endCursor = cmdList->cursor;
 		if (endCursor > startCursor && endCursor - startCursor <= kMaxCmdDwords) {
@@ -591,7 +612,7 @@ void SetTargets(uintptr_t playerEntity, uintptr_t puppetEntity) {
 		if (const uintptr_t fg = SafeReadPtr(puppetEntity + kGoFgAnim)) SafeRead(fg + 0x10, nAc);
 	}
 	g_playerAc.store(pAc, std::memory_order_release);
-	g_puppetAc.store(nAc, std::memory_order_release);
+	if (g_puppetAc.exchange(nAc, std::memory_order_acq_rel) != nAc) g_puppetTposeStreak.store(0, std::memory_order_relaxed);
 }
 
 void SetTxEnabled(bool enabled) {
@@ -639,6 +660,10 @@ void PushRx(const uint8_t* data, size_t len, uint64_t nowMs) {
 	b.bytes.assign(data, data + len);
 	g_rxQueue.push_back(std::move(b));
 }
+
+uint32_t PuppetTposeStreak() { return g_puppetTposeStreak.load(std::memory_order_relaxed); }
+
+bool HooksOk() { return g_hookOk.load(std::memory_order_acquire); }
 
 bool HasActiveRx(uint64_t nowMs) {
 	const uint64_t last = g_lastRxArrivalMs.load(std::memory_order_acquire);

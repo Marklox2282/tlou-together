@@ -531,7 +531,7 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 			partnerDied_ = true;
 			continue;
 		}
-		if (p.type == kEnemy || p.type == kEnemyPos) {
+		if (p.type == kEnemy || p.type == kEnemyPos || p.type == kObjectPos) {
 			if (enemyEvents_.size() < 1024) enemyEvents_.push_back(p);
 			continue;
 		}
@@ -574,7 +574,7 @@ void Link::SendPose(const float pos[3], const float rot[4], bool hero, bool firi
 	p.target = character;
 	strncpy_s(p.name, look.c_str(), _TRUNCATE);
 	p.flags = static_cast<uint16_t>((hero ? kFlagHero : 0) | (firing ? kFlagFiring : 0) |
-		(stance & (kFlagCrouch | kFlagAim | kFlagFlashlight | kFlagHealing)) | (myReady_ ? kFlagReady : 0) | (myCutscene_ ? kFlagCutscene : 0));
+		(stance & (kFlagCrouch | kFlagAim | kFlagFlashlight | kFlagHealing | kFlagTraversal)) | (myReady_ ? kFlagReady : 0) | (myCutscene_ ? kFlagCutscene : 0));
 	p.modVersion = static_cast<uint32_t>(nowMs ? nowMs : GetTickCount64());
 	p.health = aimPitch;
 	p.seq = ++seq_;
@@ -617,6 +617,15 @@ void Link::SendEnemyPos(uint64_t npc, const float pos[3], const float rot[4]) {
 	memcpy(p.pos, pos, sizeof(p.pos));
 	memcpy(p.rot, rot, sizeof(p.rot));
 	Send(p);
+}
+
+void Link::SendObjectPos(uint64_t object, const float pos[3], const float rot[4]) {
+	if (state_ != State::Connected) return;
+	Packet p = Make(kObjectPos);
+	p.target = object;
+	memcpy(p.pos, pos, sizeof(p.pos));
+	memcpy(p.rot, rot, sizeof(p.rot));
+	Send(p, true);
 }
 
 void Link::SendDeath() {
