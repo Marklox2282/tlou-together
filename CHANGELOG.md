@@ -6,10 +6,14 @@ The mod updates itself: a new version downloads when the game starts and is used
 ## 0.42.4
 
 - The partner's join/leave/ready/start messages play the game's own interface sound instead of the Windows beep.
+- You can no longer grab or choke your partner's copy: it is now an ally like the chapter's companion.
+- During cutscenes the mod no longer moves Tess or enemies (Tess could appear in the middle of a cutscene).
 
 ---
 
 - Сообщения «напарник подключился / отключился / готов / начал игру» звучат звуком интерфейса самой игры вместо звука Windows.
+- Копию напарника больше нельзя схватить и задушить: теперь она союзник, как спутник главы.
+- Во время катсцен мод больше не двигает Тесс и врагов (Тесс могла появиться посреди катсцены).
 
 ## 0.42.3
 

@@ -499,6 +499,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	const bool meCut = puppet::MeInCutscene();
 	const bool partnerCut = g_link.PeerInCutscene();
 	puppet::SetPartnerInCutscene(connected && partnerCut);
+	enemies::SetCutscene(meCut || (connected && partnerCut));
 	const bool sameChapterNow = connected && theirs && mine && (theirs == mine);
 	if (sameChapterNow && !wasSameChapter && g_link.Authority()) enemies::ResendDead();
 	wasSameChapter = sameChapterNow;

@@ -43,7 +43,7 @@ struct Remote {
 	int mode = -1;             // последняя команда npc-move-to
 	ULONGLONG cmdAt = 0;
 };
-std::atomic<bool> g_fullSync{ false };
+std::atomic<bool> g_fullSync{ false }, g_cutscene{ false };
 std::unordered_map<uint64_t, Remote> g_remote;  // гость: позиции хозяина (под g_lock)
 constexpr ULONGLONG kPosMs = 200, kSnapEveryMs = 3000;
 constexpr float kSnapDist = 6.0f;
@@ -312,6 +312,7 @@ void Tick(uint64_t puppet) {
 		lastPos = now;
 		const int64_t p0 = QpcNow();
 		if (g_sendPositions) SendPositions(puppet);
+		else if (g_cutscene) {}  // в катсцене никого не двигаем
 		else if (g_fullSync) { FollowHost(puppet); CorrectPositions(puppet); }  // спутники - мягко и тут
 		else CorrectPositions(puppet);
 		ProfileAdd("[enemy pos]", MicrosecondsSince(p0));
@@ -335,6 +336,7 @@ void Receive(const Change& c) { Push(g_in, c); }
 
 void SetSendPositions(bool on) { g_sendPositions = on; }
 void SetFullSync(bool on) { g_fullSync = on; }
+void SetCutscene(bool on) { g_cutscene = on; }
 
 std::vector<Position> TakePositions() {
 	std::vector<Position> out;

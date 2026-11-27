@@ -241,7 +241,13 @@ void AiOff(uint64_t npc) {
 	// копия - во фракции самого игрока (так делает TLOU2-Coop) и не "игнорируется" ИИ.
 	if (g_enemiesSee) {
 		Call(g_dc.setIgnore, { npc, 0 });
-		if (const uint64_t faction = Call(g_dc.getFaction, { Sid("player") })) Call(g_dc.setFaction, { npc, faction });
+		// Фракция спутника главы (как у Тесс): союзника игрок не может схватить и задушить (в игре
+		// всегда включено "allies don't get grabbed"); с фракцией игрока копию душили. Нет спутника -
+		// фракция игрока.
+		uint64_t faction = 0;
+		if (const uint64_t buddy = CurrentBuddy(0)) faction = Call(g_dc.getFaction, { buddy });
+		if (!faction) faction = Call(g_dc.getFaction, { Sid("player") });
+		if (faction) Call(g_dc.setFaction, { npc, faction });
 	} else {
 		Call(g_dc.setIgnore, { npc, 1 });
 	}

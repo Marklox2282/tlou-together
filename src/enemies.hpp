@@ -25,6 +25,8 @@ void SetSendPositions(bool on);
 // Полная синхронизация (ini enemy_sync=full, пока опыт): у гостя ИИ врагов выключен, они идут за
 // врагами хозяина своей анимацией. Атаки врагов ещё не копируются - гостя они не трогают.
 void SetFullSync(bool on);
+// Идёт катсцена (своя или партнёра): позиции врагов и спутников не трогаем (переносило Тесс в кадр).
+void SetCutscene(bool on);
 std::vector<Position> TakePositions();     // хозяин: для отправки
 void ReceivePosition(const Position& p);   // гость: от хозяина
 
