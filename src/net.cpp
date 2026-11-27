@@ -272,6 +272,7 @@ void Link::Stop() {
 	peerWeapon_ = 0;
 	partnerStarted_ = false;
 	ping_ = -1;
+	pongs_ = 0;
 	throws_.clear();
 	myReady_ = false;
 	peerReady_ = false;
@@ -433,6 +434,7 @@ void Link::Disconnected(const char* why) {
 	lastSentChapter_ = {};
 	lastHello_ = 0;
 	ping_ = -1;
+	pongs_ = 0;
 }
 
 bool Link::Tick(uint64_t nowMs, Packet& pose) {
@@ -500,7 +502,7 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 			continue;
 		}
 		if (p.type == kPong) {
-			if (p.target && p.target <= nowMs && nowMs - p.target < 10000) {
+			if (pongs_++ > 0 && p.target && p.target <= nowMs && nowMs - p.target < 10000) {
 				const int rtt = static_cast<int>(nowMs - p.target);
 				ping_ = ping_ < 0 ? rtt : (ping_ * 3 + rtt) / 4;
 			}

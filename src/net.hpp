@@ -173,6 +173,7 @@ private:
 	bool partnerStarted_ = false;
 	std::vector<Throw> throws_;
 	int ping_ = -1;
+	int pongs_ = 0;  // первый ответ не считаем: в нём ещё установка соединения
 	uint64_t lastPing_ = 0;
 	bool myReady_ = false, peerReady_ = false;
 	bool myCutscene_ = false, peerCutscene_ = false;

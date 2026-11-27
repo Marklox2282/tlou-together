@@ -3,6 +3,20 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## v35
+
+- The guest no longer has to press READY: once connected in the main menu, they are ready.
+- The guest's story menu opens when the host gets into the game, whatever button the host used.
+- After loading, the guest is taken to the host's chapter by itself (no F5 needed).
+- Fixed: "%s" instead of the partner's name in the lobby; no false "slow connection" right after connecting.
+
+---
+
+- Гостю больше не нужно нажимать «ГОТОВ»: подключился в главном меню — значит, готов.
+- У гостя меню сюжета открывается, когда хост оказался в игре, какой бы кнопкой он ни начал.
+- После загрузки гостя само переносит в главу хоста (F5 не нужен).
+- Исправлено: «%s» вместо ника напарника в лобби; нет ложной «медленной связи» сразу после подключения.
+
 ## v34
 
 - Fixed: the game crashed on CREATE LOBBY (v33).

@@ -646,6 +646,8 @@ const char* LobbyTextInto(const Lang& l, char* buf, size_t n) {
 		};
 		const char* hint = s.authority ? (s.partnerReady ? ru.readyHintHostGo : ru.readyHintHostWait)
 			: (s.myReady ? ru.readyHintGuestOn : ru.readyHintGuestOff);
+		char hintLine[512];  // в подсказках бывает %s - ник партнёра
+		snprintf(hintLine, sizeof(hintLine), hint, Escaped(s.partner).c_str());
 		int k = snprintf(buf, n, l.connected, Escaped(s.partner).c_str());
 		if (s.ping >= 0 && k > 0 && static_cast<size_t>(k) < n) k += snprintf(buf + k, n - k, "<br>Ping: %d ms", s.ping);
 		if (k > 0 && static_cast<size_t>(k) < n) {
@@ -654,7 +656,7 @@ const char* LobbyTextInto(const Lang& l, char* buf, size_t n) {
 			snprintf(buf + k, n - k, "<br><br>%s (%s): %s [%s]  ·  %s (%s): %s [%s]<br><br>%s<br><br>%s",
 				l.you, s.authority ? ru.hostTag : ru.guestTag, who(s.myCharacter).c_str(), myR,
 				Escaped(s.partner).c_str(), s.authority ? ru.guestTag : ru.hostTag, who(s.partnerCharacter).c_str(), prR,
-				hint, l.leaveHint);
+				hintLine, l.leaveHint);
 		}
 	}
 	else if (s.lobby && s.host) {

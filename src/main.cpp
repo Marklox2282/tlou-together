@@ -183,6 +183,10 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	if (action == menu::Invite) g_link.InviteToLobby();
 	if (action == menu::GoToPartner) puppet::RequestTeleport();  // как F7
 	if (action == menu::ToggleReady) g_link.SetReady(!g_link.MyReady());
+	// Гость в главном меню готов сам, как только подключился: отдельная кнопка "ГОТОВ" оказалась
+	// лишним шагом (окно лобби у гостя не обновляется, и хост ждал бесконечно).
+	if (g_link.GetState() == net::State::Connected && !g_link.Authority() && !havePlayer && !g_link.MyReady())
+		g_link.SetReady(true);
 	if (action == menu::StartGame) g_link.SetReady(true);
 	if (action == menu::HostLaunch) {
 		g_link.SetReady(true);
@@ -287,13 +291,16 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	}
 	// Связь: пинг в журнал раз в 30 с; дольше 5 с выше 250 мс - предупреждение на экране (раз в минуту).
 	{
-		static ULONGLONG badSince = 0, lastWarn = 0, lastPingLog = 0;
-		const int ping = g_link.GetState() == net::State::Connected ? g_link.Ping() : -1;
+		static ULONGLONG badSince = 0, lastWarn = 0, lastPingLog = 0, linkedAt = 0;
+		const bool linkedNow = g_link.GetState() == net::State::Connected;
+		if (!linkedNow) linkedAt = 0;
+		else if (!linkedAt) linkedAt = now;
+		const int ping = linkedNow ? g_link.Ping() : -1;
 		if (ping >= 0 && now - lastPingLog >= 30000) {
 			lastPingLog = now;
 			Log("net: ping %d ms", ping);
 		}
-		if (ping > 250) {
+		if (ping > 250 && now - linkedAt >= 15000) {  // первые 15 с связь ещё налаживается
 			if (!badSince) badSince = now;
 			if (now - badSince >= 5000 && (!lastWarn || now - lastWarn >= 60000)) {
 				lastWarn = now;
@@ -348,17 +355,31 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	// "Продолжить". Когда оба в игре (от хоста пошли позы - их шлют только из игры, не из меню),
 	// гость один раз грузит главу хоста. Из главного меню ничего не грузим.
 	static bool joinHost = false;
-	static ULONGLONG hostStartedAt = 0, lastPoseAt = 0;
+	static ULONGLONG hostStartedAt = 0, lastPoseAt = 0, enteredAt = 0;
+	static bool hadPlayer = false;
 	if (gotPose) lastPoseAt = now;
+	const bool entered = havePlayer && !hadPlayer;  // только что появились в игре (загрузка закончилась)
+	hadPlayer = havePlayer;
+	// Хост: сигнал гостю, как только сам оказался в игре - неважно, какой кнопкой (Продолжить,
+	// Новая игра, глава): кнопки меню ловятся не всегда.
+	if (entered && connected && g_link.Authority()) {
+		g_link.SendStart();
+		Log("net: in the game - telling %s to start", g_link.PeerName().c_str());
+	}
 	if (g_link.TakePartnerStarted() && !havePlayer && !g_link.Authority()) {
 		const bool opened = menu::StartGameFromPartner();
 		Log("net: %s started the game - %s", g_link.PeerName().c_str(), opened ? "opening the story menu" : "open the story yourself");
 		menu::Notify(menu::NoteStarted, g_link.PeerName());
-		joinHost = true;
 		hostStartedAt = now;
 	}
-	if (!connected || g_link.Authority() || (joinHost && now - hostStartedAt > 300000)) joinHost = false;
-	if (joinHost && havePlayer && mine && theirs && lastPoseAt > hostStartedAt && now - lastPoseAt < 1000) {
+	// Гость: вошёл в игру - один раз к хосту (как F5), когда и хост в игре (от него идут позы), а главы
+	// разные. Ждём 3 с после входа, чтобы своя глава успела прочитаться.
+	if (entered && connected && !g_link.Authority()) {
+		joinHost = true;
+		enteredAt = now;
+	}
+	if (!connected || g_link.Authority() || !havePlayer || (joinHost && now - enteredAt > 300000)) joinHost = false;
+	if (joinHost && now - enteredAt >= 3000 && mine && theirs && now - lastPoseAt < 1000) {
 		joinHost = false;
 		if (!(theirs == mine) && now - g_lastStoryJoin > 5000) {
 			g_lastStoryJoin = now;
@@ -366,6 +387,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 			puppet::RequestJoin(false);
 		}
 	}
+	(void)hostStartedAt;
 	// Друг в другой главе - подсказка в журнал при каждой смене.
 	static engine::Chapter lastHint;
 	if (theirs && mine && !(theirs == mine) && !(theirs == lastHint)) {
