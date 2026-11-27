@@ -60,7 +60,8 @@ struct Natives {
 		throwProjectile,  // необязательная: бросок предмета (throw-projectile)
 		healProgress,     // необязательная: player-get-heal-progress
 		gesture,          // необязательная: gesture_ (жест/анимация NPC)
-		gestureParams;    // необязательная: alloc-gesture-play-params
+		gestureParams,    // необязательная: alloc-gesture-play-params
+		setOverlaySet;    // необязательная: set-overlay-set(объект, набор) - набор анимаций персонажа
 };
 extern Natives g_dc;
 bool InitNatives();  // false, если какой-то не найден

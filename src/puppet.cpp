@@ -133,6 +133,19 @@ void StoreChapter(Chapter& c, const Chapter& v) {
 // убирает, - npc-robert-1 в Бостоне), больше не берём; пауза растёт после неудач подряд, иначе
 // пересоздание каждые 3 с проседало FPS. Список сбрасывается при смене задания сюжета.
 ULONGLONG g_lastSpawnTry = 0, g_spawnedAt = 0;
+// Облик надет на скелет другого пола (Джоэл на Марлин): набор анимаций копии переключаем на набор
+// пола облика, иначе присед, стойки и т.п. берутся со "своего" скелета и дают Т-позу. 0 - не нужно.
+uint64_t g_lookOverlaySet = 0;
+
+// set-overlay-set(объект, набор): движок меняет набор анимаций (оверлеев) у управления анимацией
+// объекта; 1 - получилось. Набор "male-buddy" / "female-buddy" - как у спутников в игре.
+bool ApplyLookOverlay(uint64_t npc, const char* why) {
+	if (!g_lookOverlaySet || !npc || !g_dc.setOverlaySet) return false;
+	const uint64_t ok = Call(g_dc.setOverlaySet, { npc, g_lookOverlaySet });
+	if (why) Log("puppet: animation set %s for the look (%s) -> %llu", g_lookOverlaySet == Sid("male-buddy") ? "male-buddy" : "female-buddy",
+		why, static_cast<unsigned long long>(ok));
+	return ok != 0;
+}
 uintptr_t g_lastSpawner = 0;
 std::vector<uintptr_t> g_badSpawners;
 int g_failures = 0;
@@ -275,8 +288,11 @@ uint64_t Spawn(const Locator& at) {
 	// Спавнер того же пола выбирается первым (SpawnerRank); другой пол - только если своего нет
 	// (пролог: кроме Сары женских NPC нет). Образ всё равно надеваем: лучше Сара с чуть кривым
 	// бегом, чем Джоэл вместо Сары.
-	if (!look.empty() && !SameSex(ReadName(ReadPtr(sp + kSpArt)), HeroName(look)))
+	g_lookOverlaySet = 0;
+	if (!look.empty() && !SameSex(ReadName(ReadPtr(sp + kSpArt)), HeroName(look))) {
 		Log("puppet: no %s-like NPC here, putting the look on another skeleton", HeroName(look).c_str());
+		g_lookOverlaySet = Sid(IsFemaleHero(HeroName(look)) ? "female-buddy" : "male-buddy");
+	}
 	uint64_t sid = 0;
 	uint8_t f1 = 0;
 	if (!sp || !Read(sp + kSpSid, sid) || !Read(sp + kSpFlags1, f1)) {
@@ -300,6 +316,7 @@ uint64_t Spawn(const Locator& at) {
 	}
 	AiOff(npc);
 	Log("puppet: %s -> %016llX", name.c_str(), static_cast<unsigned long long>(npc));
+	if (npc && npc != sid) ApplyLookOverlay(npc, "spawned");
 	return npc;
 }
 
@@ -538,6 +555,7 @@ void Update() {
 			lastIdleRefresh = lastCmdAt = now;
 			if (const uint64_t frame = BoundFrame(cur.pos, target.rot)) Call(g_dc.moveTo, { puppet, frame, 0, 0, 0, 0, 0, 0 });
 			Call(g_dc.setDemeanor, { puppet, Sid(g_partnerCrouched ? "crouch" : "ambient") });
+			ApplyLookOverlay(puppet, nullptr);
 		}
 		return;
 	}
@@ -1139,6 +1157,7 @@ void ScriptTick() {
 		const bool aiDriven = !animOn || !anim::HasActiveRx(GetTickCount64());  // позу ведёт не перенос анимаций
 		if (puppet && !g_hidden && aiDriven && (puppet != appliedTo || crouch != crouchNow)) {
 			Call(g_dc.setDemeanor, { puppet, Sid(crouch ? "crouch" : "ambient") });
+			ApplyLookOverlay(puppet, crouch != crouchNow ? (crouch ? "crouch" : "stand") : nullptr);
 			if (crouch != crouchNow) Log("puppet: %s", crouch ? "crouches" : "stands up");
 		}
 		// Прицел партнёра: оружие вверх/вниз (как в v30). При переносе анимаций не трогаем - там
