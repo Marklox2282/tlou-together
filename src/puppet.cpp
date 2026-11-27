@@ -16,6 +16,7 @@
 #include "enemies.hpp"
 #include "log.hpp"
 #include "objects.hpp"
+#include "menu.hpp"
 #include "puppet.hpp"
 
 using namespace engine;
@@ -1177,6 +1178,20 @@ void ScriptTick() {
 		Locator me{};
 		if (PlayerLocator(me)) {
 			std::string look = MyCharacter() >= 2 ? ArtOfCharacter(CharacterName(MyCharacter())) : std::string();
+			// Выбран персонаж, которого на этом уровне нет (его облик не загружен): сказать игроку.
+			static std::string missingSaid;
+			if (MyCharacter() >= 2 && look.empty()) {
+				std::string name = CharacterName(MyCharacter());
+				const std::string key = name + "@" + std::to_string(LoadChapter(g_myChapter).task);
+				if (key != missingSaid) {
+					missingSaid = key;
+					if (!name.empty()) name[0] = static_cast<char>(toupper(static_cast<unsigned char>(name[0])));
+					menu::Notify(menu::NoteCharacterMissing, name);
+					Log("character: %s is not on this level - the partner sees the hero", name.c_str());
+				}
+			} else {
+				missingSaid.clear();
+			}
 			if (look.empty()) {
 				static uint64_t lastGroup = 0;
 				static std::string lastArt;
@@ -1355,7 +1370,7 @@ void ScriptTick() {
 		const bool aimWant = UsingNetwork() ? g_partnerAiming.load() : g_meAiming.load();
 		if (puppet != aimOf) {
 			aimOf = puppet;
-			aimNow = false;  // новая копия: без "оружие вниз" на первом тике
+			aimNow = true;  // новая копия: сразу "оружие вниз" (вооружённый NPC - цикада, солдат - держит его наготове)
 		}
 		if (puppet && aimNow && anim::PuppetTposeStreak() >= 3 && aimBanned != puppet) {
 			aimBanned = puppet;

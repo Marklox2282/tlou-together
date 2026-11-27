@@ -43,7 +43,7 @@ void OnFrame();  // из игрового кадра: описание пунк�
 void ScriptTick();
 // Сообщение на экране (всплывающее сообщение HUD игры): текст отдаёт перехват текстов по своему
 // ключу. Любой поток; показывается из ScriptTick на основном потоке.
-enum Note { NoteJoined, NoteLeft, NoteDied, NoteSearching, NoteReady, NoteStarted, NoteSlowLink };
+enum Note { NoteJoined, NoteLeft, NoteDied, NoteSearching, NoteReady, NoteStarted, NoteSlowLink, NoteCharacterMissing };
 void Notify(Note id, const std::string& name = {});  // текст - на языке игры, %s - name
 // Хозяин начал игру: открыть меню сюжета и у гостя (как его кнопка НАЧАТЬ ИГРУ). Только если гость
 // открывал МУЛЬТИПЛЕЕР в главном меню (знаем объект меню); ждёт, пока окно лобби закрыто.

@@ -3,6 +3,16 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## 0.42.2
+
+- The partner's copy no longer stays in a combat stance: it lowers its weapon and raises it only while the partner aims.
+- If you pick a character who is not on the current level (for example Ellie early in the game), an on-screen message says so; your partner sees the chapter's hero instead.
+
+---
+
+- Копия напарника больше не стоит в боевой стойке: опускает оружие и поднимает его, только когда напарник целится.
+- Если выбрать персонажа, которого нет на этом уровне (например, Элли в начале игры), на экране появится сообщение об этом; напарник видит героя главы.
+
 ## 0.42.1
 
 - Fixed crashes: the animation copying for climbing and melee crashed the game in its animation code; it is off now (only `climb_anims_experimental=on` turns it back on).
