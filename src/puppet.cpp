@@ -531,6 +531,14 @@ void Update() {
 			lastMode = -1;
 			if (const uint64_t frame = BoundFrame(target.pos, target.rot)) Call(g_dc.teleport, { puppet, frame });
 		}
+		// Долго стоит без команд - игра включает ей анимации ожидания; на чужом скелете (облик Джоэла
+		// на Марлин) они дают Т-позу. Раз в 4 с - снова "стой здесь" и та же манера: обычная стойка.
+		static ULONGLONG lastIdleRefresh = 0;
+		if (now - standingSince >= 4000 && now - lastIdleRefresh >= 4000 && now - lastSettle >= 1000) {
+			lastIdleRefresh = lastCmdAt = now;
+			if (const uint64_t frame = BoundFrame(cur.pos, target.rot)) Call(g_dc.moveTo, { puppet, frame, 0, 0, 0, 0, 0, 0 });
+			Call(g_dc.setDemeanor, { puppet, Sid(g_partnerCrouched ? "crouch" : "ambient") });
+		}
 		return;
 	}
 	if (targetSpeed < 0.5f && err < 1.5f) return;
