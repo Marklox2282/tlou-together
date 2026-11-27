@@ -3,6 +3,18 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## v40
+
+- Tess and other companions: when the guest's companion wanders more than 6 m away from where the host's is and you can't see it, it is moved there.
+- More stable: animation copying while climbing is off by default (`climb_anims=on` in `tlou-together.ini` to try it).
+- The partner's copy raises its weapon and fires again without that option.
+
+---
+
+- Тесс и другие спутники: если у гостя спутник ушёл дальше 6 м от того места, где он у хоста, и его не видно, его переносит туда.
+- Стабильнее: перенос анимаций при лазанье по умолчанию выключен (`climb_anims=on` в `tlou-together.ini`, чтобы попробовать).
+- Копия напарника снова поднимает оружие и стреляет и без этой настройки.
+
 ## v39
 
 - Fixed a crash when the partner joined: the mod could take the chapter's real companion (Tess) as the partner's copy, and the level's scripts fought over her.

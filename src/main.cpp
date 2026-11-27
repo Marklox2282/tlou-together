@@ -50,7 +50,7 @@ bool KeyPressed(int vk, bool& wasDown) {
 bool g_storySync = true;  // ini story_sync=off - не подтягиваться к чекпоинту партнёра
 bool g_sharedDeath = true;  // ini shared_death=off - смерть партнёра не перезагружает нас
 bool g_animSync = false;
-bool g_climbAnims = true;  // ini climb_anims: перенос анимаций только на время подъёма/прыжка
+bool g_climbAnims = false;  // ini climb_anims=on (по умолчанию выкл: хук анимаций пишет в память игры): перенос анимаций только на время подъёма/прыжка
 ULONGLONG g_lastStoryJoin = 0;  // последняя загрузка главы партнёра (общая пауза для всех причин)  // ini anim_sync=on - экспериментальный перенос анимаций игрока (по умолчанию выкл)
 // tlou-together.ini рядом с игрой; без peer_ip связь идёт через Steam.
 net::Config LoadConfig(std::string& name) {
@@ -58,7 +58,7 @@ net::Config LoadConfig(std::string& name) {
 	g_storySync = true;
 	g_sharedDeath = true;
 	g_animSync = false;
-	g_climbAnims = true;
+	g_climbAnims = false;
 	const std::wstring path = GameDirFile(L"tlou-together.ini");
 	// Мод назывался tlou1-coop: настройки из старого файла переносим один раз.
 	if (const std::wstring old = GameDirFile(L"tlou1-coop.ini"); !path.empty() && !old.empty())
@@ -83,7 +83,7 @@ net::Config LoadConfig(std::string& name) {
 				"; enemy_sync = soft (default): enemies keep their AI, moved to the host's spot off-screen.\n"
 				";             full (experimental): the guest's enemies copy the host's moves; they don't attack yet.\n"
 				"; anim_sync  = off (default) / on (experimental): direct bone animation replication for partner.\n"
-				"; climb_anims = on (default): your animation is copied to your partner only while you climb a ladder,\n"
+				"; climb_anims = off (default) / on (experimental): your animation is copied to your partner only while you climb a ladder,\n"
 				";             jump or vault (off: the copy just slides along). Needs a game restart.\n"
 				"name=\npeer_ip=\nport=7777\npeer_port=7777\ncharacter=auto\nanim_sync=off\n", f);
 			fclose(f);
@@ -111,7 +111,7 @@ net::Config LoadConfig(std::string& name) {
 		else if (key == "partner_outline") puppet::SetPartnerOutline(value != "off");
 		else if (key == "character") puppet::SetMyCharacter(puppet::CharacterFromName(value));
 		else if (key == "anim_sync") g_animSync = (value == "on" || value == "1" || value == "true");
-		else if (key == "climb_anims") g_climbAnims = value != "off";
+		else if (key == "climb_anims") g_climbAnims = (value == "on" || value == "1" || value == "true");
 	}
 	fclose(f);
 	puppet::SetAnimSync(g_animSync);

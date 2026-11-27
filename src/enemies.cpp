@@ -78,6 +78,20 @@ std::vector<uint64_t> AllEnemies() {
 	return out;
 }
 
+// Спутники главы (Тесс, Элли, Билл...): у каждого игрока свой со своим ИИ и скриптами уровня.
+// Их позицию хозяин шлёт вместе с врагами, у гостя вне кадра переносим туда же (мягко, ИИ не
+// трогаем: скрипты уровня ими управляют, выключение ИИ спутника роняло игру).
+std::vector<uint64_t> AllBuddies() {
+	std::vector<uint64_t> out;
+	const uint64_t list = Sid("all-buddy-npcs");
+	const uint64_t n = (std::min)(Call(g_dc.darrayCount, { list }), uint64_t{ 8 });
+	for (uint64_t i = 0; i < n; ++i) {
+		uint64_t npc = 0;
+		if (const uint64_t at = Call(g_dc.darrayAt, { list, i }); at && Read(at, npc) && npc) out.push_back(npc);
+	}
+	return out;
+}
+
 float Dist2(const float* a, const float* b) {
 	const float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
 	return dx * dx + dy * dy + dz * dz;
@@ -88,6 +102,16 @@ void SendPositions(uint64_t puppet) {
 	Locator me{};
 	if (!PlayerLocator(me)) return;
 	std::vector<std::pair<float, Position>> closest;
+	// Спутники - всегда (расстояние -1: в начале списка), потом ближайшие враги.
+	for (uint64_t npc : AllBuddies()) {
+		if (npc == puppet || !Exists(npc) || Dead(npc)) continue;
+		Locator l{};
+		if (!NpcLocator(npc, l) || !std::isfinite(l.pos[0])) continue;
+		Position p{ npc, {}, {} };
+		memcpy(p.pos, l.pos, sizeof(p.pos));
+		memcpy(p.rot, l.rot, sizeof(p.rot));
+		closest.push_back({ -1.0f, p });
+	}
 	for (uint64_t npc : AllEnemies()) {
 		if (npc == puppet || !Exists(npc) || Dead(npc)) continue;
 		Locator l{};
@@ -116,8 +140,11 @@ void FollowHost(uint64_t puppet) {
 		++it;
 	}
 	ReleaseSRWLockExclusive(&g_lock);
+	const std::vector<uint64_t> buddies = AllBuddies();
 	for (auto& [npc, r] : list) {
 		if (npc == puppet || !Exists(npc) || Dead(npc)) continue;
+		// Спутника ИИ не лишаем (скрипты уровня): только мягкий перенос вне кадра.
+		if (std::find(buddies.begin(), buddies.end(), npc) != buddies.end()) continue;
 		if (!r.aiOff) {
 			Call(g_dc.scriptMode, { npc, 2, 1 });
 			Call(g_dc.setBlind, { npc, 1 });
@@ -285,7 +312,7 @@ void Tick(uint64_t puppet) {
 		lastPos = now;
 		const int64_t p0 = QpcNow();
 		if (g_sendPositions) SendPositions(puppet);
-		else if (g_fullSync) FollowHost(puppet);
+		else if (g_fullSync) { FollowHost(puppet); CorrectPositions(puppet); }  // спутники - мягко и тут
 		else CorrectPositions(puppet);
 		ProfileAdd("[enemy pos]", MicrosecondsSince(p0));
 	}

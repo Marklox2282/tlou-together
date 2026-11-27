@@ -1322,7 +1322,7 @@ void ScriptTick() {
 		// Прицел партнёра: оружие вверх/вниз и наклон ствола (npc-aim-at-point). На скелете без
 		// анимаций прицеливания игра даёт Т-позу: это видит сторож в хуке анимаций (только
 		// bindpose, ни одного клипа) - тогда оружие вниз и прицел у этой копии больше не включаем.
-		// Без хука сторожа нет - прицел не включаем вовсе.
+		// Без хука сторожа нет: прицел включаем как в v30 (Т-позу давал чужой скелет, его больше не берём).
 		const bool aimWant = UsingNetwork() ? g_partnerAiming.load() : g_meAiming.load();
 		if (puppet != aimOf) {
 			aimOf = puppet;
@@ -1335,7 +1335,7 @@ void ScriptTick() {
 			aimNow = false;
 			Log("puppet: aiming gives this copy a T-pose - aiming off for it");
 		}
-		const bool aimOk = anim::HooksOk() && puppet && puppet != aimBanned && !g_hidden && aiDriven && !g_inCutscene;
+		const bool aimOk = puppet && puppet != aimBanned && !g_hidden && aiDriven;
 		const bool aimTarget = aimOk && aimWant;
 		if (puppet && !g_hidden && aimTarget != aimNow && (aimOk || aimNow)) {
 			Call(aimTarget ? g_dc.weaponUp : g_dc.weaponDown, { puppet });
@@ -1383,7 +1383,7 @@ void ScriptTick() {
 	// Только союзник: спутник главы или копия во фракции игрока (enemies_see_partner) - в игрока не попадает.
 	static ULONGLONG lastShot = 0;
 	const bool shoot = UsingNetwork() ? g_partnerFiring.load() : g_meFiring.load();
-	if (!g_inCutscene && shoot && (g_puppetIsBuddy || g_enemiesSee) && g_puppet && !g_hidden && GetTickCount64() - lastShot >= 180) {
+	if (shoot && (g_puppetIsBuddy || g_enemiesSee) && g_puppet && !g_hidden && GetTickCount64() - lastShot >= 180) {
 		lastShot = GetTickCount64();
 		if (UsingNetwork()) enemies::NoteCopyShot();  // её пули - только для вида
 		const uint64_t r = Call(g_dc.fireWeapon, { g_puppet });
