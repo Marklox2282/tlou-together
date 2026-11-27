@@ -164,13 +164,44 @@ int main() {
 		Run(a, b, 2);
 		Check(b.PeerWeapon() == 0x1234567890ABCDEFull, "weapon arrives");
 
-		puts("== start");
+		puts("== start and readiness");
 		Check(!b.TakePartnerStarted(), "not started before the host starts");
+		Check(!a.PeerReady() && !b.PeerReady(), "neither side ready initially");
+		b.SetReady(true);
+		a.SetChapter({ 0xAAA111ull, 0xBBB222ull });
+		Sleep(10);
+		Run(a, b, 2);
+		Check(a.PeerReady(), "host sees partner readiness");
+		Check(b.PeerChapter().first == 0xAAA111ull && b.PeerChapter().second == 0xBBB222ull,
+			"chapter syncs during load before any pose is sent");
 		a.SendStart();
 		Sleep(10);
 		Run(a, b, 2);
 		Check(b.TakePartnerStarted(), "host's start arrives");
 		Check(!b.TakePartnerStarted(), "start is taken once");
+		b.SetReady(false);
+		Sleep(10);
+		Run(a, b, 2);
+		Check(!a.PeerReady(), "unready syncs back to host");
+
+		puts("== anim and sender timestamps");
+		a.SendPose(pose.pos, pose.rot, true, false, 0, {}, 0, 123456ull);
+		const std::vector<uint8_t> animPayload = { 1, 0, 0, 0, 0x39, 0x05, 0, 0, 2, 0, 0, 0, 3, 0, 2, 0, 1, 0, 0, 0, 4, 0, 2, 0, 0, 0, 0, 0 };
+		a.SendAnim(animPayload.data(), animPayload.size());
+		Sleep(10);
+		Run(a, b, 2);
+		net::Packet tsPose;
+		a.SendPose(pose.pos, pose.rot, true, false, 0, {}, 0, 765432ull);
+		Sleep(10);
+		bool gotTs = false;
+		for (int i = 0; i < 3 && !gotTs; ++i) {
+			t += 50;
+			gotTs = b.Tick(t, tsPose);
+			Sleep(3);
+		}
+		Check(gotTs && tsPose.modVersion == 765432u, "pose carries sender timestamp");
+		const auto animRx = b.TakeAnimFrames();
+		Check(animRx.size() == 1 && animRx[0] == animPayload && b.TakeAnimFrames().empty(), "anim packet arrives intact once");
 
 		puts("== bye");
 		a.Stop();

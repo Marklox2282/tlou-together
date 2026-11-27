@@ -189,15 +189,21 @@ std::vector<uint64_t> FriendsInThisGame() {
 }
 
 // Пакет нашего мода, но другого протокола (например, v7 без рукопожатия): сообщаем один раз.
-enum class Kind { Ok, OtherProtocol, Junk };
+enum class Kind { Ok, OkAnim, OtherProtocol, Junk };
 
 Kind Classify(const void* data, int len) {
 	uint32_t magic = 0;
 	if (!data || len < 5) return Kind::Junk;
 	memcpy(&magic, data, 4);
 	if (magic != kMagic) return Kind::Junk;
-	const uint8_t protocol = static_cast<const uint8_t*>(data)[4];
-	return protocol == kProtocol && len == static_cast<int>(sizeof(Packet)) ? Kind::Ok : Kind::OtherProtocol;
+	const auto* b = static_cast<const uint8_t*>(data);
+	if (b[4] != kProtocol) return Kind::OtherProtocol;
+	if (len >= 8 && b[5] == kAnim && len <= 4096) {
+		uint16_t payload = 0;
+		memcpy(&payload, b + 6, 2);
+		return payload >= 20 && 8 + static_cast<int>(payload) == len ? Kind::OkAnim : Kind::Junk;
+	}
+	return len == static_cast<int>(sizeof(Packet)) ? Kind::Ok : Kind::OtherProtocol;
 }
 
 }  // namespace
@@ -265,7 +271,12 @@ void Link::Stop() {
 	peerDifficulty_ = -1;
 	peerWeapon_ = 0;
 	partnerStarted_ = false;
+	myReady_ = false;
+	peerReady_ = false;
+	lastReadySent_ = 0;
+	lastSentChapter_ = {};
 	enemyEvents_.clear();
+	animFrames_.clear();
 }
 
 Packet Link::Make(uint8_t type) const {
@@ -274,6 +285,7 @@ Packet Link::Make(uint8_t type) const {
 	p.modVersion = modVersion_;
 	p.chapterNode = chapter_.first;
 	p.chapterTask = chapter_.second;
+	if (myReady_) p.flags |= kFlagReady;
 	if (type == kHello) {
 		strncpy_s(p.name, name_.c_str(), _TRUNCATE);
 		p.target = joinSecret_;  // гость лобби: секрет из кода
@@ -299,10 +311,27 @@ void Link::Send(const Packet& p, bool reliable) {
 	if (!steam_ || peerSteam_) SendTo(peerSteam_, p, reliable);
 }
 
-bool Link::Receive(Packet& p, uint64_t& fromSteam) {
+void Link::SendRawBytes(const void* data, size_t len, bool reliable) {
+	if (!data || !len) return;
+	if (steam_) {
+		if (!peerSteam_) return;
+		const Ident id = MakeIdent(peerSteam_);
+		g_steam.SendToUser(g_steam.msgs, id.raw, data, static_cast<int>(len), reliable ? kSendReliable : kSendFlags, kChannel);
+	} else {
+		sockaddr_in to{};
+		to.sin_family = AF_INET;
+		to.sin_addr.s_addr = peerAddr_;
+		to.sin_port = peerPort_;
+		sendto(static_cast<SOCKET>(sock_), static_cast<const char*>(data), static_cast<int>(len), 0,
+			reinterpret_cast<sockaddr*>(&to), sizeof(to));
+	}
+}
+
+bool Link::Receive(Packet& p, std::vector<uint8_t>& animOut, bool& isAnim, uint64_t& fromSteam) {
 	for (;;) {
 		Kind kind = Kind::Junk;
 		fromSteam = 0;
+		isAnim = false;
 		if (steam_) {
 			void* msg = nullptr;
 			if (g_steam.RecvOnChannel(g_steam.msgs, kChannel, &msg, 1) != 1 || !msg) return false;
@@ -312,9 +341,14 @@ bool Link::Receive(Packet& p, uint64_t& fromSteam) {
 			fromSteam = g_steam.IdentGet(m + 0x10);                               // m_identityPeer
 			kind = Classify(data, len);
 			if (kind == Kind::Ok) memcpy(&p, data, sizeof(p));
+			else if (kind == Kind::OkAnim) {
+				const auto* b = static_cast<const uint8_t*>(data);
+				animOut.assign(b + 8, b + len);
+				isAnim = true;
+			}
 			g_steam.MsgRelease(msg);
 		} else {
-			char buf[512];
+			char buf[4096];
 			sockaddr_in from{};
 			int fromLen = sizeof(from);
 			const int n = recvfrom(static_cast<SOCKET>(sock_), buf, sizeof(buf), 0, reinterpret_cast<sockaddr*>(&from), &fromLen);
@@ -322,8 +356,12 @@ bool Link::Receive(Packet& p, uint64_t& fromSteam) {
 			if (from.sin_addr.s_addr != peerAddr_ || from.sin_port != peerPort_) continue;
 			kind = Classify(buf, n);
 			if (kind == Kind::Ok) memcpy(&p, buf, sizeof(p));
+			else if (kind == Kind::OkAnim) {
+				animOut.assign(reinterpret_cast<const uint8_t*>(buf) + 8, reinterpret_cast<const uint8_t*>(buf) + n);
+				isAnim = true;
+			}
 		}
-		if (kind == Kind::Ok) return true;
+		if (kind == Kind::Ok || kind == Kind::OkAnim) return true;
 		if (kind == Kind::OtherProtocol && !oldProtocolLogged_) {
 			oldProtocolLogged_ = true;
 			log_("net: got a packet from another version of the mod; both players need the latest version");
@@ -367,9 +405,12 @@ void Link::OnHello(const Packet& p, uint64_t from, uint64_t nowMs) {
 	peerSteam_ = from;
 	peerName_ = name[0] ? name : (steam_ ? g_steam.GetFriendPersonaName(g_steam.friends, from) : "partner");
 	peerChapter_ = { p.chapterNode, p.chapterTask };
+	peerReady_ = (p.flags & kFlagReady) != 0;
 	state_ = State::Connected;
 	lastHeard_ = nowMs;
 	lastSeq_ = 0;
+	lastReadySent_ = 0;
+	lastSentChapter_ = {};
 	log_("net: connected to %s", peerName_.c_str());
 	if (beep_) MessageBeep(MB_OK);
 	Send(Make(kHello));  // чтобы второй тоже сразу узнал
@@ -380,6 +421,9 @@ void Link::Disconnected(const char* why) {
 	state_ = State::Searching;
 	peerSteam_ = 0;
 	peerChapter_ = {};
+	peerReady_ = false;
+	lastReadySent_ = 0;
+	lastSentChapter_ = {};
 	lastHello_ = 0;
 }
 
@@ -408,15 +452,23 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 	}
 	bool gotPose = false;
 	Packet p;
+	std::vector<uint8_t> animPayload;
+	bool isAnim = false;
 	uint64_t from = 0;
-	while (Receive(p, from)) {
-		if (p.type == kHello) {
+	while (Receive(p, animPayload, isAnim, from)) {
+		if (!isAnim && p.type == kHello) {
 			OnHello(p, from, nowMs);
 			if (state_ == State::Connected && (!steam_ || from == peerSteam_)) lastHeard_ = nowMs;
 			continue;
 		}
 		if (state_ != State::Connected || (steam_ && from != peerSteam_)) continue;
 		lastHeard_ = nowMs;
+		if (isAnim) {
+			if (animFrames_.size() >= 16) animFrames_.erase(animFrames_.begin());
+			animFrames_.push_back(std::move(animPayload));
+			animPayload.clear();
+			continue;
+		}
 		if (p.type == kBye) {
 			// Хозяин чужого лобби сам ушёл: ждать в пустом лобби незачем - выходим и мы (после разбора
 			// пакетов). Просто пропавшая связь (тишина 10 с) - не выход: остаёмся и переподключаемся.
@@ -425,7 +477,13 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 			continue;
 		}
 		if (p.type == kStart) {
+			if (p.chapterNode && p.chapterTask) peerChapter_ = { p.chapterNode, p.chapterTask };
 			partnerStarted_ = true;
+			continue;
+		}
+		if (p.type == kReady) {
+			peerReady_ = (p.flags & kFlagReady) != 0;
+			peerChapter_ = { p.chapterNode, p.chapterTask };
 			continue;
 		}
 		if (p.type == kWeapon) {
@@ -448,9 +506,17 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 		if (p.type == kPose && static_cast<int32_t>(p.seq - lastSeq_) > 0) {
 			lastSeq_ = p.seq;
 			peerChapter_ = { p.chapterNode, p.chapterTask };
+			peerReady_ = (p.flags & kFlagReady) != 0;
 			pose = p;
 			gotPose = true;
 		}
+	}
+	// Периодический обмен готовностью и ранним номером главы (чтобы при загрузке "Продолжить"
+	// у хоста партнёр узнал главу и начал загрузку одновременно, не дожидаясь спавна).
+	if (state_ == State::Connected && (chapter_ != lastSentChapter_ || nowMs - lastReadySent_ >= 250)) {
+		lastSentChapter_ = chapter_;
+		lastReadySent_ = nowMs;
+		Send(Make(kReady));
 	}
 	if (state_ == State::Connected && nowMs - lastHeard_ > 10000) Disconnected("sent nothing for 10 s");
 	if (leaveAfterTick_) {
@@ -462,16 +528,36 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 }
 
 void Link::SendPose(const float pos[3], const float rot[4], bool hero, bool firing, uint64_t character, const std::string& look,
-	uint16_t stance) {
+	uint16_t stance, uint64_t nowMs) {
 	if (state_ != State::Connected) return;
 	Packet p = Make(kPose);
 	p.target = character;
 	strncpy_s(p.name, look.c_str(), _TRUNCATE);
-	p.flags = static_cast<uint16_t>((hero ? kFlagHero : 0) | (firing ? kFlagFiring : 0) | (stance & (kFlagCrouch | kFlagAim)));
+	p.flags = static_cast<uint16_t>((hero ? kFlagHero : 0) | (firing ? kFlagFiring : 0) |
+		(stance & (kFlagCrouch | kFlagAim)) | (myReady_ ? kFlagReady : 0));
+	p.modVersion = static_cast<uint32_t>(nowMs ? nowMs : GetTickCount64());
 	p.seq = ++seq_;
 	memcpy(p.pos, pos, sizeof(p.pos));
 	memcpy(p.rot, rot, sizeof(p.rot));
 	Send(p);
+}
+
+void Link::SendAnim(const void* data, size_t len) {
+	if (state_ != State::Connected || !data || len < 20 || len > 4000) return;
+	std::vector<uint8_t> buf(8 + len);
+	memcpy(buf.data(), &kMagic, 4);
+	buf[4] = kProtocol;
+	buf[5] = kAnim;
+	const uint16_t sz = static_cast<uint16_t>(len);
+	memcpy(buf.data() + 6, &sz, 2);
+	memcpy(buf.data() + 8, data, len);
+	SendRawBytes(buf.data(), buf.size(), false);
+}
+
+std::vector<std::vector<uint8_t>> Link::TakeAnimFrames() {
+	std::vector<std::vector<uint8_t>> out;
+	out.swap(animFrames_);
+	return out;
 }
 
 void Link::SendEnemy(uint64_t npc, float health, bool dead) {
@@ -505,6 +591,12 @@ void Link::SendSettings(uint32_t difficulty) {
 
 void Link::SendStart() {
 	if (state_ == State::Connected) Send(Make(kStart), true);
+}
+
+void Link::SetReady(bool ready) {
+	if (myReady_ == ready) return;
+	myReady_ = ready;
+	if (state_ == State::Connected) Send(Make(kReady), true);
 }
 
 bool Link::TakePartnerStarted() {

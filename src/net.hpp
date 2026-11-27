@@ -11,11 +11,12 @@ namespace net {
 
 constexpr uint32_t kMagic = 0x4F433154;  // "T1CO"
 constexpr uint8_t kProtocol = 3;          // 1 = v7 (без рукопожатия), 2 = v8 (без врагов)
-enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kEnemyPos = 6, kDeath = 7, kSettings = 8, kWeapon = 9, kStart = 10 };  // 5 - бывший обмен ролями
+enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kEnemyPos = 6, kDeath = 7, kSettings = 8, kWeapon = 9, kStart = 10, kAnim = 11, kReady = 12 };  // 5 - бывший обмен ролями
 constexpr uint16_t kFlagDead = 1;  // kEnemy: враг убит
 constexpr uint16_t kFlagHero = 2;  // kPose: отправитель играет за героя главы
 constexpr uint16_t kFlagFiring = 4;  // kPose: отправитель стреляет
 constexpr uint16_t kFlagCrouch = 8, kFlagAim = 16;  // kPose: присел, целится
+constexpr uint16_t kFlagReady = 32;  // kReady/kHello/kPose: игрок нажал "Готов" в меню
 
 #pragma pack(push, 1)
 struct Packet {
@@ -63,7 +64,9 @@ public:
 	// character: выбранный персонаж отправителя (sid имени), в поле target.
 	// look: облик отправителя ("t1x-sarah-costume-01"), в поле name.
 	void SendPose(const float pos[3], const float rot[4], bool hero = true, bool firing = false, uint64_t character = 0,
-		const std::string& look = {}, uint16_t stance = 0);  // stance: kFlagCrouch | kFlagAim
+		const std::string& look = {}, uint16_t stance = 0, uint64_t nowMs = 0);  // stance: kFlagCrouch | kFlagAim; modVersion хранит ms отправителя
+	void SendAnim(const void* data, size_t len);
+	std::vector<std::vector<uint8_t>> TakeAnimFrames();
 	// Ведущая сторона (позиции врагов): хозяин лобби; без лобби - больший Steam ID (по UDP - меньший порт).
 	bool Authority() const;
 	void SendEnemy(uint64_t npc, float health, bool dead);  // через Steam - с гарантией доставки
@@ -73,8 +76,11 @@ public:
 	void SendSettings(uint32_t difficulty);  // ведущая сторона: её сложность
 	int PeerDifficulty() const { return peerDifficulty_; }  // -1 - не знаем
 	void SendWeapon(uint64_t weapon);
-	void SendStart();          // хозяин нажал НАЧАТЬ ИГРУ (с гарантией доставки)
+	void SendStart();          // хозяин нажал Продолжить/Новая игра/Старт (с гарантией доставки)
 	bool TakePartnerStarted(); // партнёр начал игру (один раз)  // оружие в руках своего игрока (имя оружия, 0 - без оружия)
+	void SetReady(bool ready); // готовность игрока в лобби
+	bool MyReady() const { return myReady_; }
+	bool PeerReady() const { return peerReady_; }
 	uint64_t PeerWeapon() const { return peerWeapon_; }
 	bool TakePartnerDeath();   // партнёр погиб с прошлого раза
 	// Друзья в этой игре (только Steam; включает Steam при первом вызове). Готовность - по
@@ -118,8 +124,9 @@ public:
 private:
 	Packet Make(uint8_t type) const;
 	void Send(const Packet& p, bool reliable = false);
+	void SendRawBytes(const void* data, size_t len, bool reliable = false);
 	void SendTo(uint64_t steamId, const Packet& p, bool reliable = false);
-	bool Receive(Packet& p, uint64_t& fromSteam);
+	bool Receive(Packet& p, std::vector<uint8_t>& animOut, bool& isAnim, uint64_t& fromSteam);
 	void OnHello(const Packet& p, uint64_t from, uint64_t nowMs);
 	void Disconnected(const char* why);
 
@@ -139,6 +146,7 @@ private:
 	uint32_t seq_ = 0, lastSeq_ = 0;
 	bool oldProtocolLogged_ = false;
 	std::vector<Packet> enemyEvents_;
+	std::vector<std::vector<uint8_t>> animFrames_;
 	struct Heard { uint64_t steamId; uint32_t modVersion; uint64_t atMs; };
 	std::vector<Heard> heard_;  // последние приветствия от друзей
 	void PollLobby(uint64_t nowMs);
@@ -153,6 +161,9 @@ private:
 	int peerDifficulty_ = -1;
 	uint64_t peerWeapon_ = 0;
 	bool partnerStarted_ = false;
+	bool myReady_ = false, peerReady_ = false;
+	uint64_t lastReadySent_ = 0;
+	Chapter lastSentChapter_{};
 	uint16_t port_ = 0;
 	bool beep_ = true;
 };

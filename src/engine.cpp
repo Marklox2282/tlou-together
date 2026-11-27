@@ -18,6 +18,7 @@ namespace {
 
 constexpr uintptr_t kPlayerHandleRva = 0x5ECAA80;  // из get-player-health
 constexpr uintptr_t kProcessIdOffset = 0x98;
+constexpr uintptr_t kLookupProcessFnRva = 0x365F740;  // табличный поиск ProcessHandle по StringId64
 constexpr uintptr_t kLocatorOffset = 0x1B0;        // pos xyz(w), затем quat
 constexpr uintptr_t kLevelMgrRva = 0x6433130;      // тот же менеджер, что обходит get-spawner
 constexpr uintptr_t kMgrLevels = 0x1E0, kMgrLevelCount = 0x1D8, kLevelSpawnData = 0x100;
@@ -233,6 +234,8 @@ bool InitNatives() {
 	// Необязательные: без них мод работает, только хуже.
 	if ((g_dc.totalAmmo = FindNative("get-total-ammo"))) NameNative(g_dc.totalAmmo, "get-total-ammo");
 	else Log("natives: get-total-ammo not found (optional)");
+	if ((g_dc.setObjectLocator = FindNative("set-object-locator"))) NameNative(g_dc.setObjectLocator, "set-object-locator");
+	else Log("natives: set-object-locator not found (optional)");
 	return true;
 }
 
@@ -346,6 +349,36 @@ bool Seen(const CameraView& v, const float p[3], float maxDist) {
 	if (len > maxDist) return false;
 	if (len < 2.0f) return true;
 	return (d[0] * v.fwd[0] + d[1] * v.fwd[1] + d[2] * v.fwd[2]) > len * 0.34f;  // cos 70°
+}
+
+namespace {
+bool LookupHandleRaw(uintptr_t fnAddr, uint64_t sid, uintptr_t& outEntry, uint32_t& outId) {
+	struct Handle { uintptr_t entry; uint32_t id; };
+	using Fn = Handle*(__fastcall*)(Handle* out, uint64_t sid);
+	Handle buf{};
+	__try {
+		Handle* res = reinterpret_cast<Fn>(fnAddr)(&buf, sid);
+		if (!res || !res->entry || !res->id) return false;
+		outEntry = res->entry;
+		outId = res->id;
+		return true;
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		return false;
+	}
+}
+}  // namespace
+
+uintptr_t PlayerEntity() { return Player(); }
+
+uintptr_t ResolveEntity(uint64_t sid) {
+	if (!g_base || !sid) return 0;
+	const uintptr_t fnAddr = ReadPtr(g_base + kLookupProcessFnRva);
+	uintptr_t entry = 0;
+	uint32_t id = 0;
+	if (!fnAddr || !LookupHandleRaw(fnAddr, sid, entry, id)) return 0;
+	const uintptr_t obj = ReadPtr(entry + 8);
+	uint32_t objId = 0;
+	return obj && Read(obj + kProcessIdOffset, objId) && objId == id ? obj : 0;
 }
 
 bool PlayerLocator(Locator& l) {

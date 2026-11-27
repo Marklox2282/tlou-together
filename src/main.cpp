@@ -14,6 +14,7 @@
 
 #include <safetyhook.hpp>
 
+#include "anim.hpp"
 #include "enemies.hpp"
 #include "engine.hpp"
 #include "clipboard.hpp"
@@ -28,7 +29,7 @@ namespace {
 
 // Номер версии мода: увеличивать при каждом выпуске (tools/release.py берёт его отсюда).
 // Игроки с разными версиями не соединяются.
-constexpr uint32_t kModVersion = 30;
+constexpr uint32_t kModVersion = 31;
 
 using engine::Locator;
 
@@ -132,6 +133,9 @@ void PublishLobby(ULONGLONG now) {
 	s.partnerCharacter = puppet::CharacterName(puppet::PartnerCharacter());
 	s.heroName = puppet::HeroCharacter();
 	s.companionName = puppet::CompanionCharacter();
+	s.authority = g_link.Lobby() ? g_link.LobbyHost() : g_link.Authority();
+	s.myReady = g_link.MyReady();
+	s.partnerReady = g_link.PeerReady();
 	s.on = g_link.GetState() != net::State::Off;
 	s.connected = g_link.GetState() == net::State::Connected;
 	if (s.connected) s.partner = g_link.PeerName();
@@ -169,7 +173,12 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	}
 	if (action == menu::Invite) g_link.InviteToLobby();
 	if (action == menu::GoToPartner) puppet::RequestTeleport();  // как F7
-	if (action == menu::StartGame) g_link.SendStart();  // гость начнёт следом
+	if (action == menu::ToggleReady) g_link.SetReady(!g_link.MyReady());
+	if (action == menu::StartGame) g_link.SetReady(true);
+	if (action == menu::HostLaunch) {
+		g_link.SetReady(true);
+		g_link.SendStart();  // мгновенный сигнал гостю на Продолжить / Новая игра
+	}
 	if (puppet::TakeMyDeath()) g_link.SendDeath();
 	// Оружие в руках: при смене сразу и раз в 2 с (пакет мог потеряться).
 	static ULONGLONG lastWeapon = 0;
@@ -226,18 +235,29 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	// Сообщения на экране о подключении и отключении партнёра.
 	static bool wasConnected = false;
 	const bool connectedNote = g_link.GetState() == net::State::Connected;
+	static bool prevHavePlayer = false;
+	if (prevHavePlayer && !havePlayer) g_link.SetReady(false);
+	prevHavePlayer = havePlayer;
 	if (connectedNote != wasConnected) {
 		wasConnected = connectedNote;
 		menu::Notify(connectedNote ? g_link.PeerName() + " joined" : std::string("Partner disconnected"));
-		// В главном меню (игрока ещё нет): показать лобби заново - там уже "подключено" и НАЧАТЬ ИГРУ.
-		if (connectedNote && !havePlayer && g_link.Authority()) menu::ShowLobbyAgain();  // хозяину; гость ждёт автостарта
+		// В главном меню (игрока ещё нет): показать лобби/готовность заново.
+		if (connectedNote && !havePlayer) menu::ShowLobbyAgain();
 	}
+	static bool wasPeerReady = false;
+	const bool peerReadyNow = connectedNote && g_link.PeerReady();
+	if (peerReadyNow && !wasPeerReady && !havePlayer) {
+		menu::Notify(g_link.PeerName() + " is READY!");
+		if (g_link.Authority()) menu::ShowLobbyAgain();
+	}
+	wasPeerReady = peerReadyNow;
 	if (on != wasOn) {  // сеть включилась или выключилась (клавиши, меню, лобби)
 		wasOn = on;
 		if (on) enemies::Reset();
 		if (on) menu::Notify("Multiplayer: searching for your partner");
 		puppet::SetNetActive(on);
 		if (!on) {
+			anim::SetTxEnabled(false);
 			puppet::SetPartnerChapter({});
 			puppet::UseNetwork(false);
 		}
@@ -266,24 +286,41 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		Locator l{};
 		memcpy(l.pos, pose.pos, sizeof(pose.pos));
 		memcpy(l.rot, pose.rot, sizeof(pose.rot));
-		puppet::Record(now, l);
+		puppet::Record(now, l, pose.modVersion);
 	}
 	const bool connected = g_link.GetState() == net::State::Connected;
+	if (connected) {
+		for (const auto& frame : g_link.TakeAnimFrames())
+			anim::PushRx(frame.data(), frame.size(), now);
+		static std::vector<uint8_t> animTx;
+		if (havePlayer && anim::PollTx(animTx))
+			g_link.SendAnim(animTx.data(), animTx.size());
+	}
 	const engine::Chapter theirs = connected ? engine::Chapter{ g_link.PeerChapter().first, g_link.PeerChapter().second } : engine::Chapter{};
 	puppet::SetPartnerChapter(theirs);
-	// Хозяин начал игру: у гостя в главном меню открывается меню сюжета; войдя в игру, гость
-	// один раз загружает главу хозяина (если она другая) - как F5.
+	// Хозяин нажал "Продолжить" / "Новая игра" (или запустил главу, пока гость нажал "Готов"):
+	// не ждём загрузки самого гостя — грузим целевую главу хоста сразу как она появилась (параллельно с хостом).
 	static bool joinHostOnEntry = false;
+	static engine::Chapter prevTheirs{};
+	static bool prevMyReady = false;
+	const bool myReadyNow = g_link.MyReady();
 	if (g_link.TakePartnerStarted() && !havePlayer) {
-		Log("net: %s started the game - %s", g_link.PeerName().c_str(),
-			menu::StartGameFromPartner() ? "opening the story menu" : "open the story yourself");
+		Log("net: %s launched the game - waiting for chapter to load together", g_link.PeerName().c_str());
+		menu::Notify(g_link.PeerName() + " started — loading together...");
 		joinHostOnEntry = true;
 	}
-	if (!connected) joinHostOnEntry = false;
-	if (joinHostOnEntry && theirs && mine) {
+	if (connected && !g_link.Authority() && myReadyNow && !havePlayer && theirs &&
+		(!(theirs == prevTheirs) || !prevMyReady)) {
+		joinHostOnEntry = true;
+	}
+	prevMyReady = myReadyNow;
+	prevTheirs = theirs;
+	if (!connected || havePlayer) joinHostOnEntry = false;
+	if (joinHostOnEntry && theirs) {
 		joinHostOnEntry = false;
 		if (!(theirs == mine)) {
-			Log("net: entered the game - loading %s's chapter", g_link.PeerName().c_str());
+			Log("net: simultaneous launch -> loading %s's chapter %016llX:%016llX", g_link.PeerName().c_str(),
+				static_cast<unsigned long long>(theirs.node), static_cast<unsigned long long>(theirs.task));
 			puppet::RequestJoin(false);
 		}
 	}
@@ -329,11 +366,11 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		lastTheirs = {};
 		followAt = 0;
 	}
-	if (havePlayer && now - lastSend >= 50) {  // 20 раз в секунду
+	if (havePlayer && now - lastSend >= 30) {  // ~33 раза в секунду
 		lastSend = now;
 		g_link.SendPose(me.pos, me.rot, puppet::GetRole() == puppet::Role::Hero, puppet::MeFiring(),
 			puppet::CharacterSid(puppet::MyCharacter()), puppet::MyLook(),
-			static_cast<uint16_t>((puppet::MeCrouched() ? net::kFlagCrouch : 0) | (puppet::MeAiming() ? net::kFlagAim : 0)));
+			static_cast<uint16_t>((puppet::MeCrouched() ? net::kFlagCrouch : 0) | (puppet::MeAiming() ? net::kFlagAim : 0)), now);
 	}
 }
 
@@ -493,6 +530,7 @@ void Init() {
 	auto script = safetyhook::MidHook::create(reinterpret_cast<void*>(engine::g_base + engine::kScriptInvokeRva), ScriptInvoke);
 	if (script) g_scriptHook = std::move(*script);
 	Log("script hook: %s", g_scriptHook ? "ok" : "FAILED");
+	anim::Init(engine::g_base, Log);
 	{
 		std::string name;
 		LoadConfig(name);  // персонаж и режим врагов - сразу, не только по F8

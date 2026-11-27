@@ -23,10 +23,13 @@ struct Lobby {
 	int failure = 0;          // лобби не создалось (1) / не вошли (2) - net::Link::LobbyFailure
 	std::string myCharacter, partnerCharacter;  // "auto", "companion", "joel"...
 	std::string heroName, companionName;  // "joel", "tess"; пусто - неизвестно
+	bool authority = false;   // true если этот игрок запускает (хост)
+	bool myReady = false;     // наша готовность в главном меню
+	bool partnerReady = false;// готовность напарника
 	unsigned version = 0;     // версия мода (внизу окна)
 };
 
-enum Action { None, CreateLobby, Invite, Leave, SwapRoles, JoinByCode, StartGame, GoToPartner };
+enum Action { None, CreateLobby, Invite, Leave, SwapRoles, JoinByCode, StartGame, GoToPartner, ToggleReady, HostLaunch };
 
 using LobbyFn = Lobby (*)();  // состояние для текста лобби (вызывается из потока меню)
 using ActionFn = void (*)(Action);  // кнопка лобби (вызывается из потока меню)

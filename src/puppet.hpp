@@ -10,7 +10,7 @@
 namespace puppet {
 
 // Из игрового кадра (основной поток):
-void Record(uint64_t nowMs, const engine::Locator& l);  // точка следа
+void Record(uint64_t nowMs, const engine::Locator& l, uint32_t senderMs = 0);  // точка следа
 void UseNetwork(bool on);       // on: след - позы друга, задержка 120 мс; off: свои позы, 1 с
 bool UsingNetwork();
 void SetWanted(bool on);        // марионетка нужна (F10 или подключился друг)

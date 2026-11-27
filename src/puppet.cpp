@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "anim.hpp"
 #include "enemies.hpp"
 #include "log.hpp"
 #include "puppet.hpp"
@@ -21,31 +22,67 @@ namespace {
 
 // ---- след ----------------------------------------------------------------------------------
 constexpr int kTrail = 256;
-constexpr ULONGLONG kLocalDelayMs = 1000, kNetDelayMs = 120;
+constexpr ULONGLONG kLocalDelayMs = 1000, kNetDelayMs = 70;
 std::atomic<ULONGLONG> g_trailDelay{ kLocalDelayMs };
 struct Sample { ULONGLONG t; Locator l; };
 Sample g_trail[kTrail];
 int g_trailHead = 0;
 SRWLOCK g_trailLock = SRWLOCK_INIT;
+uint32_t g_senderBase = 0, g_lastSenderMs = 0;
+ULONGLONG g_localBase = 0, g_lastArrivalMs = 0;
 
 void ClearTrail(ULONGLONG delay) {
 	AcquireSRWLockExclusive(&g_trailLock);
 	memset(g_trail, 0, sizeof(g_trail));
 	g_trailHead = 0;
+	g_senderBase = g_lastSenderMs = 0;
+	g_localBase = g_lastArrivalMs = 0;
 	g_trailDelay = delay;
 	ReleaseSRWLockExclusive(&g_trailLock);
 }
 
+void LerpLocator(const Locator& a, const Locator& b, float alpha, Locator& out) {
+	for (int i = 0; i < 3; ++i) out.pos[i] = a.pos[i] + (b.pos[i] - a.pos[i]) * alpha;
+	out.pos[3] = a.pos[3];
+	const float dot = a.rot[0] * b.rot[0] + a.rot[1] * b.rot[1] + a.rot[2] * b.rot[2] + a.rot[3] * b.rot[3];
+	const float sign = dot < 0.0f ? -1.0f : 1.0f;
+	float lenSq = 0.0f;
+	for (int i = 0; i < 4; ++i) {
+		out.rot[i] = a.rot[i] + (b.rot[i] * sign - a.rot[i]) * alpha;
+		lenSq += out.rot[i] * out.rot[i];
+	}
+	if (lenSq > 1e-8f) {
+		const float inv = 1.0f / std::sqrt(lenSq);
+		for (int i = 0; i < 4; ++i) out.rot[i] *= inv;
+	}
+}
+
 bool DelayedTarget(ULONGLONG now, Locator& out, ULONGLONG extra = 0) {
 	const ULONGLONG delay = g_trailDelay.load() + extra;
+	const ULONGLONG want = now > delay ? now - delay : 0;
 	AcquireSRWLockShared(&g_trailLock);
-	bool found = false;
+	const Sample* older = nullptr;
+	const Sample* newer = nullptr;
 	for (int i = 1; i <= kTrail; ++i) {
 		const Sample& s = g_trail[(g_trailHead - i + kTrail * 2) % kTrail];
 		if (!s.t) break;
-		out = s.l;
+		if (s.t <= want) {
+			older = &s;
+			break;
+		}
+		newer = &s;
+	}
+	bool found = false;
+	if (older && newer && newer->t > older->t) {
+		const float alpha = static_cast<float>(want - older->t) / static_cast<float>(newer->t - older->t);
+		LerpLocator(older->l, newer->l, std::clamp(alpha, 0.0f, 1.0f), out);
 		found = true;
-		if (now - s.t >= delay) break;
+	} else if (older) {
+		out = older->l;
+		found = true;
+	} else if (newer) {
+		out = newer->l;
+		found = true;
 	}
 	ReleaseSRWLockShared(&g_trailLock);
 	return found;
@@ -350,24 +387,41 @@ void Update() {
 	}
 	if (g_hidden) Show(puppet, target);
 	if (now - g_spawnedAt > 2000) g_failures = 0;
-	// Марионетка идёт сама своей анимацией: npc-move-to(npc, frame, режим, 0...), где режим
-	// 0 шаг, 1 бег, 2 спринт (замерено в TLOU2-Coop). Телепорт - только при сильном отставании:
-	// телепорт на каждом кадре ронял игру в Fsm::StateMachineBase::SwitchToNewState.
 	static ULONGLONG lastCmdAt = 0, lastSnapAt = 0;
 	static float lastGoal[3]{};
 	static int lastMode = -1;
 	static bool wasFollowing = false;
+	static uint64_t placedPuppet = 0;
+	if (puppet != placedPuppet) placedPuppet = 0;
 	if (!g_follow) {
-		// Последний npc-move-to иначе дорабатывает до цели: даём новую цель - там, где стоит.
-		Locator here{};
-		if (wasFollowing && NpcLocator(puppet, here))
-			if (const uint64_t frame = BoundFrame(here.pos, here.rot)) Call(g_dc.moveTo, { puppet, frame, 0, 0, 0, 0, 0, 0 });
+		if (wasFollowing && !g_dc.setObjectLocator) {
+			Locator here{};
+			if (NpcLocator(puppet, here))
+				if (const uint64_t frame = BoundFrame(here.pos, here.rot)) Call(g_dc.moveTo, { puppet, frame, 0, 0, 0, 0, 0, 0 });
+		}
 		wasFollowing = false;
 		lastMode = -1;
 		return;
 	}
 	wasFollowing = true;
-	// Не чаще 10 раз в секунду, даже если команда не понадобилась (раньше пауза отсчитывалась
+	// Точное покадровое позиционирование через set-object-locator + интерполяция по часам отправителя.
+	// Без постоянного npc-move-to / weapon-up ИИ марионетки больше не застревает и не дёргается.
+	if (g_dc.setObjectLocator) {
+		Locator cur{};
+		const bool haveCur = NpcLocator(puppet, cur);
+		const float err = haveCur ? Dist(cur.pos, target.pos) : 999.0f;
+		if (const uint64_t frame = BoundFrame(target.pos, target.rot)) {
+			if (!placedPuppet || err > 15.0f) {
+				Call(g_dc.teleport, { puppet, frame });
+				placedPuppet = puppet;
+			} else {
+				Call(g_dc.setObjectLocator, { puppet, frame });
+			}
+		}
+		return;
+	}
+	// Запасной путь через npc-move-to (только если set-object-locator недоступен).
+	// Не чаще 10 раз в секунду, даже если команда не понадобилась (ранше пауза отсчитывалась
 	// только от команды, и пока марионетка стояла рядом, позиция читалась каждый кадр).
 	static ULONGLONG lastCheckAt = 0;
 	if (now - lastCmdAt < 100 || now - lastCheckAt < 100) return;
@@ -582,7 +636,7 @@ void NamesTick() {
 void ReadChapter() {
 	static ULONGLONG last = 0;
 	const ULONGLONG now = GetTickCount64();
-	if (now - last < 1000) return;
+	if (now - last < 100) return;
 	last = now;
 	const Chapter c = CurrentChapter();
 	if (c == LoadChapter(g_myChapter)) return;
@@ -593,7 +647,7 @@ void ReadChapter() {
 // ---- F5: к партнёру в его главу ------------------------------------------------------------
 // task-play-debug! грузит главу с чекпоинта задания. Потом ждём, пока появятся игрок и
 // марионетка (партнёр шлёт позы и во время нашей загрузки), и переносим игрока к ней.
-constexpr ULONGLONG kJoinTimeoutMs = 90000, kJoinSettleMs = 4000;
+constexpr ULONGLONG kJoinTimeoutMs = 90000, kJoinSettleMs = 2500;
 std::atomic<int> g_joinRequest{ 0 };  // 0 нет, 1 к партнёру, 2 своя глава
 std::atomic<ULONGLONG> g_joinAt{ 0 };  // идёт загрузка с F5 (проверяется вне блокировки)
 ULONGLONG g_joinReadyAt = 0;
@@ -639,10 +693,27 @@ void FinishJoin() {
 
 }  // namespace
 
-void Record(uint64_t nowMs, const Locator& l) {
+void Record(uint64_t nowMs, const Locator& l, uint32_t senderMs) {
 	AcquireSRWLockExclusive(&g_trailLock);
+	ULONGLONG t = nowMs;
+	if (senderMs) {
+		if (!g_lastArrivalMs || nowMs - g_lastArrivalMs > 500 || senderMs < g_lastSenderMs || senderMs - g_lastSenderMs > 500) {
+			g_senderBase = senderMs;
+			g_localBase = nowMs;
+		}
+		g_lastSenderMs = senderMs;
+		g_lastArrivalMs = nowMs;
+		t = g_localBase + (senderMs - g_senderBase);
+		if (t + 250 < nowMs) {
+			g_senderBase = senderMs;
+			g_localBase = nowMs;
+			t = nowMs;
+		} else if (t > nowMs + 100) {
+			t = nowMs + 100;
+		}
+	}
 	const Sample& last = g_trail[(g_trailHead + kTrail - 1) % kTrail];
-	if (nowMs - last.t >= 15) g_trail[g_trailHead++ % kTrail] = { nowMs, l };
+	if (t >= last.t && (t - last.t >= 12 || !last.t)) g_trail[g_trailHead++ % kTrail] = { t, l };
 	ReleaseSRWLockExclusive(&g_trailLock);
 }
 
@@ -918,15 +989,16 @@ void ScriptTick() {
 		g_meCrouched = (Call(g_dc.isCrouched, {}) & 1) != 0;
 		g_meAiming = (Call(g_dc.isAiming, {}) & 1) != 0;
 		static uint64_t appliedTo = 0;
-		static bool crouchNow = false, aimNow = false;
+		static bool crouchNow = false;
 		const uint64_t puppet = g_puppet;
 		const bool crouch = UsingNetwork() ? g_partnerCrouched.load() : g_meCrouched.load();
-		const bool aim = UsingNetwork() ? g_partnerAiming.load() : g_meAiming.load();
-		if (puppet && !g_hidden && (puppet != appliedTo || crouch != crouchNow)) {
+		// Когда активна прямая репликация анимаций (anim::HasActiveRx), манеры NPC ИИ отключаем,
+		// иначе они перебивают слои приседания/прицеливания. npc-weapon-up убран полностью,
+		// т.к. на сторонних скелетах он перезаписывает слои bindpose'ом (Т-поза).
+		if (puppet && !g_hidden && !anim::HasActiveRx(GetTickCount64()) && (puppet != appliedTo || crouch != crouchNow)) {
 			Call(g_dc.setDemeanor, { puppet, Sid(crouch ? "crouch" : "ambient") });
 			if (crouch != crouchNow) Log("puppet: %s", crouch ? "crouches" : "stands up");
 		}
-		if (puppet && !g_hidden && (puppet != appliedTo || aim != aimNow)) Call(aim ? g_dc.weaponUp : g_dc.weaponDown, { puppet });
 		// Оружие: у марионетки в руках то же, что у партнёра (без него npc-fire-weapon не стреляет).
 		g_myWeapon = Call(g_dc.playerWeapon, {});
 		static uint64_t weaponOf = 0, weaponNow = 0;
@@ -940,13 +1012,26 @@ void ScriptTick() {
 			}
 			Log("puppet: weapon %016llX -> %016llX (now %016llX)", static_cast<unsigned long long>(had),
 				static_cast<unsigned long long>(weapon), static_cast<unsigned long long>(Call(g_dc.npcWeapon, { puppet })));
-			if (aim) Call(g_dc.weaponUp, { puppet });  // новое оружие - снова в руки
 			weaponNow = weapon;
 		}
 		weaponOf = puppet;
 		appliedTo = puppet;
 		crouchNow = crouch;
-		aimNow = aim;
+	}
+	// Привязка реальных указателей игрока (TX) и марионетки (RX) для хука CreateAnimCmds.
+	{
+		static ULONGLONG lastAnimBind = 0;
+		static uint64_t lastBoundPuppet = 0;
+		static uintptr_t cachedPuppetPtr = 0;
+		const ULONGLONG nowAnim = GetTickCount64();
+		const uint64_t curPuppet = g_puppet.load();
+		if (curPuppet != lastBoundPuppet || !curPuppet || nowAnim - lastAnimBind >= 150) {
+			lastAnimBind = nowAnim;
+			lastBoundPuppet = curPuppet;
+			cachedPuppetPtr = curPuppet && !g_hidden ? ResolveEntity(curPuppet) : 0;
+		}
+		anim::SetTargets(PlayerEntity(), cachedPuppetPtr);
+		anim::SetTxEnabled(UsingNetwork() && g_netActive.load());
 	}
 	// Партнёр стреляет (по сети; без сети - свой игрок, для проверки): стреляет и марионетка.
 	// Только союзник: спутник главы или копия во фракции игрока (enemies_see_partner) - в игрока не попадает.

@@ -485,6 +485,58 @@ const Lang& LangFor(const char* library) {
 	return kLangs[0];
 }
 
+struct ReadyUi {
+	const char* btnReady;
+	const char* btnUnready;
+	const char* btnWaiting;
+	const char* readyTag;
+	const char* notReadyTag;
+	const char* hostTag;
+	const char* guestTag;
+	const char* waitNotReady;
+	const char* waitHostOnly;
+	const char* readyHintGuestOff;
+	const char* readyHintGuestOn;
+	const char* readyHintHostWait;
+	const char* readyHintHostGo;
+};
+
+const ReadyUi kReadyRu = {
+	"ГОТОВ К ИГРЕ",
+	"НЕ ГОТОВ",
+	"ЖДЁМ ДРУГА...",
+	"ГОТОВ",
+	"НЕ ГОТОВ",
+	"хост",
+	"гость",
+	"Нельзя запустить игру: %s ещё не готов! Пусть друг откроет «Мультиплеер» и нажмёт «ГОТОВ К ИГРЕ».",
+	"Игру запускает хост (%s). Нажмите «ГОТОВ К ИГРЕ» и дождитесь запуска — загрузит обоих сразу.",
+	"Нажмите «ГОТОВ К ИГРЕ». Затем можно закрыть окно (Esc): когда хост нажмёт «Продолжить», загрузит обоих сразу.",
+	"Вы ГОТОВЫ! Просто ждите (можно закрыть окно Esc) — когда хост нажмёт «Продолжить», вас сразу загрузит с ним.",
+	"Ждём готовности друга: %s должен нажать «ГОТОВ К ИГРЕ» в меню «Мультиплеер». Пока не готов — старт заблокирован.",
+	"Оба готовы! Нажмите «НАЧАТЬ ИГРУ», затем «Продолжить» (или «Новая игра») — обоих закинет одновременно."
+};
+
+const ReadyUi kReadyEn = {
+	"I AM READY",
+	"NOT READY",
+	"WAITING...",
+	"READY",
+	"NOT READY",
+	"host",
+	"guest",
+	"Cannot start yet: %s is not ready! Ask your partner to open Multiplayer and press I AM READY.",
+	"Only the host (%s) can start the game. Press I AM READY and wait — you will both load together.",
+	"Press I AM READY. Then you can close this window (Esc): when the host presses Continue, you both load together.",
+	"You are READY! Just wait (you can press Esc) — as soon as the host presses Continue, you both load together.",
+	"Waiting for partner readiness: %s must press I AM READY in Multiplayer. Starting is locked until then.",
+	"Both ready! Press START GAME, then Continue (or New Game) — you will both load at the same time."
+};
+
+const ReadyUi& ReadyUiFor(const Lang& l) {
+	return !strcmp(l.library, kLangs[1].library) ? kReadyRu : kReadyEn;
+}
+
 // Сообщение на экране: очередь (любой поток) и показанный текст (живёт, пока его показывают).
 SRWLOCK g_noteLock = SRWLOCK_INIT;
 std::vector<std::string> g_notes;
@@ -538,28 +590,41 @@ const char* LobbyText(const Lang& l) {
 }
 
 extern std::atomic<ULONGLONG> g_waitUntil;
+extern std::atomic<int> g_waitReason;  // 0=connecting, 1=partner not ready, 2=guest waits host
 
 const char* LobbyTextInto(const Lang& l, char* buf, size_t n) {
 	const Lobby s = g_lobby ? g_lobby() : Lobby{};
-	if (GetTickCount64() < g_waitUntil && !s.connected) {  // почему не начали игру - первой строкой
-		const int k = snprintf(buf, n, "%s<br><br>", l.waitStart);
+	const ReadyUi& ru = ReadyUiFor(l);
+	if (GetTickCount64() < g_waitUntil) {
+		const int reason = g_waitReason.load();
+		int k = 0;
+		if (reason == 0 && !s.connected) k = snprintf(buf, n, "%s<br><br>", l.waitStart);
+		else if (reason == 1 && s.connected && !s.partnerReady) k = snprintf(buf, n, ru.waitNotReady, Escaped(s.partner).c_str()), k = (k > 0 ? snprintf(buf + k, n - k, "<br><br>") + k : k);
+		else if (reason == 2 && s.connected && !s.authority) k = snprintf(buf, n, ru.waitHostOnly, Escaped(s.partner).c_str()), k = (k > 0 ? snprintf(buf + k, n - k, "<br><br>") + k : k);
 		if (k > 0 && static_cast<size_t>(k) < n) {
 			buf += k;
 			n -= k;
 		}
 	}
 	if (s.connected) {
-		// "Подключено: Вася... <br><br>Вы: Sarah · Вася: Tess (напарник)".
+		// "Подключено: Вася... <br><br>Вы (хост): Sarah [ГОТОВ] · Вася (гость): Tess [НЕ ГОТОВ]".
 		auto who = [&](const std::string& c) {
 			std::string name = c == "auto" ? s.heroName : c == "companion" ? s.companionName : c;
 			if (!name.empty()) name[0] = static_cast<char>(toupper(static_cast<unsigned char>(name[0])));
 			if (c == "companion") return name.empty() ? std::string(l.companion) : name + " (" + l.companion + ")";
 			return name.empty() ? std::string(l.hero) : name;
 		};
+		const char* hint = s.authority ? (s.partnerReady ? ru.readyHintHostGo : ru.readyHintHostWait)
+			: (s.myReady ? ru.readyHintGuestOn : ru.readyHintGuestOff);
 		const int k = snprintf(buf, n, l.connected, Escaped(s.partner).c_str());
-		if (k > 0 && static_cast<size_t>(k) < n)
-			snprintf(buf + k, n - k, "<br><br>%s: %s  ·  %s: %s<br><br>%s", l.you, who(s.myCharacter).c_str(), Escaped(s.partner).c_str(),
-				who(s.partnerCharacter).c_str(), l.leaveHint);
+		if (k > 0 && static_cast<size_t>(k) < n) {
+			const char* myR = (s.authority || s.myReady) ? ru.readyTag : ru.notReadyTag;
+			const char* prR = s.partnerReady ? ru.readyTag : ru.notReadyTag;
+			snprintf(buf + k, n - k, "<br><br>%s (%s): %s [%s]  ·  %s (%s): %s [%s]<br><br>%s<br><br>%s",
+				l.you, s.authority ? ru.hostTag : ru.guestTag, who(s.myCharacter).c_str(), myR,
+				Escaped(s.partner).c_str(), s.authority ? ru.guestTag : ru.hostTag, who(s.partnerCharacter).c_str(), prR,
+				hint, l.leaveHint);
+		}
 	}
 	else if (s.lobby && s.host) {
 		const int k = snprintf(buf, n, "%s", l.hostWait);
@@ -605,8 +670,12 @@ const char* DescText(const Lang& l) {
 constexpr uint64_t kYesText = Sid("MENU_YES"), kNoText = Sid("MENU_NO");
 std::atomic<ULONGLONG> g_labelsUntil{ 0 };
 std::atomic<bool> g_boxInLobby{ false };  // какое окно открыто: в лобби (3 кнопки) или нет (2)
-std::atomic<bool> g_boxConnected{ false };  // подключены: первая кнопка - поменяться ролями
+std::atomic<bool> g_boxConnected{ false };  // подключены: первая кнопка - старт/готов/к напарнику
+std::atomic<bool> g_boxAuthority{ false };  // мы хост в момент открытия окна
+std::atomic<bool> g_boxMyReady{ false };
+std::atomic<bool> g_boxPartnerReady{ false };
 std::atomic<bool> g_mainMenu{ true };  // окно открыто из главного меню (стек "main"), иначе из паузы
+std::atomic<const Lang*> g_activeLang{ &kLangs[0] };
 
 const char* TextLookup(void* db, uint64_t key, bool* found) {
 	const bool labels = (key == kYesText || key == kNoText) && GetTickCount64() < g_labelsUntil;
@@ -616,9 +685,16 @@ const char* TextLookup(void* db, uint64_t key, bool* found) {
 	}
 	if (key == kLibraryText || key == kLobbyText || key == kLobbyText2 || key == kDescText || labels) {
 		const Lang& l = LangFor(g_textHook.call<const char*>(db, kLibraryText, nullptr));
+		g_activeLang = &l;
+		const ReadyUi& ru = ReadyUiFor(l);
 		if (found) *found = true;
 		if (labels) {
-			if (key == kYesText) return g_boxConnected ? (g_mainMenu ? l.start : l.goTo) : g_boxInLobby ? l.invite : l.create;
+			if (key == kYesText) {
+				if (!g_boxConnected) return g_boxInLobby ? l.invite : l.create;
+				if (!g_mainMenu) return l.goTo;
+				if (!g_boxAuthority) return g_boxMyReady ? ru.btnUnready : ru.btnReady;
+				return g_boxPartnerReady ? l.start : ru.btnWaiting;
+			}
 			return g_boxConnected ? l.swap : g_boxInLobby ? l.leave : l.joinCode;
 		}
 		return key == kLobbyText || key == kLobbyText2 ? LobbyText(l) : key == kDescText ? DescText(l) : TitleText(l);
@@ -657,6 +733,9 @@ bool OpenLobby(bool mainMenu) {
 	g_clipboardShown = !inLobby && g_clipboardCode ? g_clipboardCode() : std::string();
 	g_boxInLobby = inLobby;
 	g_boxConnected = s.connected;
+	g_boxAuthority = s.authority;
+	g_boxMyReady = s.myReady;
+	g_boxPartnerReady = s.partnerReady;
 	g_labelsUntil = GetTickCount64() + 1500;
 	const uintptr_t base = engine::g_base;
 	using StackFn = uintptr_t (*)(uintptr_t, uint64_t);
@@ -675,26 +754,60 @@ bool OpenLobby(bool mainMenu) {
 }
 
 
-// Готовность. В начале обработчика событий меню (0x1C831C7, функция 0x1C83174) в rax - имя
-// события или нажатой кнопки: THE LAST OF US приходит как buttonCampaignTLOU (проверено в игре:
-// одиночный щелчок кнопку лишь выделяет, нажатие - пробел/Enter/второй щелчок). В лобби без
-// напарника вместо меню сюжета открываем лобби с причиной и уходим в конец обработчика.
+// Готовность. В начале обработчика событий главного меню (0x1C831C7) и экрана кампании
+// (0x1C826AA): блокируем запуск сюжета / "Продолжить" / "Новая игра", если напарник не подключён
+// или не нажал "ГОТОВ К ИГРЕ", а также если пытается запустить гость. Когда оба готовы и хост
+// нажимает "Продолжить" или "Новая игра", сразу шлём партнёру сигнал совместного запуска.
 constexpr uintptr_t kMenuEventRva = 0x1C831C7;
+constexpr uintptr_t kContinueEventRva = 0x1C826AA, kContinueDoneRva = 0x1C83147;
 constexpr uint64_t kStartTlou = Sid("buttonCampaignTLOU"), kStartLeftBehind = Sid("buttonCampaignSPDLC1");
-safetyhook::MidHook g_startHook;
-std::atomic<ULONGLONG> g_waitUntil{ 0 };  // текст лобби начинается с "напарник ещё подключается"
+constexpr uint64_t kStartNewGame = Sid("buttonNewGame"), kStartContinue = Sid("buttonContinue");
+safetyhook::MidHook g_startHook, g_continueHook;
+std::atomic<ULONGLONG> g_waitUntil{ 0 };  // баннер с причиной блокировки запуска
+std::atomic<int> g_waitReason{ 0 };
+
+bool BlockOrLaunchStory(uint64_t btn, bool isContinueScreen) {
+	if (btn != kStartTlou && btn != kStartLeftBehind && btn != kStartNewGame && btn != kStartContinue) return false;
+	const Lobby s = g_lobby ? g_lobby() : Lobby{};
+	if (!(s.lobby || s.busy || s.on)) return false;
+
+	if (!s.connected) {
+		g_waitReason = 0;
+		g_waitUntil = GetTickCount64() + 30000;
+		g_mainMenu = true;
+		Log("menu: story launch blocked (partner not connected), showing readiness window=%d", OpenLobby(true) ? 1 : 0);
+		return true;
+	}
+	if (!s.authority) {
+		g_waitReason = 2;
+		g_waitUntil = GetTickCount64() + 30000;
+		g_mainMenu = true;
+		Log("menu: guest tried to start story manually, showing readiness window=%d", OpenLobby(true) ? 1 : 0);
+		return true;
+	}
+	if (!s.partnerReady) {
+		g_waitReason = 1;
+		g_waitUntil = GetTickCount64() + 30000;
+		g_mainMenu = true;
+		Log("menu: partner not ready, story launch blocked, showing readiness window=%d", OpenLobby(true) ? 1 : 0);
+		return true;
+	}
+	if ((isContinueScreen && btn == kStartContinue) || btn == kStartNewGame) {
+		Log("menu: host pressed Continue/NewGame with partner ready -> triggering simultaneous start");
+		if (g_action) g_action(HostLaunch);
+	}
+	return false;
+}
 
 void OnMenuEvent(safetyhook::Context& ctx) {
-	if (ctx.rax != kStartTlou && ctx.rax != kStartLeftBehind) return;
-	const Lobby s = g_lobby ? g_lobby() : Lobby{};
-	if (!(s.lobby || s.busy) || s.connected) return;
-	g_waitUntil = GetTickCount64() + 30000;
-	const uintptr_t menu = ctx.r15;
-	using MainMenuFn = bool (*)(uintptr_t);
-	const auto mainMenu = reinterpret_cast<MainMenuFn>(*reinterpret_cast<uintptr_t*>(*reinterpret_cast<uintptr_t*>(menu) + kMainMenuVcall));
-	g_mainMenu = mainMenu(menu);
-	Log("menu: story start while the partner is connecting - lobby %s", OpenLobby(g_mainMenu) ? "shown" : "FAILED");
-	ctx.rip = engine::g_base + kPressDoneRva;
+	if (ctx.rax == kStartTlou || ctx.rax == kStartLeftBehind) {
+		if (!g_menuObj) g_menuObj = ctx.r15;
+	}
+	if (BlockOrLaunchStory(ctx.rax, false)) ctx.rip = engine::g_base + kPressDoneRva;
+}
+
+void OnContinueEvent(safetyhook::Context& ctx) {
+	if (BlockOrLaunchStory(ctx.rax, true)) ctx.rip = engine::g_base + kContinueDoneRva;
 }
 
 void OnPress(safetyhook::Context& ctx) {
@@ -717,13 +830,27 @@ void OnAnswer(safetyhook::Context& ctx) {
 	g_boxOpen = false;  // любое событие нашего окна - оно закрылось
 	const uint64_t button = *reinterpret_cast<const uint64_t*>(ctx.rsp + 0x30);
 	Action a = None;
-	if (button == kMessageBoxOk) a = g_boxConnected ? (g_mainMenu ? StartGame : GoToPartner) : g_boxInLobby ? Invite : CreateLobby;
-	else if (button == kMessageBoxCancel) a = g_boxConnected ? SwapRoles : g_boxInLobby ? Leave : JoinByCode;
+	if (button == kMessageBoxOk) {
+		if (!g_boxConnected) a = g_boxInLobby ? Invite : CreateLobby;
+		else if (!g_mainMenu) a = GoToPartner;
+		else if (!g_boxAuthority) a = ToggleReady;
+		else a = StartGame;
+	} else if (button == kMessageBoxCancel) {
+		a = g_boxConnected ? SwapRoles : g_boxInLobby ? Leave : JoinByCode;
+	}
 	if (a != None) {
-		Log("menu: lobby button %s", a == CreateLobby ? "create" : a == Invite ? "invite" : a == SwapRoles ? "change character" : a == JoinByCode ? "join by code" : a == StartGame ? "start game" : a == GoToPartner ? "go to partner" : "leave");
-		if (a == StartGame) g_startGame = true;  // меню сюжета откроет ScriptTick (основной поток)
-		if (g_action) g_action(a);  // НАЧАТЬ ИГРУ - ещё и сигнал гостю
-		if (a != Leave && a != StartGame && a != GoToPartner) RequestReopen(a == CreateLobby ? 2500 : 1000);  // показать, что вышло
+		const Lobby cur = g_lobby ? g_lobby() : Lobby{};
+		const bool canStart = a == StartGame && cur.connected && cur.authority && cur.partnerReady;
+		Log("menu: lobby button %d", static_cast<int>(a));
+		if (a == StartGame && !canStart) {
+			g_waitReason = cur.connected ? 1 : 0;
+			g_waitUntil = GetTickCount64() + 30000;
+			RequestReopen(150);
+		} else {
+			if (canStart) g_startGame = true;
+			if (g_action) g_action(a);
+			if (a != Leave && !canStart && a != GoToPartner) RequestReopen(a == CreateLobby ? 2500 : (a == ToggleReady ? 120 : 1000));
+		}
 	}
 	ctx.rdi = 1;
 }
@@ -742,6 +869,11 @@ bool g_installed = false;
 
 void OnFrame() {
 	g_mainThread = GetCurrentThreadId();
+	static ULONGLONG lastLive = 0;
+	if (g_boxOpen.load(std::memory_order_relaxed) && GetTickCount64() - lastLive >= 300) {
+		lastLive = GetTickCount64();
+		LobbyText(*g_activeLang.load());
+	}
 	static bool registered = false;
 	if (registered || !g_installed) return;
 	registered = true;
@@ -820,9 +952,11 @@ bool Install(LobbyFn lobby, ActionFn action, CodeFn clipboardCode) {
 	// снимаем всё: иначе видимый пункт выходил бы в библиотеку.
 	const bool ok = Make(g_pressHook, kPressRva, OnPress, "press") && Make(g_answerHook, kAnswerRva, OnAnswer, "answer") &&
 		Make(g_startHook, kMenuEventRva, OnMenuEvent, "story start") &&
+		Make(g_continueHook, kContinueEventRva, OnContinueEvent, "continue start") &&
 		Make(g_textHook, kTextLookupRva, TextLookup, "text") && Make(g_visibleHook, kVisibleRva, Visible, "visibility");
 	if (!ok) {
 		g_visibleHook = {};
+		g_continueHook = {};
 		g_startHook = {};
 		g_textHook = {};
 		g_answerHook = {};

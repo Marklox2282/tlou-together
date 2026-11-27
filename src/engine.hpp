@@ -46,7 +46,8 @@ struct Natives {
 		setIgnore, setBlind, setDeaf, hitReactions, stun, dodges, objectLocator, moveTo, newBoxedValue, sendEvent,
 		setVisible, setUnshootable, darrayCount, darrayAt, getHealth, setHealth, isDead, npcDie, taskNode, taskSubnode, taskPlay, getScriptMode, swapLook, isFiring, fireWeapon, cameraLocator, artGroup, playerHealth, isCrouched, isAiming, setDemeanor, weaponUp, weaponDown, getFaction, setFaction, highlight, allocColor, getDifficulty, setDifficulty, hudMessage,
 		playerWeapon, npcWeapon, giveWeapon, destroyWeapon,
-		totalAmmo;  // необязательная: может быть nullptr
+		totalAmmo,        // необязательная: может быть nullptr
+		setObjectLocator; // необязательная: может быть nullptr
 };
 extern Natives g_dc;
 bool InitNatives();  // false, если какой-то не найден
@@ -63,6 +64,8 @@ uint64_t MicrosecondsSince(int64_t qpcStart);
 // ---- объекты -------------------------------------------------------------------------------
 struct Locator { float pos[4], rot[4]; };
 
+uintptr_t PlayerEntity();                  // указатель NdGameObject игрока (0 если нет)
+uintptr_t ResolveEntity(uint64_t sid);     // указатель NdGameObject/NPC по StringId64 (0 если нет)
 bool PlayerLocator(Locator& l);            // без скриптового контекста, только чтение
 bool CameraLocator(Locator& l);            // камера игрока (вперёд - +Z), скриптовый контекст
 // Видно ли точку на экране: ближе maxDist и в конусе ~70° от взгляда камеры (с запасом на
