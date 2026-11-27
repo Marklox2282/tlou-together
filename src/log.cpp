@@ -20,12 +20,17 @@ std::wstring GameDirFile(const wchar_t* name) {
 	return wcscat_s(path, name) ? std::wstring() : std::wstring(path);
 }
 
-void OpenLog() {
+void OpenLog(bool append) {
 	const std::wstring path = GameDirFile(L"tlou-together.log");
 	// Лог прошлого запуска сохраняем рядом (его отправляет logsend, если включён вебхук).
-	if (const std::wstring prev = GameDirFile(L"tlou-together.prev.log"); !path.empty() && !prev.empty())
+	if (const std::wstring prev = GameDirFile(L"tlou-together.prev.log"); !append && !path.empty() && !prev.empty())
 		MoveFileExW(path.c_str(), prev.c_str(), MOVEFILE_REPLACE_EXISTING);
-	if (!path.empty()) g_log = _wfsopen(path.c_str(), L"w", _SH_DENYWR);
+	if (!path.empty()) g_log = _wfsopen(path.c_str(), append ? L"a" : L"w", _SH_DENYWR);
+}
+
+void CloseLog() {
+	if (g_log) fclose(g_log);
+	g_log = nullptr;
 }
 
 void Log(const char* fmt, ...) {

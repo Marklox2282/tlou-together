@@ -3,6 +3,14 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## 0.42.0
+
+- Updates no longer need a second game start: at launch the mod checks for a new version (up to 4 seconds), and if one is downloaded it runs right away. Works from the next update on.
+
+---
+
+- Обновлению больше не нужен второй запуск игры: при старте мод проверяет новую версию (до 4 секунд) и, если скачал её, сразу запускает. Работает начиная со следующего обновления.
+
 ## 0.41.2
 
 - Fixed: on levels with many spawn points for Tess the partner was invisible (the mod gave up before reaching the soldiers it could use for the copy).

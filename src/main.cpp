@@ -640,7 +640,9 @@ LONG CALLBACK OnException(EXCEPTION_POINTERS* e) {
 	CrashWrite("rax=%llX rbx=%llX rcx=%llX rdx=%llX rsi=%llX rdi=%llX r8=%llX r9=%llX rsp=%llX\r\n",
 		c.Rax, c.Rbx, c.Rcx, c.Rdx, c.Rsi, c.Rdi, c.R8, c.R9, c.Rsp);
 	CrashWrite("puppet=%016llX wanted=%d follow=%d stack:", puppet::Current(), puppet::Wanted() ? 1 : 0, puppet::Follow() ? 1 : 0);
-	const HMODULE self = GetModuleHandleW(L"winmm.dll");
+	HMODULE self = nullptr;  // модуль, который реально работает (после обновления на лету - копия)
+	GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+		reinterpret_cast<LPCWSTR>(&OnException), &self);
 	for (uint64_t p = c.Rsp, found = 0; p < c.Rsp + 0x3000 && found < 40; p += 8) {
 		uint64_t v = 0;
 		if (!engine::Read(p, v)) break;
@@ -661,39 +663,54 @@ void InstallCrashLog() {
 	if (g_crashFile != INVALID_HANDLE_VALUE && AddVectoredExceptionHandler(1, OnException)) Log("crash log: on");
 }
 
-// ---- автообновление ------------------------------------------------------------------------
-std::wstring SelfPath() {
-	HMODULE self = nullptr;
-	wchar_t path[MAX_PATH]{};
-	GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-		reinterpret_cast<LPCWSTR>(&SelfPath), &self);
-	const DWORD n = self ? GetModuleFileNameW(self, path, MAX_PATH) : 0;
-	return n && n < MAX_PATH ? path : L"";
-}
-
-void StartUpdateCheck() {
-	static std::wstring self = SelfPath();
-	if (self.empty()) return;
-	update::CleanupOld(self);
-	// Фоновый поток: сеть не трогаем в DllMain и не задерживаем запуск игры.
-	if (HANDLE t = CreateThread(nullptr, 0, [](LPVOID) -> DWORD {
-			Sleep(5000);
-			update::Run(kModVersion, self, update::kReleaseUrl, Log);
-			return 0;
-		}, nullptr, 0, nullptr))
-		CloseHandle(t);
-}
-
-void Init() {
-	engine::g_base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+// ---- запуск и обновление на лету ------------------------------------------------------------
+// Мод загружается как winmm.dll. Сначала (до 4 с) проверяем обновление: если скачалась новая
+// версия с верной подписью, запускаем её копию (tlou-together-run.dll) в этой же игре - второй
+// запуск игры не нужен. Иначе работает этот модуль, а обновление докачивается фоном к следующему.
+bool IsGameProcess() {
 	wchar_t path[MAX_PATH]{};
 	GetModuleFileNameW(nullptr, path, MAX_PATH);
 	const wchar_t* slash = wcsrchr(path, L'\\');
-	if (!slash || _wcsicmp(slash + 1, L"tlou-i.exe")) return;
+	return slash && !_wcsicmp(slash + 1, L"tlou-i.exe");
+}
+
+void RunMod(bool handedOver);
+
+DWORD WINAPI Boot(LPVOID) {
 	OpenLog();
+	Log("tlou-together %s starting", version::Name(kModVersion).c_str());
+	const std::wstring dll = GameDirFile(L"winmm.dll");
+	update::CleanupOld(dll);
+	static std::atomic<int> result{ -1 };
+	HANDLE t = CreateThread(nullptr, 0, [](LPVOID p) -> DWORD {
+		result = static_cast<int>(update::Run(kModVersion, *static_cast<const std::wstring*>(p), update::kReleaseUrl, Log));
+		return 0;
+	}, const_cast<std::wstring*>(&dll), 0, nullptr);
+	if (t) {
+		WaitForSingleObject(t, 4000);  // дольше игру без мода не держим: обновление дойдёт к следующему запуску
+		CloseHandle(t);
+	}
+	if (result == static_cast<int>(update::Result::Installed)) {
+		const std::wstring run = GameDirFile(L"tlou-together-run.dll");
+		using RunFn = void (*)();
+		HMODULE fresh = CopyFileW(dll.c_str(), run.c_str(), FALSE) ? LoadLibraryW(run.c_str()) : nullptr;
+		if (const auto start = fresh ? reinterpret_cast<RunFn>(GetProcAddress(fresh, "TlouTogetherRun")) : nullptr) {
+			Log("update: running the new version right away");
+			CloseLog();
+			start();  // новая версия продолжает этот же лог
+			return 0;
+		}
+		Log("update: the new version can't take over now, it starts with the next game launch");
+	}
+	RunMod(false);
+	return 0;
+}
+
+void RunMod(bool handedOver) {
+	if (handedOver) OpenLog(true);
+	engine::g_base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
 	const uint32_t stamp = engine::BuildTimestamp();
 	Log("tlou-together %s, base=%p build=%08X", version::Name(kModVersion).c_str(), reinterpret_cast<void*>(engine::g_base), stamp);
-	StartUpdateCheck();  // и на неподдерживаемой сборке игры: обновление может её поддержать
 	if (stamp != engine::kBuildTimestamp) {
 		Log("unsupported game build, mod is off");
 		return;
@@ -725,11 +742,19 @@ void Init() {
 
 }  // namespace
 
+// Новая версия после обновления на лету: старая (winmm.dll) передаёт ей запуск.
+extern "C" __declspec(dllexport) void TlouTogetherRun() { RunMod(true); }
+
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
 	if (reason == DLL_PROCESS_ATTACH) {
 		DisableThreadLibraryCalls(module);
 		winmm_proxy::ResolveReal();
-		Init();
+		// Сам запускается только модуль под именем winmm.dll (копию запускает он) и только в игре.
+		wchar_t path[MAX_PATH]{};
+		GetModuleFileNameW(module, path, MAX_PATH);
+		const wchar_t* slash = wcsrchr(path, L'\\');
+		if (slash && !_wcsicmp(slash + 1, L"winmm.dll") && IsGameProcess())
+			if (HANDLE t = CreateThread(nullptr, 0, Boot, nullptr, 0, nullptr)) CloseHandle(t);
 	}
 	return TRUE;
 }
