@@ -3,6 +3,14 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## v36
+
+- No more T-pose: when there is no NPC of your sex on the level, your partner's copy keeps its own look (for example Marlene) but moves properly, crouches and stands. Where such an NPC exists, it looks like your character as before.
+
+---
+
+- Больше нет Т-позы: если на уровне нет NPC вашего пола, копия напарника остаётся в своём облике (например, Марлин), но нормально двигается, приседает и стоит. Где такой NPC есть, напарник выглядит как ваш персонаж, как и раньше.
+
 ## v35
 
 - The guest no longer has to press READY: once connected in the main menu, they are ready.
