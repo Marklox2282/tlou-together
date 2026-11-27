@@ -329,7 +329,7 @@ uint64_t Spawn(const Locator& at) {
 		return false;
 	};
 	std::vector<uintptr_t> skip = g_badSpawners;
-	for (int tries = 0; tries < 8; ++tries) {
+	for (int tries = 0; tries < 64; ++tries) {  // сюжетных спавнеров бывает много (у Тесс 8)
 		sp = FindBuddySpawner(HeroName(look), skip, name);
 		if (!sp || !inScene(sp)) break;
 		Log("puppet: %s is in the scene already, skipping", name.c_str());
@@ -340,7 +340,7 @@ uint64_t Spawn(const Locator& at) {
 	// берём любой NPC и надеваем выбранный облик. Двойник лучше невидимого партнёра.
 	if (!sp && !look.empty()) {
 		std::vector<uintptr_t> skipAny = g_badSpawners;
-		for (int tries = 0; tries < 8; ++tries) {
+		for (int tries = 0; tries < 64; ++tries) {  // сюжетных спавнеров бывает много (у Тесс 8)
 			sp = FindBuddySpawner(std::string(), skipAny, name);
 			if (!sp || !inScene(sp)) break;
 			skipAny.push_back(sp);

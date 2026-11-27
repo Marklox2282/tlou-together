@@ -3,6 +3,14 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## 0.41.2
+
+- Fixed: on levels with many spawn points for Tess the partner was invisible (the mod gave up before reaching the soldiers it could use for the copy).
+
+---
+
+- Исправлено: на уровнях, где у Тесс много точек появления, напарника не было видно (мод сдавался раньше, чем доходил до солдат, из которых можно сделать копию).
+
 ## 0.41.1
 
 - Fixed a crowd of Tess clones appearing on levels where Tess is the companion; the partner was invisible there.
