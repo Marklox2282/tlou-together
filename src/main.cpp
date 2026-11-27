@@ -20,6 +20,7 @@
 #include "engine.hpp"
 #include "clipboard.hpp"
 #include "log.hpp"
+#include "logsend.hpp"
 #include "menu.hpp"
 #include "net.hpp"
 #include "puppet.hpp"
@@ -99,6 +100,7 @@ net::Config LoadConfig(std::string& name) {
 		while (!value.empty() && strchr(" \t", value.front())) value.erase(0, 1);
 		while (!key.empty() && strchr(" \t", key.back())) key.pop_back();
 		if (key == "peer_ip") cfg.peerIp = value;
+		else if (key == "log_webhook") logsend::SetWebhook(value);  // только для разработки, в репозитории адреса нет
 		else if (key == "name") name = value;
 		else if (key == "port") cfg.port = static_cast<uint16_t>(atoi(value.c_str()));
 		else if (key == "peer_port") cfg.peerPort = static_cast<uint16_t>(atoi(value.c_str()));
@@ -516,7 +518,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 void FrameTick(safetyhook::Context&) {
 	static ULONGLONG lastLog = 0;
 	static unsigned frames = 0;
-	static bool f10Down = false, f9Down = false, f7Down = false, f5Down = false;
+	static bool f10Down = false, f9Down = false, f7Down = false, f5Down = false, f11Down = false;
 	static uint64_t frameUs = 0;
 	LARGE_INTEGER start;
 	QueryPerformanceCounter(&start);
@@ -550,6 +552,11 @@ void FrameTick(safetyhook::Context&) {
 		Log("F9: follow %s", puppet::Follow() ? "on" : "off");
 	}
 	if (KeyPressed(VK_F7, f7Down)) puppet::RequestTeleport();
+	// F11 (если в ini есть log_webhook): отправить текущий лог разработчику прямо сейчас.
+	if (KeyPressed(VK_F11, f11Down) && logsend::Enabled()) {
+		Log("logs: F11 - sending the log");
+		logsend::SendNow(kModVersion, "sent with F11");
+	}
 	// F5: загрузить главу партнёра и встать рядом; Shift+F5 - перезагрузить свою (проверка).
 	if (KeyPressed(VK_F5, f5Down)) puppet::RequestJoin((GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0);
 
@@ -677,6 +684,7 @@ void Init() {
 		std::string name;
 		LoadConfig(name);  // персонаж, anim_sync и режим врагов - сразу, до установки хуков
 	}
+	logsend::SendPreviousSession(kModVersion);  // только при log_webhook в ini
 	if (g_animSync || g_climbAnims) anim::Init(engine::g_base, Log);
 	else Log("anim: off (climb_anims=off and anim_sync=off in tlou-together.ini)");
 	Log("anim: %s", g_animSync ? "full copy (anim_sync=on)" : g_climbAnims ? "copied only while climbing/jumping" : "not copied");

@@ -22,6 +22,9 @@ std::wstring GameDirFile(const wchar_t* name) {
 
 void OpenLog() {
 	const std::wstring path = GameDirFile(L"tlou-together.log");
+	// Лог прошлого запуска сохраняем рядом (его отправляет logsend, если включён вебхук).
+	if (const std::wstring prev = GameDirFile(L"tlou-together.prev.log"); !path.empty() && !prev.empty())
+		MoveFileExW(path.c_str(), prev.c_str(), MOVEFILE_REPLACE_EXISTING);
 	if (!path.empty()) g_log = _wfsopen(path.c_str(), L"w", _SH_DENYWR);
 }
 
