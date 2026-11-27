@@ -47,9 +47,14 @@ bool KeyPressed(int vk, bool& wasDown) {
 // ---- сеть ----------------------------------------------------------------------------------
 bool g_storySync = true;  // ini story_sync=off - не подтягиваться к чекпоинту партнёра
 bool g_sharedDeath = true;  // ini shared_death=off - смерть партнёра не перезагружает нас
+bool g_animSync = false;
+ULONGLONG g_lastStoryJoin = 0;  // последняя загрузка главы партнёра (общая пауза для всех причин)  // ini anim_sync=on - экспериментальный перенос анимаций игрока (по умолчанию выкл)
 // tlou-together.ini рядом с игрой; без peer_ip связь идёт через Steam.
 net::Config LoadConfig(std::string& name) {
 	net::Config cfg;
+	g_storySync = true;
+	g_sharedDeath = true;
+	g_animSync = false;
 	const std::wstring path = GameDirFile(L"tlou-together.ini");
 	// Мод назывался tlou1-coop: настройки из старого файла переносим один раз.
 	if (const std::wstring old = GameDirFile(L"tlou1-coop.ini"); !path.empty() && !old.empty())
@@ -73,7 +78,8 @@ net::Config LoadConfig(std::string& name) {
 				"; shared_death = on (default): when one of you dies, the other reloads the checkpoint too.\n"
 				"; enemy_sync = soft (default): enemies keep their AI, moved to the host's spot off-screen.\n"
 				";             full (experimental): the guest's enemies copy the host's moves; they don't attack yet.\n"
-				"name=\npeer_ip=\nport=7777\npeer_port=7777\ncharacter=auto\n", f);
+				"; anim_sync  = off (default) / on (experimental): direct bone animation replication for partner.\n"
+				"name=\npeer_ip=\nport=7777\npeer_port=7777\ncharacter=auto\nanim_sync=off\n", f);
 			fclose(f);
 		}
 		return cfg;
@@ -97,8 +103,10 @@ net::Config LoadConfig(std::string& name) {
 		else if (key == "enemies_see_partner") puppet::SetEnemiesSeePartner(value != "off");
 		else if (key == "partner_outline") puppet::SetPartnerOutline(value != "off");
 		else if (key == "character") puppet::SetMyCharacter(puppet::CharacterFromName(value));
+		else if (key == "anim_sync") g_animSync = (value == "on" || value == "1" || value == "true");
 	}
 	fclose(f);
+	puppet::SetAnimSync(g_animSync);
 	return cfg;
 }
 
@@ -198,7 +206,8 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	puppet::FollowDifficulty(linked && !g_link.Authority() ? g_link.PeerDifficulty() : -1);
 	if (g_link.TakePartnerDeath()) {
 		Log("death: %s died", g_link.PeerName().c_str());
-		menu::Notify(g_link.PeerName() + " died - restarting the checkpoint together");
+		menu::Notify(g_link.PeerName() + " died - restarting the checkpoint together",
+			g_link.PeerName() + " погиб — перезагружаем чекпоинт вместе");
 		if (g_sharedDeath) puppet::PartnerDied();
 	}
 	if (action == menu::JoinByCode) {
@@ -240,21 +249,22 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	prevHavePlayer = havePlayer;
 	if (connectedNote != wasConnected) {
 		wasConnected = connectedNote;
-		menu::Notify(connectedNote ? g_link.PeerName() + " joined" : std::string("Partner disconnected"));
+		menu::Notify(connectedNote ? g_link.PeerName() + " joined" : std::string("Partner disconnected"),
+			connectedNote ? g_link.PeerName() + " присоединился" : std::string("Напарник отключился"));
 		// В главном меню (игрока ещё нет): показать лобби/готовность заново.
 		if (connectedNote && !havePlayer) menu::ShowLobbyAgain();
 	}
 	static bool wasPeerReady = false;
 	const bool peerReadyNow = connectedNote && g_link.PeerReady();
 	if (peerReadyNow && !wasPeerReady && !havePlayer) {
-		menu::Notify(g_link.PeerName() + " is READY!");
+		menu::Notify(g_link.PeerName() + " is READY!", g_link.PeerName() + " ГОТОВ!");
 		if (g_link.Authority()) menu::ShowLobbyAgain();
 	}
 	wasPeerReady = peerReadyNow;
 	if (on != wasOn) {  // сеть включилась или выключилась (клавиши, меню, лобби)
 		wasOn = on;
 		if (on) enemies::Reset();
-		if (on) menu::Notify("Multiplayer: searching for your partner");
+		if (on) menu::Notify("Multiplayer: searching for your partner", "Мультиплеер: поиск напарника");
 		puppet::SetNetActive(on);
 		if (!on) {
 			anim::SetTxEnabled(false);
@@ -267,10 +277,13 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 
 	const engine::Chapter mine = puppet::MyChapter();
 	g_link.SetChapter({ mine.node, mine.task });
+	g_link.SetInCutscene(puppet::MeInCutscene());
 	if (gotPose) {
 		puppet::SetPartnerFiring((pose.flags & net::kFlagFiring) != 0);
 		puppet::SetPartnerWeapon(g_link.PeerWeapon());
 		puppet::SetPartnerStance((pose.flags & net::kFlagCrouch) != 0, (pose.flags & net::kFlagAim) != 0);
+		puppet::SetPartnerFlashlight((pose.flags & net::kFlagFlashlight) != 0);
+		if (std::isfinite(pose.health)) puppet::SetPartnerAimPitch(pose.health);
 		puppet::SetPartnerCharacter(puppet::CharacterFromSid(pose.target));
 		char look[sizeof(pose.name) + 1]{};
 		memcpy(look, pose.name, sizeof(pose.name));
@@ -289,38 +302,36 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		puppet::Record(now, l, pose.modVersion);
 	}
 	const bool connected = g_link.GetState() == net::State::Connected;
-	if (connected) {
+	if (connected && g_animSync) {
 		for (const auto& frame : g_link.TakeAnimFrames())
 			anim::PushRx(frame.data(), frame.size(), now);
 		static std::vector<uint8_t> animTx;
 		if (havePlayer && anim::PollTx(animTx))
 			g_link.SendAnim(animTx.data(), animTx.size());
+	} else {
+		g_link.TakeAnimFrames();
 	}
 	const engine::Chapter theirs = connected ? engine::Chapter{ g_link.PeerChapter().first, g_link.PeerChapter().second } : engine::Chapter{};
 	puppet::SetPartnerChapter(theirs);
-	// Хозяин нажал "Продолжить" / "Новая игра" (или запустил главу, пока гость нажал "Готов"):
-	// не ждём загрузки самого гостя — грузим целевую главу хоста сразу как она появилась (параллельно с хостом).
-	static bool joinHostOnEntry = false;
-	static engine::Chapter prevTheirs{};
-	static bool prevMyReady = false;
-	const bool myReadyNow = g_link.MyReady();
-	if (g_link.TakePartnerStarted() && !havePlayer) {
-		Log("net: %s launched the game - waiting for chapter to load together", g_link.PeerName().c_str());
-		menu::Notify(g_link.PeerName() + " started — loading together...");
-		joinHostOnEntry = true;
+	// Хозяин нажал "Продолжить" / "Новая игра": у гостя само открывается меню сюжета, он жмёт
+	// "Продолжить". Когда оба в игре (от хоста пошли позы - их шлют только из игры, не из меню),
+	// гость один раз грузит главу хоста. Из главного меню ничего не грузим.
+	static bool joinHost = false;
+	static ULONGLONG hostStartedAt = 0, lastPoseAt = 0;
+	if (gotPose) lastPoseAt = now;
+	if (g_link.TakePartnerStarted() && !havePlayer && !g_link.Authority()) {
+		const bool opened = menu::StartGameFromPartner();
+		Log("net: %s started the game - %s", g_link.PeerName().c_str(), opened ? "opening the story menu" : "open the story yourself");
+		menu::Notify(g_link.PeerName() + " started - choose Continue", g_link.PeerName() + " начал игру - выберите «Продолжить»");
+		joinHost = true;
+		hostStartedAt = now;
 	}
-	if (connected && !g_link.Authority() && myReadyNow && !havePlayer && theirs &&
-		(!(theirs == prevTheirs) || !prevMyReady)) {
-		joinHostOnEntry = true;
-	}
-	prevMyReady = myReadyNow;
-	prevTheirs = theirs;
-	if (!connected || havePlayer) joinHostOnEntry = false;
-	if (joinHostOnEntry && theirs) {
-		joinHostOnEntry = false;
-		if (!(theirs == mine)) {
-			Log("net: simultaneous launch -> loading %s's chapter %016llX:%016llX", g_link.PeerName().c_str(),
-				static_cast<unsigned long long>(theirs.node), static_cast<unsigned long long>(theirs.task));
+	if (!connected || g_link.Authority() || (joinHost && now - hostStartedAt > 300000)) joinHost = false;
+	if (joinHost && havePlayer && mine && theirs && lastPoseAt > hostStartedAt && now - lastPoseAt < 1000) {
+		joinHost = false;
+		if (!(theirs == mine) && now - g_lastStoryJoin > 5000) {
+			g_lastStoryJoin = now;
+			Log("net: both in the game - loading %s's chapter", g_link.PeerName().c_str());
 			puppet::RequestJoin(false);
 		}
 	}
@@ -344,21 +355,32 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 			enemies::Receive({ p.target, p.health, (p.flags & net::kFlagDead) != 0 });
 		}
 	}
-	// Общий сюжет: партнёр продвинулся (новый чекпоинт: триггер, заставка, машина) - через 3 с
-	// грузим его чекпоинт и встаём рядом (как F5). Следует тот, кто продвинулся последним; при
-	// подключении ничего не грузим; не чаще раза в 20 с (оба продвинулись разом - без пинг-понга).
+	// Общий сюжет: партнёр продвинулся (новый чекпоинт, катсцена, пропуск заставки) - синхронизируем
+	// чекпоинт быстрее при катсцене (600 мс вместо 2 с) и без долгого 20-секундного блока (6 с).
+	// Если оба сменили главу почти одновременно — не-хост следует за хостом.
 	static engine::Chapter lastTheirs;
-	static ULONGLONG followAt = 0, lastFollow = 0;
+	static ULONGLONG followAt = 0;
+	static bool wasSameChapter = false;
+	const bool meCut = puppet::MeInCutscene();
+	const bool partnerCut = g_link.PeerInCutscene();
+	const bool sameChapterNow = connected && theirs && mine && (theirs == mine);
+	if (sameChapterNow && !wasSameChapter && g_link.Authority()) enemies::ResendDead();
+	wasSameChapter = sameChapterNow;
 	if (connected && theirs && mine) {
 		if (!(theirs == lastTheirs)) {
-			if (lastTheirs && !(theirs == mine)) followAt = now + 3000;
+			if (lastTheirs && !(theirs == mine)) {
+				const ULONGLONG waitMs = (partnerCut || meCut) ? 600 : 2000;
+				followAt = now + waitMs;
+			}
 			lastTheirs = theirs;
 		}
-		if (followAt && now >= followAt) {
+		if (followAt && now >= followAt && havePlayer) {  // из главного меню не грузим
 			followAt = 0;
-			if (g_storySync && !(theirs == mine) && now - lastFollow > 20000) {
-				lastFollow = now;
-				Log("net: %s reached a new checkpoint; loading it to stay together", g_link.PeerName().c_str());
+			constexpr ULONGLONG kJoinCooldownMs = 20000;
+			if (g_storySync && !(theirs == mine) && now - g_lastStoryJoin > kJoinCooldownMs) {
+				g_lastStoryJoin = now;
+				Log("net: %s reached a new checkpoint%s; loading it to stay together", g_link.PeerName().c_str(),
+					partnerCut ? " (cutscene)" : (meCut && !partnerCut ? " (skipped cutscene)" : ""));
 				puppet::RequestJoin(false);
 			}
 		}
@@ -370,7 +392,10 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		lastSend = now;
 		g_link.SendPose(me.pos, me.rot, puppet::GetRole() == puppet::Role::Hero, puppet::MeFiring(),
 			puppet::CharacterSid(puppet::MyCharacter()), puppet::MyLook(),
-			static_cast<uint16_t>((puppet::MeCrouched() ? net::kFlagCrouch : 0) | (puppet::MeAiming() ? net::kFlagAim : 0)), now);
+			static_cast<uint16_t>((puppet::MeCrouched() ? net::kFlagCrouch : 0) |
+				(puppet::MeAiming() ? net::kFlagAim : 0) |
+				(puppet::MeFlashlight() ? net::kFlagFlashlight : 0)),
+			now, puppet::MeAimPitch());
 	}
 }
 
@@ -389,7 +414,11 @@ void FrameTick(safetyhook::Context&) {
 	Locator me{};
 	const bool havePlayer = engine::PlayerLocator(me);
 	NetTick(now, havePlayer, me);
-	if (havePlayer && !puppet::UsingNetwork()) puppet::Record(now, me);  // локальная проверка
+	if (havePlayer && !puppet::UsingNetwork()) {
+		puppet::Record(now, me);  // локальная проверка (F10)
+		std::vector<uint8_t> soloAnim;
+		if (puppet::Wanted() && anim::PollTx(soloAnim)) puppet::RecordLocalAnim(now, std::move(soloAnim));
+	}
 	// F10: включить/выключить тестовую марионетку (выключение её прячет).
 	// Shift+F10 без подключения: сменить свою роль (герой/напарник) для проверки.
 	if (KeyPressed(VK_F10, f10Down)) {
@@ -530,11 +559,12 @@ void Init() {
 	auto script = safetyhook::MidHook::create(reinterpret_cast<void*>(engine::g_base + engine::kScriptInvokeRva), ScriptInvoke);
 	if (script) g_scriptHook = std::move(*script);
 	Log("script hook: %s", g_scriptHook ? "ok" : "FAILED");
-	anim::Init(engine::g_base, Log);
 	{
 		std::string name;
-		LoadConfig(name);  // персонаж и режим врагов - сразу, не только по F8
+		LoadConfig(name);  // персонаж, anim_sync и режим врагов - сразу, до установки хуков
 	}
+	if (g_animSync) anim::Init(engine::g_base, Log);
+	else Log("anim: off (set anim_sync=on in tlou-together.ini to test)");
 	// Код лобби в буфере обмена (для окна "войти по коду"): "0D7C-RFW" или пусто.
 	menu::Install(ReadLobby, [](menu::Action a) { g_menuAction = a; },
 		[] { return net::Link::LobbyCode(net::Link::LobbyFromCode(clipboard::Text())); });  // проверенный код, не сам буфер

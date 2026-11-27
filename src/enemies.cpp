@@ -27,6 +27,7 @@ struct Known { float health; bool dead; };
 std::unordered_map<uint64_t, Known> g_known;  // только поток Tick
 ULONGLONG g_lastScan = 0;
 std::atomic<bool> g_reset{ false };
+std::atomic<bool> g_resendDead{ false };
 
 SRWLOCK g_lock = SRWLOCK_INIT;  // очереди между сетью и скриптовым потоком
 std::vector<Change> g_out, g_in;
@@ -130,6 +131,8 @@ void FollowHost(uint64_t puppet) {
 		if (err > 4.0f) {
 			Call(g_dc.teleport, { npc, frame });
 			r.mode = -1;
+		} else if (g_dc.setObjectLocator) {
+			Call(g_dc.setObjectLocator, { npc, frame });
 		} else if (r.speed > 0.4f || err > 1.0f) {
 			const float speed = (std::max)(r.speed, err * 0.8f);
 			const int mode = speed < 1.8f ? 0 : (speed < 4.2f ? 1 : 2);
@@ -251,6 +254,15 @@ void Tick(uint64_t puppet) {
 		g_in.clear();
 		ReleaseSRWLockExclusive(&g_lock);
 	}
+	if (g_resendDead.exchange(false)) {
+		int n = 0;
+		for (const auto& [npc, k] : g_known) {
+			if (!k.dead || npc == puppet) continue;
+			Push(g_out, { npc, 0.0f, true });
+			++n;
+		}
+		if (n) Log("[enemies] synced %d already-dead enemies to partner", n);
+	}
 	std::vector<Change> in;
 	AcquireSRWLockExclusive(&g_lock);
 	in.swap(g_in);
@@ -309,5 +321,6 @@ void ReceivePosition(const Position& p) {
 	ReleaseSRWLockExclusive(&g_lock);
 }
 void Reset() { g_reset = true; }
+void ResendDead() { g_resendDead = true; }
 
 }  // namespace enemies

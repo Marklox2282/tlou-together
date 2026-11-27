@@ -17,6 +17,8 @@ constexpr uint16_t kFlagHero = 2;  // kPose: отправитель играет
 constexpr uint16_t kFlagFiring = 4;  // kPose: отправитель стреляет
 constexpr uint16_t kFlagCrouch = 8, kFlagAim = 16;  // kPose: присел, целится
 constexpr uint16_t kFlagReady = 32;  // kReady/kHello/kPose: игрок нажал "Готов" в меню
+constexpr uint16_t kFlagCutscene = 64;  // kReady/kPose: сейчас идёт катсцена/заставка
+constexpr uint16_t kFlagFlashlight = 128;  // kPose: включён фонарик игрока
 
 #pragma pack(push, 1)
 struct Packet {
@@ -64,7 +66,7 @@ public:
 	// character: выбранный персонаж отправителя (sid имени), в поле target.
 	// look: облик отправителя ("t1x-sarah-costume-01"), в поле name.
 	void SendPose(const float pos[3], const float rot[4], bool hero = true, bool firing = false, uint64_t character = 0,
-		const std::string& look = {}, uint16_t stance = 0, uint64_t nowMs = 0);  // stance: kFlagCrouch | kFlagAim; modVersion хранит ms отправителя
+		const std::string& look = {}, uint16_t stance = 0, uint64_t nowMs = 0, float aimPitch = 0.0f);  // stance: kFlagCrouch | kFlagAim | kFlagFlashlight
 	void SendAnim(const void* data, size_t len);
 	std::vector<std::vector<uint8_t>> TakeAnimFrames();
 	// Ведущая сторона (позиции врагов): хозяин лобби; без лобби - больший Steam ID (по UDP - меньший порт).
@@ -81,6 +83,8 @@ public:
 	void SetReady(bool ready); // готовность игрока в лобби
 	bool MyReady() const { return myReady_; }
 	bool PeerReady() const { return peerReady_; }
+	void SetInCutscene(bool on);
+	bool PeerInCutscene() const { return peerCutscene_; }
 	uint64_t PeerWeapon() const { return peerWeapon_; }
 	bool TakePartnerDeath();   // партнёр погиб с прошлого раза
 	// Друзья в этой игре (только Steam; включает Steam при первом вызове). Готовность - по
@@ -162,6 +166,7 @@ private:
 	uint64_t peerWeapon_ = 0;
 	bool partnerStarted_ = false;
 	bool myReady_ = false, peerReady_ = false;
+	bool myCutscene_ = false, peerCutscene_ = false;
 	uint64_t lastReadySent_ = 0;
 	Chapter lastSentChapter_{};
 	uint16_t port_ = 0;

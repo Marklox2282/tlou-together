@@ -31,6 +31,7 @@ void ReceivePosition(const Position& p);   // гость: от хозяина
 // Любой поток (сеть - в игровом кадре):
 std::vector<Change> TakeOutgoing();  // свои удары и убийства для отправки
 void Receive(const Change& c);       // от партнёра
+void ResendDead();                   // переслать уже убитых на главе врагов опоздавшему напарнику
 void Reset();                        // новое подключение: забыть, что знали
 
 }  // namespace enemies

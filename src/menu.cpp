@@ -511,8 +511,8 @@ const ReadyUi kReadyRu = {
 	"гость",
 	"Нельзя запустить игру: %s ещё не готов! Пусть друг откроет «Мультиплеер» и нажмёт «ГОТОВ К ИГРЕ».",
 	"Игру запускает хост (%s). Нажмите «ГОТОВ К ИГРЕ» и дождитесь запуска — загрузит обоих сразу.",
-	"Нажмите «ГОТОВ К ИГРЕ». Затем можно закрыть окно (Esc): когда хост нажмёт «Продолжить», загрузит обоих сразу.",
-	"Вы ГОТОВЫ! Просто ждите (можно закрыть окно Esc) — когда хост нажмёт «Продолжить», вас сразу загрузит с ним.",
+	"Нажмите «ГОТОВ К ИГРЕ» и закройте окно (Esc). Когда хост нажмёт «Продолжить», у вас само откроется меню сюжета: выберите «Продолжить» - после загрузки вас перенесёт к хосту.",
+	"Вы ГОТОВЫ! Закройте окно (Esc) и ждите: когда хост нажмёт «Продолжить», у вас само откроется меню сюжета. Выберите «Продолжить» - после загрузки вас перенесёт к хосту.",
 	"Ждём готовности друга: %s должен нажать «ГОТОВ К ИГРЕ» в меню «Мультиплеер». Пока не готов — старт заблокирован.",
 	"Оба готовы! Нажмите «НАЧАТЬ ИГРУ», затем «Продолжить» (или «Новая игра») — обоих закинет одновременно."
 };
@@ -527,8 +527,8 @@ const ReadyUi kReadyEn = {
 	"guest",
 	"Cannot start yet: %s is not ready! Ask your partner to open Multiplayer and press I AM READY.",
 	"Only the host (%s) can start the game. Press I AM READY and wait — you will both load together.",
-	"Press I AM READY. Then you can close this window (Esc): when the host presses Continue, you both load together.",
-	"You are READY! Just wait (you can press Esc) — as soon as the host presses Continue, you both load together.",
+	"Press I AM READY and close this window (Esc). When the host presses Continue, your story menu opens by itself: choose Continue and after loading you will be taken to the host.",
+	"You are READY! Close this window (Esc) and wait: when the host presses Continue, your story menu opens by itself. Choose Continue and after loading you will be taken to the host.",
 	"Waiting for partner readiness: %s must press I AM READY in Multiplayer. Starting is locked until then.",
 	"Both ready! Press START GAME, then Continue (or New Game) — you will both load at the same time."
 };
@@ -765,6 +765,7 @@ constexpr uint64_t kStartNewGame = Sid("buttonNewGame"), kStartContinue = Sid("b
 safetyhook::MidHook g_startHook, g_continueHook;
 std::atomic<ULONGLONG> g_waitUntil{ 0 };  // баннер с причиной блокировки запуска
 std::atomic<int> g_waitReason{ 0 };
+std::atomic<ULONGLONG> g_partnerLaunchUntil{ 0 };  // гость: хост начал игру - свой запуск сюжета разрешён
 
 bool BlockOrLaunchStory(uint64_t btn, bool isContinueScreen) {
 	if (btn != kStartTlou && btn != kStartLeftBehind && btn != kStartNewGame && btn != kStartContinue) return false;
@@ -777,6 +778,10 @@ bool BlockOrLaunchStory(uint64_t btn, bool isContinueScreen) {
 		g_mainMenu = true;
 		Log("menu: story launch blocked (partner not connected), showing readiness window=%d", OpenLobby(true) ? 1 : 0);
 		return true;
+	}
+	if (!s.authority && GetTickCount64() < g_partnerLaunchUntil) {
+		Log("menu: guest story start allowed (the host has started)");
+		return false;
 	}
 	if (!s.authority) {
 		g_waitReason = 2;
@@ -928,6 +933,7 @@ void ScriptTick() {
 }
 
 bool StartGameFromPartner() {
+	g_partnerLaunchUntil = GetTickCount64() + 180000;  // 3 мин: открыть меню сюжета и нажать "Продолжить"
 	if (!g_menuObj || !g_mainMenu) return false;
 	g_reopen = false;
 	g_startGame = true;
@@ -939,8 +945,14 @@ void ShowLobbyAgain() {
 }
 
 void Notify(const std::string& text) {
+	Notify(text, text);
+}
+
+void Notify(const std::string& en, const std::string& ru) {
+	const bool useRu = (g_activeLang.load(std::memory_order_relaxed) == &kLangs[1]);
+	const std::string& chosen = (useRu && !ru.empty()) ? ru : en;
 	AcquireSRWLockExclusive(&g_noteLock);
-	if (g_notes.size() < 8) g_notes.push_back(text);
+	if (g_notes.size() < 8) g_notes.push_back(chosen);
 	ReleaseSRWLockExclusive(&g_noteLock);
 }
 

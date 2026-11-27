@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <deque>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,10 @@ SRWLOCK g_trailLock = SRWLOCK_INIT;
 uint32_t g_senderBase = 0, g_lastSenderMs = 0;
 ULONGLONG g_localBase = 0, g_lastArrivalMs = 0;
 
+struct LocalAnimFrame { ULONGLONG t; std::vector<uint8_t> data; };
+std::deque<LocalAnimFrame> g_localAnim;
+SRWLOCK g_localAnimLock = SRWLOCK_INIT;
+
 void ClearTrail(ULONGLONG delay) {
 	AcquireSRWLockExclusive(&g_trailLock);
 	memset(g_trail, 0, sizeof(g_trail));
@@ -39,6 +44,9 @@ void ClearTrail(ULONGLONG delay) {
 	g_localBase = g_lastArrivalMs = 0;
 	g_trailDelay = delay;
 	ReleaseSRWLockExclusive(&g_trailLock);
+	AcquireSRWLockExclusive(&g_localAnimLock);
+	g_localAnim.clear();
+	ReleaseSRWLockExclusive(&g_localAnimLock);
 }
 
 void LerpLocator(const Locator& a, const Locator& b, float alpha, Locator& out) {
@@ -145,11 +153,14 @@ std::string Locked(const std::string& s) {
 std::atomic<bool> g_meFiring{ false }, g_partnerFiring{ false };
 std::atomic<uint64_t> g_myWeapon{ 0 }, g_partnerWeapon{ 0 };
 uint64_t g_buddyWeapon = 0;  // оружие спутника до нас - вернуть при отпускании
-std::atomic<bool> g_enemiesSee{ true }, g_outline{ true };
+std::atomic<bool> g_enemiesSee{ true }, g_outline{ true }, g_animSync{ false };
 std::atomic<int> g_myDifficulty{ -1 }, g_wantDifficulty{ -1 };
 std::atomic<int> g_ownDifficulty{ -1 };  // своя сложность до хоста - вернуть при отключении
 uint64_t g_buddyFaction = 0;  // фракция спутника до нас - вернуть при отпускании
 std::atomic<bool> g_meCrouched{ false }, g_meAiming{ false }, g_partnerCrouched{ false }, g_partnerAiming{ false };
+std::atomic<bool> g_meFlashlight{ false }, g_partnerFlashlight{ false };
+std::atomic<float> g_meAimPitch{ 0.0f }, g_partnerAimPitch{ 0.0f };
+std::atomic<bool> g_inCutscene{ false };
 bool g_puppetIsBuddy = false;  // марионетка - настоящий спутник главы (у героя)
 uint64_t g_buddyMode = 0;      // его режим скрипта до нас - вернуть при отпускании
 SRWLOCK g_namesLock = SRWLOCK_INIT;
@@ -173,6 +184,8 @@ void AiOff(uint64_t npc) {
 	}
 	for (NativeFn off : { g_dc.hitReactions, g_dc.stun, g_dc.dodges }) Call(off, { npc, 0 });
 	Call(g_dc.setUnshootable, { npc, 1 });  // напарника не подстрелить
+	if (g_dc.npcForcePush) Call(g_dc.npcForcePush, { npc, 0, F(0.0f) });
+	if (g_dc.collisionBodies) Call(g_dc.collisionBodies, { Sid("player"), 0, npc, 0, 0 });
 }
 
 // Спутник главы становится партнёром: его ведёт сеть, а не ИИ.
@@ -192,6 +205,7 @@ void ReleaseBuddy(uint64_t npc) {
 		if (g_buddyFaction) Call(g_dc.setFaction, { npc, g_buddyFaction });
 		for (NativeFn off : { g_dc.setIgnore, g_dc.setBlind, g_dc.setDeaf }) Call(off, { npc, 0 });
 		for (NativeFn on : { g_dc.hitReactions, g_dc.stun, g_dc.dodges }) Call(on, { npc, 1 });
+		if (g_dc.collisionBodies) Call(g_dc.collisionBodies, { Sid("player"), 0, npc, 0, 1 });
 		// Своё оружие обратно, если мы его меняли на оружие партнёра.
 		if (g_buddyWeapon && Call(g_dc.npcWeapon, { npc }) != g_buddyWeapon) {
 			Call(g_dc.destroyWeapon, { npc });
@@ -387,6 +401,17 @@ void Update() {
 	}
 	if (g_hidden) Show(puppet, target);
 	if (now - g_spawnedAt > 2000) g_failures = 0;
+	// Локальная петля анимаций для одиночного теста (F10): отдаём кадр с той же задержкой 1 с.
+	if (!UsingNetwork()) {
+		std::vector<uint8_t> replay;
+		AcquireSRWLockExclusive(&g_localAnimLock);
+		while (!g_localAnim.empty() && now - g_localAnim.front().t >= kLocalDelayMs) {
+			replay = std::move(g_localAnim.front().data);
+			g_localAnim.pop_front();
+		}
+		ReleaseSRWLockExclusive(&g_localAnimLock);
+		if (!replay.empty()) anim::PushRx(replay.data(), replay.size(), now);
+	}
 	static ULONGLONG lastCmdAt = 0, lastSnapAt = 0;
 	static float lastGoal[3]{};
 	static int lastMode = -1;
@@ -394,7 +419,7 @@ void Update() {
 	static uint64_t placedPuppet = 0;
 	if (puppet != placedPuppet) placedPuppet = 0;
 	if (!g_follow) {
-		if (wasFollowing && !g_dc.setObjectLocator) {
+		if (wasFollowing && (!g_dc.setObjectLocator || !g_animSync.load(std::memory_order_relaxed) || !anim::HasActiveRx(now))) {
 			Locator here{};
 			if (NpcLocator(puppet, here))
 				if (const uint64_t frame = BoundFrame(here.pos, here.rot)) Call(g_dc.moveTo, { puppet, frame, 0, 0, 0, 0, 0, 0 });
@@ -404,9 +429,9 @@ void Update() {
 		return;
 	}
 	wasFollowing = true;
-	// Точное покадровое позиционирование через set-object-locator + интерполяция по часам отправителя.
-	// Без постоянного npc-move-to / weapon-up ИИ марионетки больше не застревает и не дёргается.
-	if (g_dc.setObjectLocator) {
+	// Точное покадровое позиционирование через set-object-locator используем только когда включён
+	// anim_sync и реально приходят анимации; иначе копия двигалась бы без шагов.
+	if (g_dc.setObjectLocator && g_animSync.load(std::memory_order_relaxed) && anim::HasActiveRx(now)) {
 		Locator cur{};
 		const bool haveCur = NpcLocator(puppet, cur);
 		const float err = haveCur ? Dist(cur.pos, target.pos) : 999.0f;
@@ -717,6 +742,14 @@ void Record(uint64_t nowMs, const Locator& l, uint32_t senderMs) {
 	ReleaseSRWLockExclusive(&g_trailLock);
 }
 
+void RecordLocalAnim(uint64_t nowMs, std::vector<uint8_t> frame) {
+	if (frame.empty()) return;
+	AcquireSRWLockExclusive(&g_localAnimLock);
+	while (g_localAnim.size() >= 128) g_localAnim.pop_front();
+	g_localAnim.push_back({ nowMs, std::move(frame) });
+	ReleaseSRWLockExclusive(&g_localAnimLock);
+}
+
 void UseNetwork(bool on) { ClearTrail(on ? kNetDelayMs : kLocalDelayMs); }
 bool UsingNetwork() { return g_trailDelay.load() == kNetDelayMs; }
 void SetWanted(bool on) { g_wanted = on; }
@@ -767,14 +800,20 @@ Role GetRole() { return MyCharacter() == 1 ? Role::Companion : Role::Hero; }
 bool MeFiring() { return g_meFiring; }
 bool MeCrouched() { return g_meCrouched; }
 bool MeAiming() { return g_meAiming; }
+float MeAimPitch() { return g_meAimPitch; }
+bool MeInCutscene() { return g_inCutscene; }
+bool MeFlashlight() { return g_meFlashlight; }
 void SetEnemiesSeePartner(bool on) { g_enemiesSee = on; }
 void SetPartnerOutline(bool on) { g_outline = on; }
+void SetAnimSync(bool on) { g_animSync = on; }
 int MyDifficulty() { return g_myDifficulty; }
 void FollowDifficulty(int difficulty) { g_wantDifficulty = difficulty; }
 void SetPartnerStance(bool crouched, bool aiming) {
 	g_partnerCrouched = crouched;
 	g_partnerAiming = aiming;
 }
+void SetPartnerAimPitch(float pitch) { g_partnerAimPitch = pitch; }
+void SetPartnerFlashlight(bool on) { g_partnerFlashlight = on; }
 void SetPartnerFiring(bool on) { g_partnerFiring = on; }
 uint64_t MyWeapon() { return g_myWeapon; }
 void SetPartnerWeapon(uint64_t weapon) { g_partnerWeapon = weapon; }
@@ -820,6 +859,16 @@ void ScriptTick() {
 	QueryPerformanceCounter(&a);
 	int64_t s = QpcNow();
 	ReadChapter();
+	{
+		static ULONGLONG lastCutCheck = 0;
+		const ULONGLONG tNow = GetTickCount64();
+		if (tNow - lastCutCheck >= 100) {
+			lastCutCheck = tNow;
+			const bool ic = InCutscene();
+			if (ic != g_inCutscene.exchange(ic))
+				Log("story: cutscene %s", ic ? "started" : "ended");
+		}
+	}
 	ProfileAdd("[chapter]", MicrosecondsSince(s));
 	if (g_teleport.exchange(false)) TeleportToPartner();
 	if (const int join = g_joinRequest.exchange(0)) StartJoin(join == 2);
@@ -881,6 +930,27 @@ void ScriptTick() {
 		g_lastSpawnTry = 0;
 	}
 	if (!g_wanted && g_puppet) Hide();
+	static bool cutscenePausedBuddy = false;
+	static bool cutsceneHidClone = false;
+	const bool inCutsceneNow = g_inCutscene.load(std::memory_order_relaxed);
+	if (inCutsceneNow) {
+		if (g_puppet && g_puppetIsBuddy && !cutscenePausedBuddy) {
+			cutscenePausedBuddy = true;
+			Call(g_dc.scriptMode, { g_puppet, g_buddyMode, 1 });
+			for (NativeFn off : { g_dc.setIgnore, g_dc.setBlind, g_dc.setDeaf }) Call(off, { g_puppet, 0 });
+			Log("puppet: yielded companion to cutscene");
+		} else if (g_puppet && !g_puppetIsBuddy && !g_hidden) {
+			cutsceneHidClone = true;
+			Hide();
+		}
+	} else {
+		if (cutscenePausedBuddy && g_puppet && g_puppetIsBuddy) {
+			AiOff(g_puppet);
+			Log("puppet: reclaimed companion after cutscene");
+		}
+		cutscenePausedBuddy = false;
+		if (cutsceneHidClone) cutsceneHidClone = false;
+	}
 	CompanionTick(g_wanted || g_netActive);
 	g_hiddenBuddyAtomic = g_hiddenBuddy != 0;
 	if (g_wanted || g_netActive) NamesTick();
@@ -988,17 +1058,48 @@ void ScriptTick() {
 		lastStance = GetTickCount64();
 		g_meCrouched = (Call(g_dc.isCrouched, {}) & 1) != 0;
 		g_meAiming = (Call(g_dc.isAiming, {}) & 1) != 0;
-		static uint64_t appliedTo = 0;
-		static bool crouchNow = false;
+		if (g_dc.flashlightOn) g_meFlashlight = (Call(g_dc.flashlightOn, {}) & 1) != 0;
+		if (g_meAiming) {
+			const CameraView cam = CurrentView();
+			if (cam.ok) g_meAimPitch = std::asin(std::clamp(cam.fwd[1], -0.98f, 0.98f));
+		}
+		static uint64_t appliedTo = 0, flOf = 0, colOf = 0;
+		static bool crouchNow = false, flNow = false, colHidden = true;
 		const uint64_t puppet = g_puppet;
 		const bool crouch = UsingNetwork() ? g_partnerCrouched.load() : g_meCrouched.load();
+		const bool fl = UsingNetwork() ? g_partnerFlashlight.load() : g_meFlashlight.load();
+		// Чтобы марионетка не толкала игрока в узких проходах / при телепорте (F7).
+		if (g_dc.ignoreCollision && puppet && (puppet != colOf || g_hidden != colHidden)) {
+			Call(g_dc.ignoreCollision, { g_hidden ? 0 : puppet });
+			colOf = puppet;
+			colHidden = g_hidden;
+		} else if (g_dc.ignoreCollision && !puppet && colOf) {
+			Call(g_dc.ignoreCollision, { 0 });
+			colOf = 0;
+			colHidden = true;
+		}
+		// Фонарик партнёра (в тёмных локациях).
+		if (g_dc.setPropFlashlight && puppet && !g_hidden && (puppet != flOf || fl != flNow)) {
+			Call(g_dc.setPropFlashlight, { puppet, fl ? 1ull : 0ull });
+			flOf = puppet;
+			flNow = fl;
+		}
 		// Когда активна прямая репликация анимаций (anim::HasActiveRx), манеры NPC ИИ отключаем,
 		// иначе они перебивают слои приседания/прицеливания. npc-weapon-up убран полностью,
 		// т.к. на сторонних скелетах он перезаписывает слои bindpose'ом (Т-поза).
-		if (puppet && !g_hidden && !anim::HasActiveRx(GetTickCount64()) && (puppet != appliedTo || crouch != crouchNow)) {
+		const bool animOn = g_animSync.load(std::memory_order_relaxed);
+		const bool aiDriven = !animOn || !anim::HasActiveRx(GetTickCount64());  // позу ведёт не перенос анимаций
+		if (puppet && !g_hidden && aiDriven && (puppet != appliedTo || crouch != crouchNow)) {
 			Call(g_dc.setDemeanor, { puppet, Sid(crouch ? "crouch" : "ambient") });
 			if (crouch != crouchNow) Log("puppet: %s", crouch ? "crouches" : "stands up");
 		}
+		// Прицел партнёра: оружие вверх/вниз (как в v30). При переносе анимаций не трогаем - там
+		// npc-weapon-up на чужом скелете давал Т-позу.
+		static bool aimNow = false;
+		const bool aimWant = UsingNetwork() ? g_partnerAiming.load() : g_meAiming.load();
+		if (puppet && !g_hidden && aiDriven && (puppet != appliedTo || aimWant != aimNow))
+			Call(aimWant ? g_dc.weaponUp : g_dc.weaponDown, { puppet });
+		aimNow = aimWant;
 		// Оружие: у марионетки в руках то же, что у партнёра (без него npc-fire-weapon не стреляет).
 		g_myWeapon = Call(g_dc.playerWeapon, {});
 		static uint64_t weaponOf = 0, weaponNow = 0;
@@ -1012,14 +1113,48 @@ void ScriptTick() {
 			}
 			Log("puppet: weapon %016llX -> %016llX (now %016llX)", static_cast<unsigned long long>(had),
 				static_cast<unsigned long long>(weapon), static_cast<unsigned long long>(Call(g_dc.npcWeapon, { puppet })));
+			if (aimWant && aiDriven) Call(g_dc.weaponUp, { puppet });  // новое оружие - снова в руки
 			weaponNow = weapon;
 		}
 		weaponOf = puppet;
 		appliedTo = puppet;
 		crouchNow = crouch;
 	}
-	// Привязка реальных указателей игрока (TX) и марионетки (RX) для хука CreateAnimCmds.
+	// Вертикальный наклон прицеливания партнёра (npc-aim-at-point): чтобы ствол и выстрелы
+	// смотрели по высоте туда же, куда целится игрок/напарник.
 	{
+		static uint64_t aimedPuppet = 0;
+		static bool wasAiming = false;
+		const uint64_t puppet = g_puppet;
+		const bool aim = UsingNetwork() ? g_partnerAiming.load() : g_meAiming.load();
+		if (puppet && !g_hidden && g_dc.aimAtPoint && aim) {
+			Locator tgt{};
+			if (DelayedTarget(GetTickCount64(), tgt)) {
+				const float pitch = std::clamp(UsingNetwork() ? g_partnerAimPitch.load() : g_meAimPitch.load(), -1.2f, 1.2f);
+				const float* q = tgt.rot;
+				float hx = 2.0f * (q[0] * q[2] + q[3] * q[1]);
+				float hz = 1.0f - 2.0f * (q[0] * q[0] + q[1] * q[1]);
+				const float hlen = std::sqrt(hx * hx + hz * hz);
+				if (hlen > 1e-4f) { hx /= hlen; hz /= hlen; } else { hx = 0.0f; hz = 1.0f; }
+				const float cp = std::cos(pitch), sp = std::sin(pitch);
+				const uint64_t pt = Call(g_dc.allocVector, {
+					F(tgt.pos[0] + hx * cp * 20.0f),
+					F(tgt.pos[1] + 1.35f + sp * 20.0f),
+					F(tgt.pos[2] + hz * cp * 20.0f),
+					F(1.0f), 0 });
+				if (pt) Call(g_dc.aimAtPoint, { puppet, pt, F(0.15f), 0 });
+			}
+			aimedPuppet = puppet;
+			wasAiming = true;
+		} else if (wasAiming && g_dc.clearAimAt && aimedPuppet && (aimedPuppet == puppet) && !g_hidden) {
+			Call(g_dc.clearAimAt, { puppet });
+			wasAiming = false;
+		} else if (!aim) {
+			wasAiming = false;
+		}
+	}
+	// Привязка реальных указателей игрока (TX) и марионетки (RX) для хука CreateAnimCmds.
+	if (g_animSync.load(std::memory_order_relaxed)) {
 		static ULONGLONG lastAnimBind = 0;
 		static uint64_t lastBoundPuppet = 0;
 		static uintptr_t cachedPuppetPtr = 0;
@@ -1031,20 +1166,24 @@ void ScriptTick() {
 			cachedPuppetPtr = curPuppet && !g_hidden ? ResolveEntity(curPuppet) : 0;
 		}
 		anim::SetTargets(PlayerEntity(), cachedPuppetPtr);
-		anim::SetTxEnabled(UsingNetwork() && g_netActive.load());
+		anim::SetTxEnabled((UsingNetwork() && g_netActive.load()) || (!UsingNetwork() && g_wanted.load()));
+		anim::SetRxEnabled(!g_inCutscene.load(std::memory_order_relaxed));
+	} else {
+		anim::SetTxEnabled(false);
+		anim::SetRxEnabled(false);
 	}
 	// Партнёр стреляет (по сети; без сети - свой игрок, для проверки): стреляет и марионетка.
 	// Только союзник: спутник главы или копия во фракции игрока (enemies_see_partner) - в игрока не попадает.
 	static ULONGLONG lastShot = 0;
 	const bool shoot = UsingNetwork() ? g_partnerFiring.load() : g_meFiring.load();
-	if (shoot && (g_puppetIsBuddy || g_enemiesSee) && g_puppet && !g_hidden && GetTickCount64() - lastShot >= 180) {
+	if (!g_inCutscene && shoot && (g_puppetIsBuddy || g_enemiesSee) && g_puppet && !g_hidden && GetTickCount64() - lastShot >= 180) {
 		lastShot = GetTickCount64();
 		const uint64_t r = Call(g_dc.fireWeapon, { g_puppet });
 		Log("puppet: fires (%llu, weapon %016llX)", static_cast<unsigned long long>(r),
 			static_cast<unsigned long long>(Call(g_dc.npcWeapon, { g_puppet })));
 	}
 	s = QpcNow();
-	if (g_wanted) Update();
+	if (g_wanted && !g_inCutscene) Update();
 	ProfileAdd("[update]", MicrosecondsSince(s));
 	if (g_netActive) enemies::Tick(g_puppet);
 	QueryPerformanceCounter(&b);

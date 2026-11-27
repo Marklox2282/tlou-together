@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "engine.hpp"
 
@@ -11,6 +12,7 @@ namespace puppet {
 
 // Из игрового кадра (основной поток):
 void Record(uint64_t nowMs, const engine::Locator& l, uint32_t senderMs = 0);  // точка следа
+void RecordLocalAnim(uint64_t nowMs, std::vector<uint8_t> frame);              // локальная петля анимаций для теста по F10
 void UseNetwork(bool on);       // on: след - позы друга, задержка 120 мс; off: свои позы, 1 с
 bool UsingNetwork();
 void SetWanted(bool on);        // марионетка нужна (F10 или подключился друг)
@@ -64,12 +66,19 @@ void SetPartnerWeapon(uint64_t weapon);  // оружие партнёра: то 
 // Поза: присел, целится. Своя - для отправки; партнёра - марионетка садится и поднимает оружие.
 bool MeCrouched();
 bool MeAiming();
+float MeAimPitch();
+bool MeInCutscene();
+bool MeFlashlight();
 void SetPartnerStance(bool crouched, bool aiming);
+void SetPartnerAimPitch(float pitch);
+void SetPartnerFlashlight(bool on);
 // Враги видят копию партнёра (ini enemies_see_partner, по умолчанию да): она во фракции игрока,
 // не "игнорируется" ИИ; урон по ней партнёру не передаётся - у него свои враги бьют его самого.
 void SetEnemiesSeePartner(bool on);
 // Контур партнёра сквозь стены, когда он дальше 12 м (ini partner_outline, по умолчанию да).
 void SetPartnerOutline(bool on);
+// Экспериментальная покадровая синхронизация анимаций (ini anim_sync, по умолчанию выкл).
+void SetAnimSync(bool on);
 // Сложность: своя (для ведущей стороны) и "играть на сложности хоста" (гость); -1 - вернуть свою.
 int MyDifficulty();
 void FollowDifficulty(int difficulty);

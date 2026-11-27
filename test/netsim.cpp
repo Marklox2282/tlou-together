@@ -180,9 +180,15 @@ int main() {
 		Check(b.TakePartnerStarted(), "host's start arrives");
 		Check(!b.TakePartnerStarted(), "start is taken once");
 		b.SetReady(false);
+		a.SetInCutscene(true);
 		Sleep(10);
 		Run(a, b, 2);
 		Check(!a.PeerReady(), "unready syncs back to host");
+		Check(b.PeerInCutscene(), "cutscene flag arrives");
+		a.SetInCutscene(false);
+		Sleep(10);
+		Run(a, b, 2);
+		Check(!b.PeerInCutscene(), "cutscene end arrives");
 
 		puts("== anim and sender timestamps");
 		a.SendPose(pose.pos, pose.rot, true, false, 0, {}, 0, 123456ull);
@@ -191,7 +197,7 @@ int main() {
 		Sleep(10);
 		Run(a, b, 2);
 		net::Packet tsPose;
-		a.SendPose(pose.pos, pose.rot, true, false, 0, {}, 0, 765432ull);
+		a.SendPose(pose.pos, pose.rot, true, false, 0, {}, net::kFlagFlashlight, 765432ull, 0.25f);
 		Sleep(10);
 		bool gotTs = false;
 		for (int i = 0; i < 3 && !gotTs; ++i) {
@@ -199,7 +205,8 @@ int main() {
 			gotTs = b.Tick(t, tsPose);
 			Sleep(3);
 		}
-		Check(gotTs && tsPose.modVersion == 765432u, "pose carries sender timestamp");
+		Check(gotTs && tsPose.modVersion == 765432u && (tsPose.flags & net::kFlagFlashlight) != 0 &&
+			std::fabs(tsPose.health - 0.25f) < 1e-4f, "pose carries sender timestamp, flashlight and aim pitch");
 		const auto animRx = b.TakeAnimFrames();
 		Check(animRx.size() == 1 && animRx[0] == animPayload && b.TakeAnimFrames().empty(), "anim packet arrives intact once");
 

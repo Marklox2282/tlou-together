@@ -273,6 +273,8 @@ void Link::Stop() {
 	partnerStarted_ = false;
 	myReady_ = false;
 	peerReady_ = false;
+	myCutscene_ = false;
+	peerCutscene_ = false;
 	lastReadySent_ = 0;
 	lastSentChapter_ = {};
 	enemyEvents_.clear();
@@ -286,6 +288,7 @@ Packet Link::Make(uint8_t type) const {
 	p.chapterNode = chapter_.first;
 	p.chapterTask = chapter_.second;
 	if (myReady_) p.flags |= kFlagReady;
+	if (myCutscene_) p.flags |= kFlagCutscene;
 	if (type == kHello) {
 		strncpy_s(p.name, name_.c_str(), _TRUNCATE);
 		p.target = joinSecret_;  // гость лобби: секрет из кода
@@ -406,6 +409,7 @@ void Link::OnHello(const Packet& p, uint64_t from, uint64_t nowMs) {
 	peerName_ = name[0] ? name : (steam_ ? g_steam.GetFriendPersonaName(g_steam.friends, from) : "partner");
 	peerChapter_ = { p.chapterNode, p.chapterTask };
 	peerReady_ = (p.flags & kFlagReady) != 0;
+	peerCutscene_ = (p.flags & kFlagCutscene) != 0;
 	state_ = State::Connected;
 	lastHeard_ = nowMs;
 	lastSeq_ = 0;
@@ -422,6 +426,7 @@ void Link::Disconnected(const char* why) {
 	peerSteam_ = 0;
 	peerChapter_ = {};
 	peerReady_ = false;
+	peerCutscene_ = false;
 	lastReadySent_ = 0;
 	lastSentChapter_ = {};
 	lastHello_ = 0;
@@ -483,6 +488,7 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 		}
 		if (p.type == kReady) {
 			peerReady_ = (p.flags & kFlagReady) != 0;
+			peerCutscene_ = (p.flags & kFlagCutscene) != 0;
 			peerChapter_ = { p.chapterNode, p.chapterTask };
 			continue;
 		}
@@ -507,6 +513,7 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 			lastSeq_ = p.seq;
 			peerChapter_ = { p.chapterNode, p.chapterTask };
 			peerReady_ = (p.flags & kFlagReady) != 0;
+			peerCutscene_ = (p.flags & kFlagCutscene) != 0;
 			pose = p;
 			gotPose = true;
 		}
@@ -528,14 +535,15 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 }
 
 void Link::SendPose(const float pos[3], const float rot[4], bool hero, bool firing, uint64_t character, const std::string& look,
-	uint16_t stance, uint64_t nowMs) {
+	uint16_t stance, uint64_t nowMs, float aimPitch) {
 	if (state_ != State::Connected) return;
 	Packet p = Make(kPose);
 	p.target = character;
 	strncpy_s(p.name, look.c_str(), _TRUNCATE);
 	p.flags = static_cast<uint16_t>((hero ? kFlagHero : 0) | (firing ? kFlagFiring : 0) |
-		(stance & (kFlagCrouch | kFlagAim)) | (myReady_ ? kFlagReady : 0));
+		(stance & (kFlagCrouch | kFlagAim | kFlagFlashlight)) | (myReady_ ? kFlagReady : 0) | (myCutscene_ ? kFlagCutscene : 0));
 	p.modVersion = static_cast<uint32_t>(nowMs ? nowMs : GetTickCount64());
+	p.health = aimPitch;
 	p.seq = ++seq_;
 	memcpy(p.pos, pos, sizeof(p.pos));
 	memcpy(p.rot, rot, sizeof(p.rot));
@@ -596,6 +604,12 @@ void Link::SendStart() {
 void Link::SetReady(bool ready) {
 	if (myReady_ == ready) return;
 	myReady_ = ready;
+	if (state_ == State::Connected) Send(Make(kReady), true);
+}
+
+void Link::SetInCutscene(bool on) {
+	if (myCutscene_ == on) return;
+	myCutscene_ = on;
 	if (state_ == State::Connected) Send(Make(kReady), true);
 }
 

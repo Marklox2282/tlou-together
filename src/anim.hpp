@@ -15,6 +15,7 @@ void Shutdown();
 // из их указателей Entity* (определяются через engine::PlayerPtr / engine::ResolveEntity).
 void SetTargets(uintptr_t playerEntity, uintptr_t puppetEntity);
 void SetTxEnabled(bool enabled);
+void SetRxEnabled(bool enabled);
 
 // TX: забирает последний сериализованный кадр AnimCmdList (для отправки партнёру).
 bool PollTx(std::vector<uint8_t>& out);

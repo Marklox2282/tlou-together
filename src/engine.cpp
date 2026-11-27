@@ -236,6 +236,24 @@ bool InitNatives() {
 	else Log("natives: get-total-ammo not found (optional)");
 	if ((g_dc.setObjectLocator = FindNative("set-object-locator"))) NameNative(g_dc.setObjectLocator, "set-object-locator");
 	else Log("natives: set-object-locator not found (optional)");
+	if ((g_dc.aimAtPoint = FindNative("npc-aim-at-point"))) NameNative(g_dc.aimAtPoint, "npc-aim-at-point");
+	else Log("natives: npc-aim-at-point not found (optional)");
+	if ((g_dc.clearAimAt = FindNative("npc-clear-aim-at"))) NameNative(g_dc.clearAimAt, "npc-clear-aim-at");
+	else Log("natives: npc-clear-aim-at not found (optional)");
+	if ((g_dc.cinematicPlaying = FindNative("cinematic-playing?"))) NameNative(g_dc.cinematicPlaying, "cinematic-playing?");
+	else Log("natives: cinematic-playing? not found (optional)");
+	if ((g_dc.moviePlaying = FindNative("cinematic-transition-movie-playing?"))) NameNative(g_dc.moviePlaying, "cinematic-transition-movie-playing?");
+	else Log("natives: cinematic-transition-movie-playing? not found (optional)");
+	if ((g_dc.flashlightOn = FindNative("player-flashlight-on?"))) NameNative(g_dc.flashlightOn, "player-flashlight-on?");
+	else Log("natives: player-flashlight-on? not found (optional)");
+	if ((g_dc.setPropFlashlight = FindNative("set-prop-flashlight-on-off"))) NameNative(g_dc.setPropFlashlight, "set-prop-flashlight-on-off");
+	else Log("natives: set-prop-flashlight-on-off not found (optional)");
+	if ((g_dc.ignoreCollision = FindNative("player-ignore-object-collision"))) NameNative(g_dc.ignoreCollision, "player-ignore-object-collision");
+	else Log("natives: player-ignore-object-collision not found (optional)");
+	if ((g_dc.collisionBodies = FindNative("set-collision-between-bodies"))) NameNative(g_dc.collisionBodies, "set-collision-between-bodies");
+	else Log("natives: set-collision-between-bodies not found (optional)");
+	if ((g_dc.npcForcePush = FindNative("npc-set-force-player-push"))) NameNative(g_dc.npcForcePush, "npc-set-force-player-push");
+	else Log("natives: npc-set-force-player-push not found (optional)");
 	return true;
 }
 
@@ -404,6 +422,12 @@ uint64_t BoundFrame(const float pos[3], const float rot[4]) {
 }
 
 Chapter CurrentChapter() { return { Call(g_dc.taskNode, {}), Call(g_dc.taskSubnode, {}) }; }
+
+bool InCutscene() {
+	if (g_dc.cinematicPlaying && (Call(g_dc.cinematicPlaying, {}) & 1)) return true;
+	if (g_dc.moviePlaying && (Call(g_dc.moviePlaying, { 0 }) & 1)) return true;
+	return false;
+}
 
 void PlayChapter(const Chapter& c) { Call(g_dc.taskPlay, { c.node, c.task, 0 }); }
 

@@ -92,6 +92,7 @@ safetyhook::InlineHook g_hookCreateAnimCmds;
 std::atomic<uintptr_t> g_playerAc{ 0 };
 std::atomic<uintptr_t> g_puppetAc{ 0 };
 std::atomic<bool> g_txEnabled{ false };
+std::atomic<bool> g_rxEnabled{ true };
 std::atomic<bool> g_hookOk{ false };
 std::atomic<uint64_t> g_lastRxArrivalMs{ 0 };
 
@@ -532,7 +533,7 @@ int64_t __fastcall Hook_CreateAnimCmds(uintptr_t animCtrl, void* a2, AnimCmdList
 	const uintptr_t puppetAc = g_puppetAc.load(std::memory_order_acquire);
 	const uint32_t startCursor = cmdList ? cmdList->cursor : 0;
 
-	if (puppetAc && animCtrl == puppetAc && cmdList && cmdList->buf) {
+	if (puppetAc && animCtrl == puppetAc && g_rxEnabled.load(std::memory_order_acquire) && cmdList && cmdList->buf) {
 		const uint64_t nowMs = GetTickCount64();
 		if (HasActiveRx(nowMs)) {
 			std::vector<uint8_t> wire;
@@ -600,6 +601,10 @@ void SetTxEnabled(bool enabled) {
 		g_pendingTx.clear();
 		g_hasPendingTx = false;
 	}
+}
+
+void SetRxEnabled(bool enabled) {
+	g_rxEnabled.store(enabled, std::memory_order_release);
 }
 
 bool PollTx(std::vector<uint8_t>& out) {

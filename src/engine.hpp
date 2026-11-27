@@ -47,7 +47,16 @@ struct Natives {
 		setVisible, setUnshootable, darrayCount, darrayAt, getHealth, setHealth, isDead, npcDie, taskNode, taskSubnode, taskPlay, getScriptMode, swapLook, isFiring, fireWeapon, cameraLocator, artGroup, playerHealth, isCrouched, isAiming, setDemeanor, weaponUp, weaponDown, getFaction, setFaction, highlight, allocColor, getDifficulty, setDifficulty, hudMessage,
 		playerWeapon, npcWeapon, giveWeapon, destroyWeapon,
 		totalAmmo,        // необязательная: может быть nullptr
-		setObjectLocator; // необязательная: может быть nullptr
+		setObjectLocator, // необязательная: может быть nullptr
+		aimAtPoint,       // необязательная: может быть nullptr
+		clearAimAt,       // необязательная: может быть nullptr
+		cinematicPlaying, // необязательная: может быть nullptr
+		moviePlaying,     // необязательная: может быть nullptr
+		flashlightOn,     // необязательная: может быть nullptr
+		setPropFlashlight,// необязательная: может быть nullptr
+		ignoreCollision,  // необязательная: может быть nullptr
+		collisionBodies,  // необязательная: может быть nullptr
+		npcForcePush;     // необязательная: может быть nullptr
 };
 extern Natives g_dc;
 bool InitNatives();  // false, если какой-то не найден
@@ -82,6 +91,8 @@ struct Chapter {
 	explicit operator bool() const { return node && task; }
 };
 Chapter CurrentChapter();
+// Идёт ли сейчас катсцена / видеовставка (скриптовый контекст).
+bool InCutscene();
 // Загрузить это место сюжета (task-play-debug!, как "join" в TLOU2-Coop). Скриптовый контекст.
 void PlayChapter(const Chapter& c);
 
