@@ -27,6 +27,7 @@ struct Lobby {
 	bool myReady = false;     // наша готовность в главном меню
 	bool partnerReady = false;// готовность напарника
 	unsigned version = 0;     // версия мода (внизу окна)
+	int ping = -1;            // задержка до партнёра, мс (-1 - неизвестно)
 };
 
 enum Action { None, CreateLobby, Invite, Leave, SwapRoles, JoinByCode, StartGame, GoToPartner, ToggleReady, HostLaunch };
@@ -42,8 +43,8 @@ void OnFrame();  // из игрового кадра: описание пунк�
 void ScriptTick();
 // Сообщение на экране (всплывающее сообщение HUD игры): текст отдаёт перехват текстов по своему
 // ключу. Любой поток; показывается из ScriptTick на основном потоке.
-void Notify(const std::string& text);
-void Notify(const std::string& en, const std::string& ru);
+enum Note { NoteJoined, NoteLeft, NoteDied, NoteSearching, NoteReady, NoteStarted, NoteSlowLink };
+void Notify(Note id, const std::string& name = {});  // текст - на языке игры, %s - name
 // Хозяин начал игру: открыть меню сюжета и у гостя (как его кнопка НАЧАТЬ ИГРУ). Только если гость
 // открывал МУЛЬТИПЛЕЕР в главном меню (знаем объект меню); ждёт, пока окно лобби закрыто.
 bool StartGameFromPartner();

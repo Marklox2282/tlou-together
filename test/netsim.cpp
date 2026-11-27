@@ -210,6 +210,18 @@ int main() {
 		const auto animRx = b.TakeAnimFrames();
 		Check(animRx.size() == 1 && animRx[0] == animPayload && b.TakeAnimFrames().empty(), "anim packet arrives intact once");
 
+		puts("== ping");
+		Check(a.Ping() < 0 || a.Ping() < 1000, "ping is unknown or sane before measuring");
+		for (int i = 0; i < 4; ++i) {
+			t += 1100;
+			a.Tick(t, pose);
+			Sleep(5);
+			b.Tick(t, pose);
+			Sleep(5);
+			a.Tick(t + 20, pose);
+		}
+		Check(a.Ping() >= 0 && a.Ping() < 1000, "ping measured");
+
 		puts("== bye");
 		a.Stop();
 		Sleep(10);

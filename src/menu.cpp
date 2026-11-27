@@ -478,6 +478,34 @@ const Lang kLangs[] = {
 		"ไปหาคู่หู" },
 };
 
+// Сообщения на экране по языкам (порядок как в kLangs), %s - ник партнёра.
+const char* const kNotes[][7] = {
+	{ "%s joined", "Partner disconnected", "%s died - restarting the checkpoint together", "Multiplayer: searching for your partner", "%s is READY!", "%s started - choose Continue", "Slow connection: %s" },  // en
+	{ "%s присоединился", "Напарник отключился", "%s погиб - перезагружаем чекпоинт вместе", "Мультиплеер: поиск напарника", "%s ГОТОВ!", "%s начал игру - выберите «Продолжить»", "Медленная связь: %s" },  // ru
+	{ "%s a rejoint la partie", "Partenaire déconnecté", "%s est mort - on recharge le point de contrôle ensemble", "Multijoueur : recherche de votre partenaire", "%s est PRÊT !", "%s a lancé la partie - choisissez Continuer", "Connexion lente : %s" },  // fr
+	{ "%s ist beigetreten", "Partner getrennt", "%s ist gestorben - wir laden den Checkpoint gemeinsam neu", "Mehrspieler: Partner wird gesucht", "%s ist BEREIT!", "%s hat gestartet - wähle Fortsetzen", "Langsame Verbindung: %s" },  // de
+	{ "%s si è unito", "Compagno disconnesso", "%s è morto - ricarichiamo il checkpoint insieme", "Multigiocatore: ricerca del compagno", "%s è PRONTO!", "%s ha iniziato - scegli Continua", "Connessione lenta: %s" },  // it
+	{ "%s se ha unido", "Compañero desconectado", "%s ha muerto - recargamos el punto de control juntos", "Multijugador: buscando a tu compañero", "¡%s está LISTO!", "%s ha empezado - elige Continuar", "Conexión lenta: %s" },  // es
+	{ "%s entrou", "Parceiro desconectado", "%s morreu - recarregando o checkpoint juntos", "Multijogador: procurando seu parceiro", "%s está PRONTO!", "%s começou - escolha Continuar", "Conexão lenta: %s" },  // pt
+	{ "%s dołączył", "Partner rozłączony", "%s zginął - wczytujemy punkt kontrolny razem", "Tryb wieloosobowy: szukanie partnera", "%s jest GOTOWY!", "%s zaczął grę - wybierz Kontynuuj", "Wolne połączenie: %s" },  // pl
+	{ "%s katıldı", "Ortağın bağlantısı koptu", "%s öldü - kontrol noktasını birlikte yeniden yüklüyoruz", "Çok oyunculu: ortağın aranıyor", "%s HAZIR!", "%s oyunu başlattı - Devam Et'i seç", "Yavaş bağlantı: %s" },  // tr
+	{ "%s se připojil", "Parťák se odpojil", "%s zemřel - společně načítáme checkpoint", "Hra více hráčů: hledání parťáka", "%s je PŘIPRAVEN!", "%s spustil hru - zvolte Pokračovat", "Pomalé připojení: %s" },  // cs
+	{ "%s csatlakozott", "A társad kilépett", "%s meghalt - együtt töltjük újra az ellenőrzőpontot", "Többjátékos: társ keresése", "%s KÉSZ!", "%s elindította a játékot - válaszd a Folytatást", "Lassú kapcsolat: %s" },  // hu
+	{ "Ο/Η %s συνδέθηκε", "Ο συμπαίκτης αποσυνδέθηκε", "Ο/Η %s πέθανε - φορτώνουμε μαζί το σημείο ελέγχου", "Πολλοί παίκτες: αναζήτηση συμπαίκτη", "Ο/Η %s είναι ΕΤΟΙΜΟΣ!", "Ο/Η %s ξεκίνησε - διάλεξε Συνέχεια", "Αργή σύνδεση: %s" },  // el
+	{ "%s doet mee", "Partner verbroken", "%s is dood - we laden het checkpoint samen opnieuw", "Multiplayer: partner zoeken", "%s is KLAAR!", "%s is begonnen - kies Doorgaan", "Trage verbinding: %s" },  // nl
+	{ "%s er med", "Makker afbrudt", "%s døde - vi genindlæser checkpointet sammen", "Multiplayer: søger efter din makker", "%s er KLAR!", "%s er startet - vælg Fortsæt", "Langsom forbindelse: %s" },  // da
+	{ "%s liittyi", "Pelikaveri katkaisi yhteyden", "%s kuoli - ladataan tallennuspiste yhdessä", "Moninpeli: etsitään pelikaveria", "%s on VALMIS!", "%s aloitti - valitse Jatka", "Hidas yhteys: %s" },  // fi
+	{ "%s ble med", "Partneren koblet fra", "%s døde - vi laster inn sjekkpunktet sammen", "Flerspiller: leter etter partneren", "%s er KLAR!", "%s har startet - velg Fortsett", "Treg forbindelse: %s" },  // no
+	{ "%s anslöt", "Partnern kopplade från", "%s dog - vi laddar om kontrollpunkten tillsammans", "Flerspelarläge: söker efter din partner", "%s är REDO!", "%s har startat - välj Fortsätt", "Långsam anslutning: %s" },  // sv
+	{ "%s se pridružio", "Partner se odspojio", "%s je poginuo - zajedno učitavamo kontrolnu točku", "Više igrača: traženje partnera", "%s je SPREMAN!", "%s je pokrenuo igru - odaberi Nastavi", "Spora veza: %s" },  // hr
+	{ "%s が参加しました", "パートナーが切断しました", "%s が死亡 - 一緒にチェックポイントから再開します", "マルチプレイ: パートナーを探しています", "%s の準備完了！", "%s が開始しました - 「つづける」を選択", "通信が遅い: %s" },  // ja
+	{ "%s 님이 참가했습니다", "파트너 연결 끊김", "%s 님 사망 - 함께 체크포인트를 다시 불러옵니다", "멀티플레이: 파트너 찾는 중", "%s 님 준비 완료!", "%s 님이 시작했습니다 - 이어하기를 선택하세요", "연결 느림: %s" },  // ko
+	{ "%s 已加入", "同伴已断开连接", "%s 阵亡 - 一起重新载入检查点", "多人游戏：正在寻找同伴", "%s 已准备！", "%s 已开始 - 请选择“继续”", "连接缓慢：%s" },  // zh-CN
+	{ "%s 已加入", "夥伴已中斷連線", "%s 陣亡 - 一起重新載入檢查點", "多人遊戲：正在尋找夥伴", "%s 已準備！", "%s 已開始 - 請選擇「繼續」", "連線緩慢：%s" },  // zh-TW
+	{ "%s เข้าร่วมแล้ว", "คู่หูตัดการเชื่อมต่อ", "%s ตาย - โหลดเช็กพอยต์ใหม่พร้อมกัน", "ผู้เล่นหลายคน: กำลังหาคู่หู", "%s พร้อมแล้ว!", "%s เริ่มเกมแล้ว - เลือก เล่นต่อ", "การเชื่อมต่อช้า: %s" },  // th
+};
+static_assert(sizeof(kNotes) / sizeof(kNotes[0]) == sizeof(kLangs) / sizeof(kLangs[0]));
+
 const Lang& LangFor(const char* library) {
 	if (library)
 		for (const Lang& l : kLangs)
@@ -539,7 +567,9 @@ const ReadyUi& ReadyUiFor(const Lang& l) {
 
 // Сообщение на экране: очередь (любой поток) и показанный текст (живёт, пока его показывают).
 SRWLOCK g_noteLock = SRWLOCK_INIT;
-std::vector<std::string> g_notes;
+struct PendingNote { Note id; std::string name; };
+std::vector<PendingNote> g_notes;
+std::atomic<void*> g_textDb{ nullptr };  // база текстов игры (для языка сообщений)
 char g_noteText[256] = "";
 
 LobbyFn g_lobby = nullptr;
@@ -616,7 +646,8 @@ const char* LobbyTextInto(const Lang& l, char* buf, size_t n) {
 		};
 		const char* hint = s.authority ? (s.partnerReady ? ru.readyHintHostGo : ru.readyHintHostWait)
 			: (s.myReady ? ru.readyHintGuestOn : ru.readyHintGuestOff);
-		const int k = snprintf(buf, n, l.connected, Escaped(s.partner).c_str());
+		int k = snprintf(buf, n, l.connected, Escaped(s.partner).c_str());
+		if (s.ping >= 0 && k > 0 && static_cast<size_t>(k) < n) k += snprintf(buf + k, n - k, "<br>Ping: %d ms", s.ping);
 		if (k > 0 && static_cast<size_t>(k) < n) {
 			const char* myR = (s.authority || s.myReady) ? ru.readyTag : ru.notReadyTag;
 			const char* prR = s.partnerReady ? ru.readyTag : ru.notReadyTag;
@@ -678,6 +709,7 @@ std::atomic<bool> g_mainMenu{ true };  // окно открыто из глав�
 std::atomic<const Lang*> g_activeLang{ &kLangs[0] };
 
 const char* TextLookup(void* db, uint64_t key, bool* found) {
+	g_textDb.store(db, std::memory_order_relaxed);
 	const bool labels = (key == kYesText || key == kNoText) && GetTickCount64() < g_labelsUntil;
 	if (key == kNoteText) {
 		if (found) *found = true;
@@ -900,14 +932,23 @@ void ScriptTick() {
 	// Сообщения на экране: по одному, раз в 4 с, на основном потоке (это скриптовая функция HUD).
 	static ULONGLONG lastNote = 0;
 	if (GetCurrentThreadId() == g_mainThread.load(std::memory_order_relaxed) && GetTickCount64() - lastNote >= 4000) {
-		std::string next;
+		PendingNote note{};
+		bool have = false;
 		AcquireSRWLockExclusive(&g_noteLock);
 		if (!g_notes.empty()) {
-			next = g_notes.front();
+			note = g_notes.front();
+			have = true;
 			g_notes.erase(g_notes.begin());
 		}
 		ReleaseSRWLockExclusive(&g_noteLock);
-		if (!next.empty()) {
+		if (have) {
+			// Язык - по строке QUIT TO LIBRARY в базе текстов игры (как у меню).
+			const Lang* lang = g_activeLang.load();
+			if (void* db = g_textDb.load(std::memory_order_relaxed)) lang = &LangFor(g_textHook.call<const char*>(db, kLibraryText, nullptr));
+			const size_t li = static_cast<size_t>(lang - kLangs);
+			const char* fmt = kNotes[li < sizeof(kNotes) / sizeof(kNotes[0]) ? li : 0][note.id];
+			std::string next(255, '\0');
+			next.resize(static_cast<size_t>((std::max)(0, snprintf(next.data(), next.size() + 1, fmt, Escaped(note.name).c_str()))));
 			lastNote = GetTickCount64();
 			snprintf(g_noteText, sizeof(g_noteText), "%s", next.c_str());
 			Call(g_dc.hudMessage, { 0, kNoteText, F(4.0f), 2, Sid("none"), F(0.5f) });
@@ -944,15 +985,9 @@ void ShowLobbyAgain() {
 	if (g_mainMenu) RequestReopen(300);
 }
 
-void Notify(const std::string& text) {
-	Notify(text, text);
-}
-
-void Notify(const std::string& en, const std::string& ru) {
-	const bool useRu = (g_activeLang.load(std::memory_order_relaxed) == &kLangs[1]);
-	const std::string& chosen = (useRu && !ru.empty()) ? ru : en;
+void Notify(Note id, const std::string& name) {
 	AcquireSRWLockExclusive(&g_noteLock);
-	if (g_notes.size() < 8) g_notes.push_back(chosen);
+	if (g_notes.size() < 8) g_notes.push_back({ id, name });
 	ReleaseSRWLockExclusive(&g_noteLock);
 }
 

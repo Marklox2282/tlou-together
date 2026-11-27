@@ -11,7 +11,7 @@ namespace net {
 
 constexpr uint32_t kMagic = 0x4F433154;  // "T1CO"
 constexpr uint8_t kProtocol = 3;          // 1 = v7 (без рукопожатия), 2 = v8 (без врагов)
-enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kEnemyPos = 6, kDeath = 7, kSettings = 8, kWeapon = 9, kStart = 10, kAnim = 11, kReady = 12 };  // 5 - бывший обмен ролями
+enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kEnemyPos = 6, kDeath = 7, kSettings = 8, kWeapon = 9, kStart = 10, kAnim = 11, kReady = 12, kPing = 13, kPong = 14 };  // 5 - бывший обмен ролями
 constexpr uint16_t kFlagDead = 1;  // kEnemy: враг убит
 constexpr uint16_t kFlagHero = 2;  // kPose: отправитель играет за героя главы
 constexpr uint16_t kFlagFiring = 4;  // kPose: отправитель стреляет
@@ -83,6 +83,7 @@ public:
 	void SetReady(bool ready); // готовность игрока в лобби
 	bool MyReady() const { return myReady_; }
 	bool PeerReady() const { return peerReady_; }
+	int Ping() const { return ping_; }  // задержка до партнёра туда-обратно, мс (-1 - ещё не знаем)
 	void SetInCutscene(bool on);
 	bool PeerInCutscene() const { return peerCutscene_; }
 	uint64_t PeerWeapon() const { return peerWeapon_; }
@@ -165,6 +166,8 @@ private:
 	int peerDifficulty_ = -1;
 	uint64_t peerWeapon_ = 0;
 	bool partnerStarted_ = false;
+	int ping_ = -1;
+	uint64_t lastPing_ = 0;
 	bool myReady_ = false, peerReady_ = false;
 	bool myCutscene_ = false, peerCutscene_ = false;
 	uint64_t lastReadySent_ = 0;

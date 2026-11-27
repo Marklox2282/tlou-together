@@ -147,6 +147,7 @@ void PublishLobby(ULONGLONG now) {
 	s.on = g_link.GetState() != net::State::Off;
 	s.connected = g_link.GetState() == net::State::Connected;
 	if (s.connected) s.partner = g_link.PeerName();
+	if (s.connected) s.ping = g_link.Ping();
 	AcquireSRWLockExclusive(&g_lobbyLock);
 	g_lobbyState = s;
 	ReleaseSRWLockExclusive(&g_lobbyLock);
@@ -206,8 +207,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	puppet::FollowDifficulty(linked && !g_link.Authority() ? g_link.PeerDifficulty() : -1);
 	if (g_link.TakePartnerDeath()) {
 		Log("death: %s died", g_link.PeerName().c_str());
-		menu::Notify(g_link.PeerName() + " died - restarting the checkpoint together",
-			g_link.PeerName() + " погиб — перезагружаем чекпоинт вместе");
+		menu::Notify(menu::NoteDied, g_link.PeerName());
 		if (g_sharedDeath) puppet::PartnerDied();
 	}
 	if (action == menu::JoinByCode) {
@@ -249,22 +249,21 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	prevHavePlayer = havePlayer;
 	if (connectedNote != wasConnected) {
 		wasConnected = connectedNote;
-		menu::Notify(connectedNote ? g_link.PeerName() + " joined" : std::string("Partner disconnected"),
-			connectedNote ? g_link.PeerName() + " присоединился" : std::string("Напарник отключился"));
+		menu::Notify(connectedNote ? menu::NoteJoined : menu::NoteLeft, g_link.PeerName());
 		// В главном меню (игрока ещё нет): показать лобби/готовность заново.
 		if (connectedNote && !havePlayer) menu::ShowLobbyAgain();
 	}
 	static bool wasPeerReady = false;
 	const bool peerReadyNow = connectedNote && g_link.PeerReady();
 	if (peerReadyNow && !wasPeerReady && !havePlayer) {
-		menu::Notify(g_link.PeerName() + " is READY!", g_link.PeerName() + " ГОТОВ!");
+		menu::Notify(menu::NoteReady, g_link.PeerName());
 		if (g_link.Authority()) menu::ShowLobbyAgain();
 	}
 	wasPeerReady = peerReadyNow;
 	if (on != wasOn) {  // сеть включилась или выключилась (клавиши, меню, лобби)
 		wasOn = on;
 		if (on) enemies::Reset();
-		if (on) menu::Notify("Multiplayer: searching for your partner", "Мультиплеер: поиск напарника");
+		if (on) menu::Notify(menu::NoteSearching);
 		puppet::SetNetActive(on);
 		if (!on) {
 			anim::SetTxEnabled(false);
@@ -273,6 +272,24 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		}
 	}
 	PublishLobby(now);
+	// Связь: пинг в журнал раз в 30 с; дольше 5 с выше 250 мс - предупреждение на экране (раз в минуту).
+	{
+		static ULONGLONG badSince = 0, lastWarn = 0, lastPingLog = 0;
+		const int ping = g_link.GetState() == net::State::Connected ? g_link.Ping() : -1;
+		if (ping >= 0 && now - lastPingLog >= 30000) {
+			lastPingLog = now;
+			Log("net: ping %d ms", ping);
+		}
+		if (ping > 250) {
+			if (!badSince) badSince = now;
+			if (now - badSince >= 5000 && (!lastWarn || now - lastWarn >= 60000)) {
+				lastWarn = now;
+				menu::Notify(menu::NoteSlowLink, g_link.PeerName() + " (" + std::to_string(ping) + " ms)");
+			}
+		} else {
+			badSince = 0;
+		}
+	}
 	if (!on) return;
 
 	const engine::Chapter mine = puppet::MyChapter();
@@ -322,7 +339,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	if (g_link.TakePartnerStarted() && !havePlayer && !g_link.Authority()) {
 		const bool opened = menu::StartGameFromPartner();
 		Log("net: %s started the game - %s", g_link.PeerName().c_str(), opened ? "opening the story menu" : "open the story yourself");
-		menu::Notify(g_link.PeerName() + " started - choose Continue", g_link.PeerName() + " начал игру - выберите «Продолжить»");
+		menu::Notify(menu::NoteStarted, g_link.PeerName());
 		joinHost = true;
 		hostStartedAt = now;
 	}

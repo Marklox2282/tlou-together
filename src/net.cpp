@@ -271,6 +271,7 @@ void Link::Stop() {
 	peerDifficulty_ = -1;
 	peerWeapon_ = 0;
 	partnerStarted_ = false;
+	ping_ = -1;
 	myReady_ = false;
 	peerReady_ = false;
 	myCutscene_ = false;
@@ -430,6 +431,7 @@ void Link::Disconnected(const char* why) {
 	lastReadySent_ = 0;
 	lastSentChapter_ = {};
 	lastHello_ = 0;
+	ping_ = -1;
 }
 
 bool Link::Tick(uint64_t nowMs, Packet& pose) {
@@ -481,6 +483,19 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 			Disconnected("left");
 			continue;
 		}
+		if (p.type == kPing) {  // эхо: время отправителя обратно
+			Packet r = Make(kPong);
+			r.target = p.target;
+			Send(r);
+			continue;
+		}
+		if (p.type == kPong) {
+			if (p.target && p.target <= nowMs && nowMs - p.target < 10000) {
+				const int rtt = static_cast<int>(nowMs - p.target);
+				ping_ = ping_ < 0 ? rtt : (ping_ * 3 + rtt) / 4;
+			}
+			continue;
+		}
 		if (p.type == kStart) {
 			if (p.chapterNode && p.chapterTask) peerChapter_ = { p.chapterNode, p.chapterTask };
 			partnerStarted_ = true;
@@ -524,6 +539,12 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 		lastSentChapter_ = chapter_;
 		lastReadySent_ = nowMs;
 		Send(Make(kReady));
+	}
+	if (state_ == State::Connected && nowMs - lastPing_ >= 1000) {  // пинг раз в секунду
+		lastPing_ = nowMs;
+		Packet p = Make(kPing);
+		p.target = nowMs;
+		Send(p);
 	}
 	if (state_ == State::Connected && nowMs - lastHeard_ > 10000) Disconnected("sent nothing for 10 s");
 	if (leaveAfterTick_) {
