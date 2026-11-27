@@ -11,7 +11,7 @@ namespace net {
 
 constexpr uint32_t kMagic = 0x4F433154;  // "T1CO"
 constexpr uint8_t kProtocol = 3;          // 1 = v7 (без рукопожатия), 2 = v8 (без врагов)
-enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kEnemyPos = 6, kDeath = 7, kSettings = 8, kWeapon = 9, kStart = 10, kAnim = 11, kReady = 12, kPing = 13, kPong = 14 };  // 5 - бывший обмен ролями
+enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kEnemyPos = 6, kDeath = 7, kSettings = 8, kWeapon = 9, kStart = 10, kAnim = 11, kReady = 12, kPing = 13, kPong = 14, kThrow = 15 };  // 5 - бывший обмен ролями
 constexpr uint16_t kFlagDead = 1;  // kEnemy: враг убит
 constexpr uint16_t kFlagHero = 2;  // kPose: отправитель играет за героя главы
 constexpr uint16_t kFlagFiring = 4;  // kPose: отправитель стреляет
@@ -19,6 +19,7 @@ constexpr uint16_t kFlagCrouch = 8, kFlagAim = 16;  // kPose: присел, це
 constexpr uint16_t kFlagReady = 32;  // kReady/kHello/kPose: игрок нажал "Готов" в меню
 constexpr uint16_t kFlagCutscene = 64;  // kReady/kPose: сейчас идёт катсцена/заставка
 constexpr uint16_t kFlagFlashlight = 128;  // kPose: включён фонарик игрока
+constexpr uint16_t kFlagHealing = 256;  // kPose: лечится (аптечка)
 
 #pragma pack(push, 1)
 struct Packet {
@@ -78,6 +79,10 @@ public:
 	void SendSettings(uint32_t difficulty);  // ведущая сторона: её сложность
 	int PeerDifficulty() const { return peerDifficulty_; }  // -1 - не знаем
 	void SendWeapon(uint64_t weapon);
+	// Бросок: предмет (sid), откуда и куда (с гарантией доставки); у партнёра - TakeThrows.
+	struct Throw { uint64_t item; float from[3], to[3]; };
+	void SendThrow(const Throw& t);
+	std::vector<Throw> TakeThrows();
 	void SendStart();          // хозяин нажал Продолжить/Новая игра/Старт (с гарантией доставки)
 	bool TakePartnerStarted(); // партнёр начал игру (один раз)  // оружие в руках своего игрока (имя оружия, 0 - без оружия)
 	void SetReady(bool ready); // готовность игрока в лобби
@@ -166,6 +171,7 @@ private:
 	int peerDifficulty_ = -1;
 	uint64_t peerWeapon_ = 0;
 	bool partnerStarted_ = false;
+	std::vector<Throw> throws_;
 	int ping_ = -1;
 	uint64_t lastPing_ = 0;
 	bool myReady_ = false, peerReady_ = false;

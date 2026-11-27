@@ -272,6 +272,19 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		}
 	}
 	PublishLobby(now);
+	// Броски: свои - партнёру, его - копии.
+	for (const puppet::Throw& t : puppet::TakeMyThrows()) {
+		net::Link::Throw w{ t.item, {}, {} };
+		memcpy(w.from, t.from, sizeof(w.from));
+		memcpy(w.to, t.to, sizeof(w.to));
+		g_link.SendThrow(w);
+	}
+	for (const net::Link::Throw& w : g_link.TakeThrows()) {
+		puppet::Throw t{ w.item, {}, {} };
+		memcpy(t.from, w.from, sizeof(t.from));
+		memcpy(t.to, w.to, sizeof(t.to));
+		puppet::PartnerThrew(t);
+	}
 	// Связь: пинг в журнал раз в 30 с; дольше 5 с выше 250 мс - предупреждение на экране (раз в минуту).
 	{
 		static ULONGLONG badSince = 0, lastWarn = 0, lastPingLog = 0;
@@ -300,6 +313,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		puppet::SetPartnerWeapon(g_link.PeerWeapon());
 		puppet::SetPartnerStance((pose.flags & net::kFlagCrouch) != 0, (pose.flags & net::kFlagAim) != 0);
 		puppet::SetPartnerFlashlight((pose.flags & net::kFlagFlashlight) != 0);
+		puppet::SetPartnerHealing((pose.flags & net::kFlagHealing) != 0);
 		if (std::isfinite(pose.health)) puppet::SetPartnerAimPitch(pose.health);
 		puppet::SetPartnerCharacter(puppet::CharacterFromSid(pose.target));
 		char look[sizeof(pose.name) + 1]{};
@@ -411,7 +425,8 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 			puppet::CharacterSid(puppet::MyCharacter()), puppet::MyLook(),
 			static_cast<uint16_t>((puppet::MeCrouched() ? net::kFlagCrouch : 0) |
 				(puppet::MeAiming() ? net::kFlagAim : 0) |
-				(puppet::MeFlashlight() ? net::kFlagFlashlight : 0)),
+				(puppet::MeFlashlight() ? net::kFlagFlashlight : 0) |
+				(puppet::MeHealing() ? net::kFlagHealing : 0)),
 			now, puppet::MeAimPitch());
 	}
 }

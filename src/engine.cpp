@@ -254,6 +254,12 @@ bool InitNatives() {
 	else Log("natives: set-collision-between-bodies not found (optional)");
 	if ((g_dc.npcForcePush = FindNative("npc-set-force-player-push"))) NameNative(g_dc.npcForcePush, "npc-set-force-player-push");
 	else Log("natives: npc-set-force-player-push not found (optional)");
+	for (const auto& [slot, name] : { std::pair<NativeFn*, const char*>{ &g_dc.throwProjectile, "throw-projectile" },
+			{ &g_dc.healProgress, "player-get-heal-progress" }, { &g_dc.gesture, "gesture_" },
+			{ &g_dc.gestureParams, "alloc-gesture-play-params" } }) {
+		if ((*slot = FindNative(name))) NameNative(*slot, name);
+		else Log("natives: %s not found (optional)", name);
+	}
 	return true;
 }
 

@@ -210,6 +210,15 @@ int main() {
 		const auto animRx = b.TakeAnimFrames();
 		Check(animRx.size() == 1 && animRx[0] == animPayload && b.TakeAnimFrames().empty(), "anim packet arrives intact once");
 
+		puts("== throw");
+		net::Link::Throw th{ 0xABCDEF0123456789ull, { 1, 2, 3 }, { 4, 5, 6 } };
+		a.SendThrow(th);
+		Sleep(10);
+		Run(a, b, 2);
+		const auto thrown = b.TakeThrows();
+		Check(thrown.size() == 1 && thrown[0].item == th.item && thrown[0].from[1] == 2.0f && thrown[0].to[2] == 6.0f, "throw arrives");
+		Check(b.TakeThrows().empty(), "throw is taken once");
+
 		puts("== ping");
 		Check(a.Ping() < 0 || a.Ping() < 1000, "ping is unknown or sane before measuring");
 		for (int i = 0; i < 4; ++i) {

@@ -272,6 +272,7 @@ void Link::Stop() {
 	peerWeapon_ = 0;
 	partnerStarted_ = false;
 	ping_ = -1;
+	throws_.clear();
 	myReady_ = false;
 	peerReady_ = false;
 	myCutscene_ = false;
@@ -483,6 +484,15 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 			Disconnected("left");
 			continue;
 		}
+		if (p.type == kThrow) {
+			if (throws_.size() < 16) {
+				Throw t{ p.target, {}, {} };
+				memcpy(t.from, p.pos, sizeof(t.from));
+				memcpy(t.to, p.rot, sizeof(t.to));
+				throws_.push_back(t);
+			}
+			continue;
+		}
 		if (p.type == kPing) {  // эхо: время отправителя обратно
 			Packet r = Make(kPong);
 			r.target = p.target;
@@ -562,7 +572,7 @@ void Link::SendPose(const float pos[3], const float rot[4], bool hero, bool firi
 	p.target = character;
 	strncpy_s(p.name, look.c_str(), _TRUNCATE);
 	p.flags = static_cast<uint16_t>((hero ? kFlagHero : 0) | (firing ? kFlagFiring : 0) |
-		(stance & (kFlagCrouch | kFlagAim | kFlagFlashlight)) | (myReady_ ? kFlagReady : 0) | (myCutscene_ ? kFlagCutscene : 0));
+		(stance & (kFlagCrouch | kFlagAim | kFlagFlashlight | kFlagHealing)) | (myReady_ ? kFlagReady : 0) | (myCutscene_ ? kFlagCutscene : 0));
 	p.modVersion = static_cast<uint32_t>(nowMs ? nowMs : GetTickCount64());
 	p.health = aimPitch;
 	p.seq = ++seq_;
@@ -638,6 +648,21 @@ bool Link::TakePartnerStarted() {
 	const bool s = partnerStarted_;
 	partnerStarted_ = false;
 	return s;
+}
+
+void Link::SendThrow(const Throw& t) {
+	if (state_ != State::Connected) return;
+	Packet p = Make(kThrow);
+	p.target = t.item;
+	memcpy(p.pos, t.from, sizeof(t.from));
+	memcpy(p.rot, t.to, sizeof(t.to));
+	Send(p, true);
+}
+
+std::vector<Link::Throw> Link::TakeThrows() {
+	std::vector<Throw> out;
+	out.swap(throws_);
+	return out;
 }
 
 void Link::SendWeapon(uint64_t weapon) {

@@ -159,6 +159,14 @@ std::atomic<int> g_ownDifficulty{ -1 };  // своя сложность до х�
 uint64_t g_buddyFaction = 0;  // фракция спутника до нас - вернуть при отпускании
 std::atomic<bool> g_meCrouched{ false }, g_meAiming{ false }, g_partnerCrouched{ false }, g_partnerAiming{ false };
 std::atomic<bool> g_meFlashlight{ false }, g_partnerFlashlight{ false };
+std::atomic<bool> g_meHealing{ false }, g_partnerHealing{ false };
+SRWLOCK g_throwLock = SRWLOCK_INIT;
+std::vector<Throw> g_myThrows, g_partnerThrows;  // под g_throwLock
+// Бросаемые предметы Part I (имена из инвентаря игрока): их "патроны" убывают при броске.
+bool IsThrowable(uint64_t w) {
+	return w == Sid("t1x-brick") || w == Sid("t1x-bottle") || w == Sid("t1x-molotov") || w == Sid("t1x-nail-bomb") ||
+		w == Sid("t1x-smoke-bomb") || w == Sid("brick") || w == Sid("bottle") || w == Sid("molotov") || w == Sid("smoke-bomb");
+}
 std::atomic<float> g_meAimPitch{ 0.0f }, g_partnerAimPitch{ 0.0f };
 std::atomic<bool> g_inCutscene{ false };
 bool g_puppetIsBuddy = false;  // марионетка - настоящий спутник главы (у героя)
@@ -814,6 +822,20 @@ void SetPartnerStance(bool crouched, bool aiming) {
 }
 void SetPartnerAimPitch(float pitch) { g_partnerAimPitch = pitch; }
 void SetPartnerFlashlight(bool on) { g_partnerFlashlight = on; }
+std::vector<Throw> TakeMyThrows() {
+	std::vector<Throw> out;
+	AcquireSRWLockExclusive(&g_throwLock);
+	out.swap(g_myThrows);
+	ReleaseSRWLockExclusive(&g_throwLock);
+	return out;
+}
+void PartnerThrew(const Throw& t) {
+	AcquireSRWLockExclusive(&g_throwLock);
+	if (g_partnerThrows.size() < 8) g_partnerThrows.push_back(t);
+	ReleaseSRWLockExclusive(&g_throwLock);
+}
+bool MeHealing() { return g_meHealing; }
+void SetPartnerHealing(bool on) { g_partnerHealing = on; }
 void SetPartnerFiring(bool on) { g_partnerFiring = on; }
 uint64_t MyWeapon() { return g_myWeapon; }
 void SetPartnerWeapon(uint64_t weapon) { g_partnerWeapon = weapon; }
@@ -989,6 +1011,22 @@ void ScriptTick() {
 			spent = weapon == ammoOf && lastAmmo >= 0 && ammo < lastAmmo;
 			ammoOf = weapon;
 			lastAmmo = ammo;
+		}
+		// Бросок, а не выстрел: в руках бросаемый предмет и его стало меньше. Откуда - от головы
+		// игрока, куда - точка в 15 м по взгляду камеры.
+		if (spent && IsThrowable(weapon)) {
+			spent = false;
+			Locator me{};
+			const CameraView cam = CurrentView();
+			if (PlayerLocator(me) && cam.ok) {
+				Throw t{ weapon, { me.pos[0], me.pos[1] + 1.5f, me.pos[2] }, {} };
+				for (int i = 0; i < 3; ++i) t.to[i] = cam.cam.pos[i] + cam.fwd[i] * 15.0f;
+				AcquireSRWLockExclusive(&g_throwLock);
+				if (g_myThrows.size() < 8) g_myThrows.push_back(t);
+				if (!UsingNetwork() && g_partnerThrows.size() < 8) g_partnerThrows.push_back(t);  // F10: копия повторит сама
+				ReleaseSRWLockExclusive(&g_throwLock);
+				Log("me: threw %016llX", static_cast<unsigned long long>(weapon));
+			}
 		}
 		// Флаг держим 120 мс: поза уходит раз в 50 мс, выстрел в один кадр иначе проскочит между пакетами.
 		static ULONGLONG shotAt = 0;
@@ -1183,6 +1221,46 @@ void ScriptTick() {
 		const uint64_t r = Call(g_dc.fireWeapon, { g_puppet });
 		Log("puppet: fires (%llu, weapon %016llX)", static_cast<unsigned long long>(r),
 			static_cast<unsigned long long>(Call(g_dc.npcWeapon, { g_puppet })));
+	}
+	// Броски партнёра: тот же предмет летит из его места в его точку (настоящий: горит, взрывается).
+	// Без сети (F10) - свой бросок через 1 с из места копии.
+	{
+		std::vector<Throw> throws;
+		AcquireSRWLockExclusive(&g_throwLock);
+		throws.swap(g_partnerThrows);
+		ReleaseSRWLockExclusive(&g_throwLock);
+		for (Throw t : throws) {
+			if (!g_dc.throwProjectile || g_inCutscene) break;
+			if (!UsingNetwork()) {
+				Locator c{};
+				if (!g_puppet || !NpcLocator(g_puppet, c)) continue;
+				t.from[0] = c.pos[0], t.from[1] = c.pos[1] + 1.5f, t.from[2] = c.pos[2];
+			}
+			const uint64_t from = Call(g_dc.allocVector, { F(t.from[0]), F(t.from[1]), F(t.from[2]), F(1.0f), 0 });
+			const uint64_t to = Call(g_dc.allocVector, { F(t.to[0]), F(t.to[1]), F(t.to[2]), F(1.0f), 0 });
+			const uint64_t r = from && to ? Call(g_dc.throwProjectile, { from, to, t.item, F(-1.0f) }) : 0;
+			Log("puppet: throws %016llX (%016llX)", static_cast<unsigned long long>(t.item), static_cast<unsigned long long>(r));
+		}
+	}
+	// Лечение: своё - по прогрессу аптечки; партнёра - копия делает жест лечения при начале.
+	{
+		static ULONGLONG lastHealCheck = 0;
+		if (g_dc.healProgress && GetTickCount64() - lastHealCheck >= 100) {
+			lastHealCheck = GetTickCount64();
+			const uint32_t bits = static_cast<uint32_t>(Call(g_dc.healProgress, {}));
+			float progress = 0.0f;
+			memcpy(&progress, &bits, 4);
+			const bool healing = std::isfinite(progress) && progress > 0.0f && progress < 1.0f;
+			if (healing != g_meHealing.exchange(healing) && healing) Log("me: healing");
+		}
+		static bool healShown = false;
+		const bool heal = UsingNetwork() ? g_partnerHealing.load() : g_meHealing.load();
+		if (heal && !healShown && g_puppet && !g_hidden && !g_inCutscene && g_dc.gesture && g_dc.gestureParams) {
+			const uint64_t params = Call(g_dc.gestureParams, {});
+			const uint64_t r = Call(g_dc.gesture, { g_puppet, Sid("npc-heal"), params });
+			Log("puppet: heal gesture (%016llX)", static_cast<unsigned long long>(r));
+		}
+		healShown = heal;
 	}
 	s = QpcNow();
 	if (g_wanted && !g_inCutscene) Update();

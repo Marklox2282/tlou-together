@@ -56,7 +56,11 @@ struct Natives {
 		setPropFlashlight,// необязательная: может быть nullptr
 		ignoreCollision,  // необязательная: может быть nullptr
 		collisionBodies,  // необязательная: может быть nullptr
-		npcForcePush;     // необязательная: может быть nullptr
+		npcForcePush,     // необязательная: может быть nullptr
+		throwProjectile,  // необязательная: бросок предмета (throw-projectile)
+		healProgress,     // необязательная: player-get-heal-progress
+		gesture,          // необязательная: gesture_ (жест/анимация NPC)
+		gestureParams;    // необязательная: alloc-gesture-play-params
 };
 extern Natives g_dc;
 bool InitNatives();  // false, если какой-то не найден

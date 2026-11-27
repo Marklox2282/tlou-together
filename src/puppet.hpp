@@ -72,6 +72,13 @@ bool MeFlashlight();
 void SetPartnerStance(bool crouched, bool aiming);
 void SetPartnerAimPitch(float pitch);
 void SetPartnerFlashlight(bool on);
+// Броски: свои (для отправки) и партнёра (повторяются настоящим предметом throw-projectile).
+struct Throw { uint64_t item; float from[3], to[3]; };
+std::vector<Throw> TakeMyThrows();
+void PartnerThrew(const Throw& t);
+// Лечение аптечкой: своё (флаг позы) и партнёра (копия делает жест лечения).
+bool MeHealing();
+void SetPartnerHealing(bool on);
 // Враги видят копию партнёра (ini enemies_see_partner, по умолчанию да): она во фракции игрока,
 // не "игнорируется" ИИ; урон по ней партнёру не передаётся - у него свои враги бьют его самого.
 void SetEnemiesSeePartner(bool on);
