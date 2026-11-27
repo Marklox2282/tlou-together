@@ -3,6 +3,14 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## v34
+
+- Fixed: the game crashed on CREATE LOBBY (v33).
+
+---
+
+- Исправлено: игра падала при нажатии «СОЗДАТЬ ЛОББИ» (v33).
+
 ## v33
 
 - Ping to your partner in the lobby; an on-screen warning when the connection is slow.
