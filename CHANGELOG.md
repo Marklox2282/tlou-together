@@ -5,11 +5,23 @@ The mod updates itself: a new version downloads when the game starts and is used
 
 ## v37
 
-- Less desync: the partner's copy uses the arrival time of positions again (as before v31) and is no longer hidden or left uncontrolled by a falsely detected cutscene.
+- Ladders, jumps and climbs: while your partner climbs, their copy follows them exactly and copies their animation (`climb_anims=off` in `tlou-together.ini` turns the animation copy off).
+- The copy raises its weapon and aims where your partner aims; if aiming would put that copy into a T-pose, aiming is switched off for it.
+- Carried planks and ladders: where one player puts one down, it moves there for the other too.
+- Crouching works again, no T-pose from aiming overlays, the partner's flashlight shows on the copy, the copy hides during cutscenes.
+- The guest is taken into the host's chapter straight from the main menu.
+- Cutscenes and checkpoints follow the partner faster (6 s pause instead of 20 s), without endless swapping when both reach a checkpoint at once.
+- Less desync: positions by arrival time again (as before v31), the copy is made from a real NPC spawner.
 
 ---
 
-- Меньше рассинхрона: копия напарника снова раскладывает позиции по времени прихода (как до v31) и больше не прячется и не отпускается из-за ложно определённой катсцены.
+- Лестницы, прыжки и подъёмы: пока напарник лезет, его копия идёт точно за ним и повторяет его анимацию (`climb_anims=off` в `tlou-together.ini` выключает перенос анимации).
+- Копия поднимает оружие и целится туда же, куда напарник; если прицел даёт этой копии Т-позу, прицел у неё выключается.
+- Переносные доски и лестницы: куда один игрок поставил, туда же она переносится и у другого.
+- Снова работает присед, нет Т-позы от прицела, фонарик напарника виден на копии, на катсценах копия прячется.
+- Гостя закидывает в главу хоста прямо из главного меню.
+- Катсцены и чекпоинты напарника подхватываются быстрее (пауза 6 с вместо 20 с) и без бесконечного обмена, если оба дошли до чекпоинта одновременно.
+- Меньше рассинхрона: позиции по времени прихода (как до v31), копия создаётся из настоящего NPC.
 
 ## v36
 
