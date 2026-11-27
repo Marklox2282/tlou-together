@@ -28,6 +28,8 @@ std::unordered_map<uint64_t, Known> g_known;  // только поток Tick
 ULONGLONG g_lastScan = 0;
 std::atomic<bool> g_reset{ false };
 std::atomic<bool> g_resendDead{ false };
+std::atomic<ULONGLONG> g_copyShotAt{ 0 }, g_ownShotAt{ 0 };
+constexpr ULONGLONG kShotWindowMs = 400;
 
 SRWLOCK g_lock = SRWLOCK_INIT;  // очереди между сетью и скриптовым потоком
 std::vector<Change> g_out, g_in;
@@ -198,6 +200,14 @@ void Scan(uint64_t puppet) {
 		Known& k = it->second;
 		const bool newlyDead = dead && !k.dead;
 		const bool hurt = !dead && std::isfinite(h) && h < k.health - 0.01f;
+		// Пуля копии партнёра: урон этого выстрела партнёр пришлёт сам - здоровье назад, не отправляем.
+		const ULONGLONG nowMs = GetTickCount64();
+		const bool copyShot = nowMs - g_copyShotAt.load() < kShotWindowMs && nowMs - g_ownShotAt.load() >= kShotWindowMs;
+		if (hurt && copyShot) {
+			Call(g_dc.setHealth, { npc, F(k.health) });
+			Log("[enemies] copy's bullet hit %016llX: %.1f -> %.1f undone", static_cast<unsigned long long>(npc), k.health, h);
+			continue;
+		}
 		if (newlyDead || hurt) {
 			Push(g_out, { npc, dead ? 0.0f : h, dead });
 			Log("[enemies] local %s %016llX: %.1f -> %.1f", newlyDead ? "kill" : "hit",
@@ -322,5 +332,7 @@ void ReceivePosition(const Position& p) {
 }
 void Reset() { g_reset = true; }
 void ResendDead() { g_resendDead = true; }
+void NoteCopyShot() { g_copyShotAt = GetTickCount64(); }
+void NoteOwnShot() { g_ownShotAt = GetTickCount64(); }
 
 }  // namespace enemies

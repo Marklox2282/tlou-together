@@ -997,6 +997,7 @@ void ScriptTick() {
 			Log("me: shot (%s)", flag ? "flag" : "ammo");
 		}
 		g_meFiring = shotAt && GetTickCount64() - shotAt < 120;
+		if (flag || spent) enemies::NoteOwnShot();
 	}
 	// Поза: своя - для отправки (5 раз в секунду хватает), партнёра - на марионетку при смене.
 	// Манеры NPC из скриптов игры: 'crouch - присед, 'ambient - обычная.
@@ -1178,6 +1179,7 @@ void ScriptTick() {
 	const bool shoot = UsingNetwork() ? g_partnerFiring.load() : g_meFiring.load();
 	if (!g_inCutscene && shoot && (g_puppetIsBuddy || g_enemiesSee) && g_puppet && !g_hidden && GetTickCount64() - lastShot >= 180) {
 		lastShot = GetTickCount64();
+		if (UsingNetwork()) enemies::NoteCopyShot();  // её пули - только для вида
 		const uint64_t r = Call(g_dc.fireWeapon, { g_puppet });
 		Log("puppet: fires (%llu, weapon %016llX)", static_cast<unsigned long long>(r),
 			static_cast<unsigned long long>(Call(g_dc.npcWeapon, { g_puppet })));
