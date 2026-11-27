@@ -644,7 +644,7 @@ void Update() {
 	}
 	if (UsingNetwork() && standingSince && now - standingSince >= 700 && err < 3.0f) {  // без сети партнёр - мы сами: встала бы в нас
 		const float yawOff = std::fabs(YawDiff(cur.rot, target.rot));
-		if ((err > 0.4f || yawOff > 0.45f) && now - lastSettle >= 1500) {
+		if ((err > 1.0f || yawOff > 1.0f) && now - lastSettle >= 3000) {  // реже и только при заметной разнице (рывки)
 			lastSettle = lastCmdAt = now;
 			lastMode = -1;
 			if (const uint64_t frame = BoundFrame(target.pos, target.rot)) Call(g_dc.teleport, { puppet, frame });
@@ -656,7 +656,7 @@ void Update() {
 			lastIdleRefresh = lastCmdAt = now;
 			const bool crouch = UsingNetwork() ? g_partnerCrouched.load() : g_meCrouched.load();
 			if (const uint64_t frame = BoundFrame(cur.pos, target.rot)) Call(g_dc.moveTo, { puppet, frame, 0, 0, 0, 0, 0, 0 });
-			Call(g_dc.setDemeanor, { puppet, crouch ? 3ull : 0ull, 0ull });
+			Call(g_dc.setDemeanor, { puppet, Sid(crouch ? "crouch" : "ambient") });  // число 3 давало присед с прицелом
 		}
 		return;
 	}
@@ -664,8 +664,8 @@ void Update() {
 	// Догон по месту (как в v36): ИИ бежит своей дорогой, а сюжетный NPC (например, Тесс из
 	// скрипта уровня) команд движения почти не слушается и стоит. Сверх 1.5 м подтягиваем копию
 	// к настоящей позиции партнёра - половину лишнего раз в 0.1 с; бег (анимацию) ведёт команда ниже.
-	if (UsingNetwork() && g_dc.setObjectLocator && err > 0.75f && err < 15.0f) {
-		const float k = (err - 0.5f) / err;  // сразу до 0.5 м от настоящей позиции
+	if (UsingNetwork() && g_dc.setObjectLocator && targetSpeed > 0.5f && err > 1.5f && err < 15.0f) {
+		const float k = 0.5f * (err - 1.5f) / err;  // мягко: половину лишнего сверх 1.5 м и только на ходу (рывки)
 		float pulled[3];
 		for (int i = 0; i < 3; ++i) pulled[i] = cur.pos[i] + (target.pos[i] - cur.pos[i]) * k;
 		pulled[1] = cur.pos[1];  // только по горизонтали: высоту держит сама игра (иначе копия "летала")
@@ -1326,7 +1326,7 @@ void ScriptTick() {
 		// они перебивают перенесённые слои. npc-set-demeanor ждёт число (0=ambient, 3=crouch) и флаг force.
 		const bool aiDriven = !anim::HasActiveRx(GetTickCount64());  // позу ведёт не перенос анимаций
 		if (puppet && !g_hidden && aiDriven && (puppet != appliedTo || crouch != crouchNow)) {
-			Call(g_dc.setDemeanor, { puppet, crouch ? 3ull : 0ull, 0ull });
+			Call(g_dc.setDemeanor, { puppet, Sid(crouch ? "crouch" : "ambient") });  // число 3 давало присед с прицелом
 			if (crouch != crouchNow) Log("puppet: %s", crouch ? "crouches" : "stands up");
 			appliedTo = puppet;
 			crouchNow = crouch;

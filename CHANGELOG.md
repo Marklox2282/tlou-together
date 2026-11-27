@@ -3,6 +3,18 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## 0.42.1
+
+- Fixed crashes: the animation copying for climbing and melee crashed the game in its animation code; it is off now (only `climb_anims_experimental=on` turns it back on).
+- The partner's copy crouches normally again instead of crouching with a raised weapon.
+- Fewer small jumps of the copy: it is pulled gently and only while the partner moves.
+
+---
+
+- Исправлены падения: перенос анимаций для лазанья и рукопашки ронял игру в её коде анимаций; он выключен (вернуть можно только строкой `climb_anims_experimental=on`).
+- Копия напарника снова приседает нормально, а не приседает с поднятым оружием.
+- Меньше мелких рывков копии: её подтягивает мягко и только когда напарник двигается.
+
 ## 0.42.0
 
 - Updates no longer need a second game start: at launch the mod checks for a new version (up to 4 seconds), and if one is downloaded it runs right away. Works from the next update on.
