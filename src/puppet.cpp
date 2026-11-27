@@ -1097,7 +1097,8 @@ void ScriptTick() {
 		lastStance = GetTickCount64();
 		g_meCrouched = (Call(g_dc.isCrouched, {}) & 1) != 0;
 		g_meAiming = (Call(g_dc.isAiming, {}) & 1) != 0;
-		if (g_dc.flashlightOn) g_meFlashlight = (Call(g_dc.flashlightOn, {}) & 1) != 0;
+		Locator self{};  // фонарик - только при игроке (без него функции игрока могут уронить игру)
+		if (g_dc.flashlightOn && PlayerLocator(self)) g_meFlashlight = (Call(g_dc.flashlightOn, {}) & 1) != 0;
 		if (g_meAiming) {
 			const CameraView cam = CurrentView();
 			if (cam.ok) g_meAimPitch = std::asin(std::clamp(cam.fwd[1], -0.98f, 0.98f));
@@ -1245,7 +1246,9 @@ void ScriptTick() {
 	// Лечение: своё - по прогрессу аптечки; партнёра - копия делает жест лечения при начале.
 	{
 		static ULONGLONG lastHealCheck = 0;
-		if (g_dc.healProgress && GetTickCount64() - lastHealCheck >= 100) {
+		// Только когда игрок есть: без него (главное меню) player-get-heal-progress роняет игру.
+		Locator self{};
+		if (g_dc.healProgress && GetTickCount64() - lastHealCheck >= 100 && PlayerLocator(self)) {
 			lastHealCheck = GetTickCount64();
 			const uint32_t bits = static_cast<uint32_t>(Call(g_dc.healProgress, {}));
 			float progress = 0.0f;
