@@ -117,7 +117,9 @@ net::Config LoadConfig(std::string& name) {
 	return cfg;
 }
 
-net::Link g_link(Log, kModVersion);
+// Без деструктора: при выходе из игры Steam и куча уже выгружены, и Stop() в ~Link падал
+// (crash log "access violation" на закрытии игры). Сеть освобождает сама система.
+net::Link& g_link = *new net::Link(Log, kModVersion);
 
 // Лобби в меню игры: состояние для его текста (меню читает из своего потока) и "Да".
 std::atomic<int> g_menuAction{ 0 };  // menu::Action из меню игры

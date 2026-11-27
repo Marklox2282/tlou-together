@@ -6,10 +6,12 @@ The mod updates itself: a new version downloads when the game starts and is used
 ## v39
 
 - Fixed a crash when the partner joined: the mod could take the chapter's real companion (Tess) as the partner's copy, and the level's scripts fought over her.
+- Fixed an error when closing the game (the mod crashed while shutting down its network connection).
 
 ---
 
 - Исправлено падение при входе напарника: мод мог взять настоящую спутницу главы (Тесс) как копию напарника, и скрипты уровня тянули её в другую сторону.
+- Исправлена ошибка при закрытии игры (мод падал, отключая сеть на выходе).
 
 ## v38
 
