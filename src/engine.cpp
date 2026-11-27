@@ -246,14 +246,9 @@ bool InitNatives() {
 	else Log("natives: cinematic-transition-movie-playing? not found (optional)");
 	if ((g_dc.flashlightOn = FindNative("player-flashlight-on?"))) NameNative(g_dc.flashlightOn, "player-flashlight-on?");
 	else Log("natives: player-flashlight-on? not found (optional)");
-	if ((g_dc.setPropFlashlight = FindNative("set-prop-flashlight-on-off"))) NameNative(g_dc.setPropFlashlight, "set-prop-flashlight-on-off");
-	else Log("natives: set-prop-flashlight-on-off not found (optional)");
-	if ((g_dc.ignoreCollision = FindNative("player-ignore-object-collision"))) NameNative(g_dc.ignoreCollision, "player-ignore-object-collision");
-	else Log("natives: player-ignore-object-collision not found (optional)");
-	if ((g_dc.collisionBodies = FindNative("set-collision-between-bodies"))) NameNative(g_dc.collisionBodies, "set-collision-between-bodies");
-	else Log("natives: set-collision-between-bodies not found (optional)");
-	if ((g_dc.npcForcePush = FindNative("npc-set-force-player-push"))) NameNative(g_dc.npcForcePush, "npc-set-force-player-push");
-	else Log("natives: npc-set-force-player-push not found (optional)");
+	// Не подключаем (остаются nullptr): set-prop-flashlight-on-off, player-ignore-object-collision,
+	// set-collision-between-bodies, npc-set-force-player-push - вызывались с угаданными аргументами
+	// сразу при появлении копии, и с v31 копия стояла в Т-позе.
 	for (const auto& [slot, name] : { std::pair<NativeFn*, const char*>{ &g_dc.throwProjectile, "throw-projectile" },
 			{ &g_dc.healProgress, "player-get-heal-progress" }, { &g_dc.gesture, "gesture_" },
 			{ &g_dc.gestureParams, "alloc-gesture-play-params" } }) {
