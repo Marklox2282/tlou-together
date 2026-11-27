@@ -947,8 +947,8 @@ void ScriptTick() {
 			if (void* db = g_textDb.load(std::memory_order_relaxed)) lang = &LangFor(g_textHook.call<const char*>(db, kLibraryText, nullptr));
 			const size_t li = static_cast<size_t>(lang - kLangs);
 			const char* fmt = kNotes[li < sizeof(kNotes) / sizeof(kNotes[0]) ? li : 0][note.id];
-			std::string next(255, '\0');
-			next.resize(static_cast<size_t>((std::max)(0, snprintf(next.data(), next.size() + 1, fmt, Escaped(note.name).c_str()))));
+			char line[256];
+			const std::string next = snprintf(line, sizeof(line), fmt, Escaped(note.name).c_str()) > 0 ? line : "";
 			lastNote = GetTickCount64();
 			snprintf(g_noteText, sizeof(g_noteText), "%s", next.c_str());
 			Call(g_dc.hudMessage, { 0, kNoteText, F(4.0f), 2, Sid("none"), F(0.5f) });
