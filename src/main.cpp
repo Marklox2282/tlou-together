@@ -498,6 +498,18 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	static bool wasSameChapter = false;
 	const bool meCut = puppet::MeInCutscene();
 	const bool partnerCut = g_link.PeerInCutscene();
+	// У напарника началась катсцена, а у нас нет: переносим к нему (как F7) - попадаем в тот же
+	// триггер, и наша катсцена начинается почти одновременно. Не чаще раза в 20 с.
+	{
+		static bool partnerCutWas = false;
+		static ULONGLONG lastCutFollow = 0;
+		if (connected && havePlayer && partnerCut && !partnerCutWas && !meCut && now - lastCutFollow > 20000) {
+			lastCutFollow = now;
+			Log("net: %s's cutscene started - going to them so ours starts too", g_link.PeerName().c_str());
+			puppet::RequestTeleport();
+		}
+		partnerCutWas = partnerCut;
+	}
 	const bool sameChapterNow = connected && theirs && mine && (theirs == mine);
 	if (sameChapterNow && !wasSameChapter && g_link.Authority()) enemies::ResendDead();
 	wasSameChapter = sameChapterNow;
