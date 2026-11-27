@@ -3,6 +3,16 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## 0.42.3
+
+- Fixed: the partner's copy stood in a fighting stance with fists up and did not crouch (the stance command got a wrong value).
+- Fewer jumps of the copy: it is corrected only when it falls more than 3 m behind, or more than 2 m off while the partner stands.
+
+---
+
+- Исправлено: копия напарника стояла в боевой стойке с кулаками и не приседала (в команду стойки уходило неверное значение).
+- Меньше рывков копии: её поправляют, только если она отстала больше чем на 3 м, или отошла больше чем на 2 м, когда напарник стоит.
+
 ## 0.42.2
 
 - Fixed a crash: moving the partner's copy (when it fell behind or settled on the spot) could crash the game; it is now placed a safer way.
