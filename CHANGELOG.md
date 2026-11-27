@@ -10,6 +10,7 @@ The mod updates itself: a new version downloads when the game starts and is used
 - After loading, the guest is taken to the host's chapter by itself (no F5 needed).
 - Fixed: "%s" instead of the partner's name in the lobby; no false "slow connection" right after connecting.
 - Fixed: the partner stood in a T-pose (since v31).
+- When your look is put on another character's body (no NPC of your sex on the level), the copy now uses animations for your look: standing, crouching (experimental).
 
 ---
 
@@ -18,6 +19,7 @@ The mod updates itself: a new version downloads when the game starts and is used
 - После загрузки гостя само переносит в главу хоста (F5 не нужен).
 - Исправлено: «%s» вместо ника напарника в лобби; нет ложной «медленной связи» сразу после подключения.
 - Исправлено: напарник стоял в Т-позе (с v31).
+- Если облик надет на чужое тело (на уровне нет NPC вашего пола), копия теперь берёт анимации под ваш облик: стойка, присед (экспериментально).
 
 ## v34
 

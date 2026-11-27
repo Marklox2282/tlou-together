@@ -29,7 +29,7 @@ namespace {
 
 // Номер версии мода: увеличивать при каждом выпуске (tools/release.py берёт его отсюда).
 // Игроки с разными версиями не соединяются.
-constexpr uint32_t kModVersion = 34;
+constexpr uint32_t kModVersion = 35;
 
 using engine::Locator;
 
