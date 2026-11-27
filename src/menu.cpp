@@ -10,6 +10,7 @@
 
 #include <safetyhook.hpp>
 
+#include "version.hpp"
 #include "clipboard.hpp"
 #include "engine.hpp"
 #include "log.hpp"
@@ -686,7 +687,7 @@ const char* LobbyTextInto(const Lang& l, char* buf, size_t n) {
 		const size_t k = strlen(buf);
 		if (k + 8 < n) snprintf(buf + k, n - k, "<br><br>%s", l.refresh);
 	}
-	if (const size_t k = strlen(buf); s.version && k + 32 < n) snprintf(buf + k, n - k, "<br><br>tlou-together v%u", s.version);
+	if (const size_t k = strlen(buf); s.version && k + 32 < n) snprintf(buf + k, n - k, "<br><br>tlou-together %s", version::Name(s.version).c_str());
 	return buf;
 }
 

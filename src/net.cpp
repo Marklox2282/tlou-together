@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <vector>
 
+#include "version.hpp"
 #include "net.hpp"
 
 namespace net {
@@ -247,8 +248,8 @@ bool Link::Start(const Config& cfg, uint64_t nowMs) {
 	lastHello_ = 0;
 	lastHeard_ = nowMs;
 	oldProtocolLogged_ = false;
-	log_("net: searching (%s), I am \"%s\", mod v%u", steam_ ? "Steam friends in this game" : cfg.peerIp.c_str(),
-		name_.c_str(), modVersion_);
+	log_("net: searching (%s), I am \"%s\", mod %s", steam_ ? "Steam friends in this game" : cfg.peerIp.c_str(),
+		name_.c_str(), version::Name(modVersion_).c_str());
 	return true;
 }
 
@@ -399,8 +400,8 @@ void Link::OnHello(const Packet& p, uint64_t from, uint64_t nowMs) {
 		// Разные версии мода не соединяем: структуры и смещения могут отличаться.
 		if (!lastMismatchLog_ || nowMs - lastMismatchLog_ >= 10000) {
 			lastMismatchLog_ = nowMs;
-			log_("net: %s has mod v%u, I have v%u - not connecting until both have the same version",
-				name, p.modVersion, modVersion_);
+			log_("net: %s has mod %s, I have %s - not connecting until both have the same version",
+				name, version::Name(p.modVersion).c_str(), version::Name(modVersion_).c_str());
 		}
 		return;
 	}

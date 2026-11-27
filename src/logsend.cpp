@@ -8,6 +8,7 @@
 #include <thread>
 #include <vector>
 
+#include "version.hpp"
 #include "log.hpp"
 #include "logsend.hpp"
 
@@ -53,7 +54,8 @@ std::wstring Widen(const std::string& s) {
 // POST multipart/form-data: текст сообщения и файлы. Возвращает HTTP-код (0 - не дошло).
 DWORD Post(const std::string& url, const std::string& message, const std::vector<Attachment>& files) {
 	const std::wstring wurl = Widen(url);
-	URL_COMPONENTS parts{ sizeof(parts) };
+	URL_COMPONENTS parts{};
+	parts.dwStructSize = sizeof(parts);
 	wchar_t host[256]{}, path[1024]{};
 	parts.lpszHostName = host;
 	parts.dwHostNameLength = 256;
@@ -111,7 +113,7 @@ void SendAsync(std::string message, std::vector<std::pair<std::wstring, std::str
 			const DWORD status = Post(url, message, files);
 			Log("logs: sent %zu file(s) to the webhook - HTTP %lu", files.size(), status);
 			if (status >= 200 && status < 300 && !stampAfter.empty())
-				if (FILE* f = _wfopen(stampAfter.c_str(), L"w")) fclose(f);  // время отправки файла падений
+				if (FILE* f = nullptr; _wfopen_s(&f, stampAfter.c_str(), L"w") == 0 && f) fclose(f);  // время отправки файла падений
 		}
 		g_busy = false;
 	}).detach();
@@ -145,14 +147,14 @@ void SendPreviousSession(unsigned modVersion) {
 	const bool crashed = Newer(crash, stamp);
 	if (crashed) paths.push_back({ crash, "tlou-together-crash.log" });
 	char msg[160];
-	snprintf(msg, sizeof(msg), "tlou-together v%u - previous session%s", modVersion, crashed ? " (CRASH)" : "");
+	snprintf(msg, sizeof(msg), "tlou-together %s - previous session%s", version::Name(modVersion).c_str(), crashed ? " (CRASH)" : "");
 	SendAsync(msg, std::move(paths), stamp);
 }
 
 void SendNow(unsigned modVersion, const std::string& note) {
 	if (!Enabled()) return;
 	char msg[200];
-	snprintf(msg, sizeof(msg), "tlou-together v%u - %s", modVersion, note.c_str());
+	snprintf(msg, sizeof(msg), "tlou-together %s - %s", version::Name(modVersion).c_str(), note.c_str());
 	SendAsync(msg, { { GameDirFile(L"tlou-together.log"), "tlou-together.log" }, { GameDirFile(L"tlou-together-crash.log"), "tlou-together-crash.log" } },
 		std::wstring());
 }

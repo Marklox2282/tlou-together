@@ -3,14 +3,16 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
-## v40
+## 0.40.0
 
+- Versions are now numbered like 0.40.0 (MAJOR.MINOR.PATCH); this one follows v39.
 - Tess and other companions: when the guest's companion wanders more than 6 m away from where the host's is and you can't see it, it is moved there.
 - More stable: animation copying while climbing is off by default (`climb_anims=on` in `tlou-together.ini` to try it).
 - The partner's copy raises its weapon and fires again without that option.
 
 ---
 
+- Версии теперь вида 0.40.0 (MAJOR.MINOR.PATCH); эта идёт после v39.
 - Тесс и другие спутники: если у гостя спутник ушёл дальше 6 м от того места, где он у хоста, и его не видно, его переносит туда.
 - Стабильнее: перенос анимаций при лазанье по умолчанию выключен (`climb_anims=on` в `tlou-together.ini`, чтобы попробовать).
 - Копия напарника снова поднимает оружие и стреляет и без этой настройки.

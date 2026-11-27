@@ -1,9 +1,9 @@
 """Выпуск новой версии мода: python tools/release.py
 
-1. Поднять kModVersion в src/main.cpp (это и есть номер версии) и добавить раздел "## vN" в
-   CHANGELOG.md - его текст станет описанием релиза на GitHub.
+1. Поднять версию в src/version.hpp (kMajor.kMinor.kPatch, например 0.41.0) и добавить раздел
+   "## 0.41.0" в CHANGELOG.md - его текст станет описанием релиза на GitHub.
 2. Запустить скрипт: соберёт мод, подпишет закрытым ключом из %USERPROFILE%/.tlou1-coop/signing.key
-   и выложит релиз vN на GitHub (winmm.dll, winmm.dll.sig, version.txt). У друзей мод
+   и выложит релиз (например 0.41.0) на GitHub (winmm.dll, winmm.dll.sig, version.txt). У друзей мод
    скачает его сам при следующем запуске игры и включит со следующего.
 """
 import glob, os, pathlib, re, subprocess, sys, tempfile
@@ -27,15 +27,17 @@ def tool_env():
 
 
 def changelog_notes(tag):
-    """Раздел "## vN" из CHANGELOG.md (до следующего "## ")."""
+    """Раздел "## 0.41.0" из CHANGELOG.md (до следующего "## ")."""
     text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     m = re.search(rf"^## {re.escape(tag)}\s*$(.*?)(?=^## |\Z)", text, re.M | re.S)
     return m.group(1).strip() if m else ""
 
 
 def main():
-    version = int(re.search(r"kModVersion = (\d+);", (ROOT / "src/main.cpp").read_text(encoding="utf-8")).group(1))
-    tag = f"v{version}"
+    m = re.search(r"kMajor = (\d+), kMinor = (\d+), kPatch = (\d+);", (ROOT / "src/version.hpp").read_text(encoding="utf-8"))
+    major, minor, patch = map(int, m.groups())
+    version = major * 10000 + minor * 100 + patch  # то же число, что version::kCode (version.txt, сеть)
+    tag = f"{major}.{minor}.{patch}"
     notes = changelog_notes(tag)
     if not notes:
         sys.exit(f"нет раздела '## {tag}' в CHANGELOG.md: опиши, что изменилось")
@@ -44,7 +46,7 @@ def main():
     if not KEY.exists():
         sys.exit(f"нет ключа подписи {KEY}")
     if subprocess.run(["gh", "release", "view", tag, "--repo", REPO], capture_output=True).returncode == 0:
-        sys.exit(f"релиз {tag} уже есть: подними kModVersion в src/main.cpp")
+        sys.exit(f"релиз {tag} уже есть: подними версию в src/version.hpp")
     if subprocess.run(["git", "status", "--porcelain"], cwd=ROOT, capture_output=True, text=True).stdout.strip():
         sys.exit("есть незакоммиченные изменения: сначала закоммить, чтобы релиз совпадал с кодом")
     env = tool_env()

@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <fstream>
 
+#include "version.hpp"
 #include "signing.hpp"
 #include "update.hpp"
 #include "update_key.hpp"
@@ -69,17 +70,17 @@ Result Run(uint32_t currentVersion, const std::wstring& dllPath, const std::wstr
 	text.push_back(0);
 	const uint32_t latest = static_cast<uint32_t>(strtoul(reinterpret_cast<const char*>(text.data()), nullptr, 10));
 	if (latest <= currentVersion) {
-		log("update: v%u is the latest", currentVersion);
+		log("update: %s is the latest", version::Name(currentVersion).c_str());
 		return Result::UpToDate;
 	}
-	log("update: v%u available (have v%u), downloading", latest, currentVersion);
+	log("update: %s available (have %s), downloading", version::Name(latest).c_str(), version::Name(currentVersion).c_str());
 	if (!Get(baseUrl + L"winmm.dll", dll, kMaxDownload) || !Get(baseUrl + L"winmm.dll.sig", sig, 256)) {
 		log("update: download failed");
 		return Result::Failed;
 	}
 	const signing::Bytes key(std::begin(kUpdatePublicKey), std::end(kUpdatePublicKey));
 	if (dll.size() < 2 || dll[0] != 'M' || dll[1] != 'Z' || !signing::Verify(key, dll, latest, sig)) {
-		log("update: v%u REJECTED - signature does not match, not installed", latest);
+		log("update: %s REJECTED - signature does not match, not installed", version::Name(latest).c_str());
 		return Result::Failed;
 	}
 	const std::wstring fresh = dllPath + L".new", old = dllPath + L".old";
@@ -97,11 +98,11 @@ Result Run(uint32_t currentVersion, const std::wstring& dllPath, const std::wstr
 		return Result::Failed;
 	}
 	if (!MoveFileExW(fresh.c_str(), dllPath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-		log("update: can't put v%u in place (error %lu), keeping the current version", latest, GetLastError());
+		log("update: can't put %s in place (error %lu), keeping the current version", version::Name(latest).c_str(), GetLastError());
 		MoveFileExW(old.c_str(), dllPath.c_str(), MOVEFILE_REPLACE_EXISTING);
 		return Result::Failed;
 	}
-	log("update: v%u installed, it starts with the next game launch", latest);
+	log("update: %s installed, it starts with the next game launch", version::Name(latest).c_str());
 	return Result::Installed;
 }
 

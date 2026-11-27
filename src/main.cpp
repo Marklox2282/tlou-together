@@ -14,6 +14,7 @@
 
 #include <safetyhook.hpp>
 
+#include "version.hpp"
 #include "anim.hpp"
 #include "enemies.hpp"
 #include "objects.hpp"
@@ -31,7 +32,7 @@ namespace {
 
 // Номер версии мода: увеличивать при каждом выпуске (tools/release.py берёт его отсюда).
 // Игроки с разными версиями не соединяются.
-constexpr uint32_t kModVersion = 39;
+constexpr uint32_t kModVersion = version::kCode;  // версия - в version.hpp (MAJOR.MINOR.PATCH)
 
 using engine::Locator;
 
@@ -606,7 +607,7 @@ LONG CALLBACK OnException(EXCEPTION_POINTERS* e) {
 	const uintptr_t base = engine::g_base;
 	const CONTEXT& c = *e->ContextRecord;
 	auto rva = [base](uint64_t a) { return a >= base && a < base + 0x9000000 ? a - base : 0; };
-	CrashWrite("\r\naccess violation v%u tid=%lu rip=tlou+%llX (%llX) %s %llX\r\n", kModVersion, GetCurrentThreadId(), rva(c.Rip),
+	CrashWrite("\r\naccess violation %s tid=%lu rip=tlou+%llX (%llX) %s %llX\r\n", version::Name(kModVersion).c_str(), GetCurrentThreadId(), rva(c.Rip),
 		c.Rip, e->ExceptionRecord->ExceptionInformation[0] ? "write" : "read", e->ExceptionRecord->ExceptionInformation[1]);
 	CrashWrite("rax=%llX rbx=%llX rcx=%llX rdx=%llX rsi=%llX rdi=%llX r8=%llX r9=%llX rsp=%llX\r\n",
 		c.Rax, c.Rbx, c.Rcx, c.Rdx, c.Rsi, c.Rdi, c.R8, c.R9, c.Rsp);
@@ -663,7 +664,7 @@ void Init() {
 	if (!slash || _wcsicmp(slash + 1, L"tlou-i.exe")) return;
 	OpenLog();
 	const uint32_t stamp = engine::BuildTimestamp();
-	Log("tlou-together v%u, base=%p build=%08X", kModVersion, reinterpret_cast<void*>(engine::g_base), stamp);
+	Log("tlou-together %s, base=%p build=%08X", version::Name(kModVersion).c_str(), reinterpret_cast<void*>(engine::g_base), stamp);
 	StartUpdateCheck();  // и на неподдерживаемой сборке игры: обновление может её поддержать
 	if (stamp != engine::kBuildTimestamp) {
 		Log("unsupported game build, mod is off");
