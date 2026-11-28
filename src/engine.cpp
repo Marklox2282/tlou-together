@@ -570,18 +570,23 @@ std::vector<BuddyCandidate> FindBuddyCandidates(const std::string& hero, const s
 
 std::vector<BuddyCandidate> FindHeroCandidates(const std::string& hero, const std::vector<uintptr_t>& exclude) {
 	std::vector<BuddyCandidate> out;
-	if (hero.empty()) return out;
+	std::string seen;
 	ForEachSpawner([&](uintptr_t sp, const SpawnerHead& h) {
 		if (!h.type || !h.sid || (h.flags0 & kSpDisabled)) return true;
 		for (uintptr_t bad : exclude)
 			if (bad == sp) return true;
 		const std::string art = ReadName(h.art);
-		if (HeroName(art) != hero || art.find("-costume") == std::string::npos) return true;
-		if (Call(g_dc.entityExists, { h.sid })) return true;  // этот спавнер уже кого-то создал
+		const std::string spHero = HeroName(art);
+		if (spHero.empty() || art.find("-costume") == std::string::npos) return true;
+		if (!hero.empty() && spHero != hero) return true;
+		const bool alive = Call(g_dc.entityExists, { h.sid }) & 1;  // этот спавнер уже кого-то создал
 		const std::string name = ReadName(h.name);
-		out.push_back({ sp, name + " (" + art + ")", art, hero, IsCutsceneSpawnerName(name) ? 0 : 1 });
+		if (seen.size() < 600) seen += (seen.empty() ? "" : ", ") + name + (alive ? " [alive]" : "");
+		if (alive) return true;
+		out.push_back({ sp, name + " (" + art + ")", art, spHero, IsCutsceneSpawnerName(name) ? 0 : 1 });
 		return out.size() < 8;
 	});
+	if (!seen.empty()) Log("puppet: hero spawners%s%s: %s", hero.empty() ? "" : " of ", hero.c_str(), seen.c_str());
 	std::stable_sort(out.begin(), out.end(), [](const BuddyCandidate& a, const BuddyCandidate& b) { return a.rank > b.rank; });
 	return out;
 }

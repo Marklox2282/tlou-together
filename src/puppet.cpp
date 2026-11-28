@@ -324,8 +324,11 @@ uint64_t Spawn(const Locator& at) {
 	bool heroSpawner = false;
 	if (candidates.empty()) {
 		candidates = FindHeroCandidates(HeroName(look), g_badSpawners);
+		// И спавнеры других героев, ещё никого не создавшие (Тесс): отдельная фигура лучше,
+		// чем забрать у сюжета его спутника.
+		if (candidates.empty()) candidates = FindHeroCandidates(std::string(), g_badSpawners);
 		heroSpawner = !candidates.empty();
-		if (heroSpawner) Log("puppet: no other people here - trying %s's own spawner", HeroName(look).c_str());
+		if (heroSpawner) Log("puppet: no other people here - trying hero spawner %s", candidates[0].name.c_str());
 	}
 	if (candidates.empty()) {
 		static uint64_t listedFor = 0;
