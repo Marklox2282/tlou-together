@@ -83,7 +83,7 @@ net::Config LoadConfig(std::string& name) {
 				"; enemies_see_partner = on (default): enemies notice and attack your partner's character too.\n"
 				"; shared_death = on (default): when one of you dies, the other reloads the checkpoint too.\n"
 				"; enemy_sync = soft (default): enemies keep their AI, moved to the host's spot off-screen.\n"
-				";             full (experimental): the guest's enemies copy the host's moves; they don't attack yet.\n"
+				";             full (experimental, guest's ini): the guest's enemies copy the host's moves and gunfire.\n"
 				"; anim_sync  = off (default) / on (experimental): direct bone animation replication for partner.\n"
 				"; climb_anims_experimental = off (default) / on (may crash the game): your animation is copied to your partner only while you climb a ladder,\n"
 				";             jump or vault (off: the copy just slides along). Needs a game restart.\n"
@@ -106,7 +106,7 @@ net::Config LoadConfig(std::string& name) {
 		else if (key == "name") name = value;
 		else if (key == "port") cfg.port = static_cast<uint16_t>(atoi(value.c_str()));
 		else if (key == "peer_port") cfg.peerPort = static_cast<uint16_t>(atoi(value.c_str()));
-		else if (key == "enemy_sync") enemies::SetFullSync(false);  // full отключён ради стабильности
+		else if (key == "enemy_sync") enemies::SetFullSync(value == "full");
 		else if (key == "story_sync") g_storySync = value != "off";
 		else if (key == "shared_death") g_sharedDeath = value != "off";
 		else if (key == "enemies_see_partner") puppet::SetEnemiesSeePartner(value != "off");
@@ -488,6 +488,7 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	for (uint64_t door : objects::TakeDoors()) g_link.SendDoorOpen(door);
 	enemies::SetSendPositions(connected && g_link.Authority());
 	for (const enemies::Position& p : enemies::TakePositions()) g_link.SendEnemyPos(p.npc, p.pos, p.rot);
+	for (const enemies::Shot& s : enemies::TakeShots()) g_link.SendEnemyFire(s.npc, s.count, s.atReceiver);
 	for (const net::Packet& p : g_link.TakeEnemyEvents()) {
 		if (p.type == net::kDoorOpen) {
 			objects::ReceiveDoor(p.target);
@@ -496,6 +497,8 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 			memcpy(o.pos, p.pos, sizeof(o.pos));
 			memcpy(o.rot, p.rot, sizeof(o.rot));
 			objects::Receive(o);
+		} else if (p.type == net::kEnemyFire) {
+			enemies::ReceiveShot({ p.target, static_cast<uint32_t>(p.health), (p.flags & net::kFlagAtYou) != 0 });
 		} else if (p.type == net::kEnemyPos) {
 			enemies::Position e{ p.target, {}, {} };
 			memcpy(e.pos, p.pos, sizeof(e.pos));

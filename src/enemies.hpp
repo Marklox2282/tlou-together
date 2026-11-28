@@ -23,12 +23,18 @@ void Tick(uint64_t puppet);
 struct Position { uint64_t npc; float pos[3], rot[4]; };
 void SetSendPositions(bool on);
 // Полная синхронизация (ini enemy_sync=full, пока опыт): у гостя ИИ врагов выключен, они идут за
-// врагами хозяина своей анимацией. Атаки врагов ещё не копируются - гостя они не трогают.
+// врагами хозяина своей анимацией и повторяют его выстрелы (рукопашные атаки ещё не копируются).
 void SetFullSync(bool on);
 // Идёт катсцена (своя или партнёра): позиции врагов и спутников не трогаем (переносило Тесс в кадр).
 void SetCutscene(bool on);
 std::vector<Position> TakePositions();     // хозяин: для отправки
 void ReceivePosition(const Position& p);   // гость: от хозяина
+
+// Выстрелы врагов: хозяин замечает их по счётчику выстрелов NPC и шлёт; гость в режиме full
+// разворачивает своего врага к цели (к себе или к копии хозяина) и стреляет настоящими пулями.
+struct Shot { uint64_t npc; uint32_t count; bool atReceiver; };
+std::vector<Shot> TakeShots();            // хозяин: для отправки
+void ReceiveShot(const Shot& s);          // гость: от хозяина
 
 // Любой поток (сеть - в игровом кадре):
 std::vector<Change> TakeOutgoing();  // свои удары и убийства для отправки

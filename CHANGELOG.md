@@ -3,6 +3,11 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## 0.43.0
+
+- Experimental full enemy sync is back (`enemy_sync=full` in the guest's `tlou-together.ini`; default stays `soft`): the guest's enemies follow the host's, and now also shoot when the host's enemies shoot - turned towards the guest or towards the host's copy. The bullets are real, so the guest takes damage from them. Melee attacks (clickers, grabs) are not copied yet.
+- Экспериментальная полная синхронизация врагов снова есть (`enemy_sync=full` в `tlou-together.ini` гостя; по умолчанию `soft`): враги гостя повторяют движения врагов хозяина и теперь стреляют, когда стреляют они - в гостя или в копию хозяина. Пули настоящие, гость получает урон. Рукопашные атаки (кликеры, захваты) пока не копируются.
+
 ## 0.42.5
 
 - Fixed the partner being invisible: where no NPC with the hero's skeleton is on the level, the copy is made from another NPC (e.g. a clicker); the mod then re-created that copy every frame forever (thousands of times), so the partner never appeared and the game stuttered.

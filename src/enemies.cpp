@@ -128,7 +128,136 @@ void SendPositions(uint64_t puppet) {
 	ReleaseSRWLockExclusive(&g_lock);
 }
 
-// Полная синхронизация отключена (враги без ИИ не атаковали); оставляем только мягкую синхронизацию.
+// Полная синхронизация: враг у гостя без ИИ идёт за врагом хозяина (как марионетка: шаг/бег/
+// спринт по скорости, телепорт при отставании больше 4 м).
+void FollowHost(uint64_t puppet) {
+	const ULONGLONG now = GetTickCount64();
+	std::vector<std::pair<uint64_t, Remote>> list;
+	AcquireSRWLockExclusive(&g_lock);
+	for (auto it = g_remote.begin(); it != g_remote.end();) {
+		if (now - it->second.at > 2000) { it = g_remote.erase(it); continue; }
+		list.push_back({ it->first, it->second });
+		++it;
+	}
+	ReleaseSRWLockExclusive(&g_lock);
+	const std::vector<uint64_t> buddies = AllBuddies();
+	for (auto& [npc, r] : list) {
+		if (npc == puppet || !Exists(npc) || Dead(npc)) continue;
+		// Спутника ИИ не лишаем (скрипты уровня): только мягкий перенос вне кадра.
+		if (std::find(buddies.begin(), buddies.end(), npc) != buddies.end()) continue;
+		if (!r.aiOff) {
+			Call(g_dc.scriptMode, { npc, 2, 1 });
+			Call(g_dc.setBlind, { npc, 1 });
+			Call(g_dc.setDeaf, { npc, 1 });
+			r.aiOff = true;
+			Log("[enemies] %016llX follows the host's copy (AI off)", static_cast<unsigned long long>(npc));
+		}
+		Locator cur{};
+		if (!NpcLocator(npc, cur)) continue;
+		const float err = std::sqrt(Dist2(cur.pos, r.p.pos));
+		const uint64_t frame = BoundFrame(r.p.pos, r.p.rot);
+		if (!frame) continue;
+		if (err > 4.0f) {
+			PlaceNpc(npc, frame);
+			r.mode = -1;
+		} else if (g_dc.setObjectLocator) {
+			Call(g_dc.setObjectLocator, { npc, frame });
+		} else if (r.speed > 0.4f || err > 1.0f) {
+			const float speed = (std::max)(r.speed, err * 0.8f);
+			const int mode = speed < 1.8f ? 0 : (speed < 4.2f ? 1 : 2);
+			if (mode != r.mode || now - r.cmdAt > 600) {
+				Call(g_dc.moveTo, { npc, frame, static_cast<uint64_t>(mode), 0, 0, 0, 0, 0 });
+				r.mode = mode;
+				r.cmdAt = now;
+			}
+		}
+		AcquireSRWLockExclusive(&g_lock);
+		if (auto it = g_remote.find(npc); it != g_remote.end()) {
+			it->second.aiOff = r.aiOff;
+			it->second.mode = r.mode;
+			it->second.cmdAt = r.cmdAt;
+		}
+		ReleaseSRWLockExclusive(&g_lock);
+	}
+}
+
+// Выстрелы. Счётчик выстрелов NPC: каждый путь стрельбы ИИ делает [npc+0x1C48] += n и пишет
+// время в +0x1C50 (tlou-i.exe 0x13ED434, 0x1331F95, 0x13EDECB; чтение - 0x146A630).
+constexpr uintptr_t kShotsFiredOffset = 0x1C48;
+constexpr ULONGLONG kShotScanMs = 50;
+std::unordered_map<uint64_t, uint32_t> g_shotCount;  // хозяин: последний счётчик (поток Tick)
+std::vector<Shot> g_shotOut, g_shotIn;               // под g_lock
+
+float Yaw(const float q[4]) {
+	return std::atan2(2.0f * (q[3] * q[1] + q[0] * q[2]), 1.0f - 2.0f * (q[1] * q[1] + q[0] * q[0]));
+}
+
+// Хозяин: враг смотрит скорее на копию гостя, чем на своего игрока - значит, стрелял в гостя.
+bool AimsAtPuppet(const Locator& e, uint64_t puppet) {
+	Locator me{}, copy{};
+	if (!puppet || !NpcLocator(puppet, copy)) return false;
+	if (!PlayerLocator(me)) return true;
+	const float yaw = Yaw(e.rot), fx = std::sin(yaw), fz = std::cos(yaw);
+	auto facing = [&](const float* p) {
+		const float dx = p[0] - e.pos[0], dz = p[2] - e.pos[2], len = std::sqrt(dx * dx + dz * dz);
+		return len > 0.01f ? (dx * fx + dz * fz) / len : 1.0f;
+	};
+	return facing(copy.pos) > facing(me.pos);
+}
+
+void ScanShots(uint64_t puppet) {
+	for (uint64_t npc : AllEnemies()) {
+		if (npc == puppet) continue;
+		const uintptr_t obj = ResolveEntity(npc);
+		uint32_t n = 0;
+		if (!obj || !Read(obj + kShotsFiredOffset, n)) continue;
+		const auto [it, fresh] = g_shotCount.try_emplace(npc, n);
+		if (fresh || n == it->second) continue;
+		const uint32_t shots = n - it->second;
+		it->second = n;
+		Locator l{};
+		if (shots > 16 || !NpcLocator(npc, l)) continue;  // больше 16 за 50 мс - не выстрелы (поле сброшено)
+		const bool atGuest = AimsAtPuppet(l, puppet);
+		AcquireSRWLockExclusive(&g_lock);
+		if (g_shotOut.size() < 256) g_shotOut.push_back({ npc, shots, atGuest });
+		ReleaseSRWLockExclusive(&g_lock);
+		Log("[enemies] %016llX fired %u shot(s) at the %s", static_cast<unsigned long long>(npc), shots,
+			atGuest ? "partner" : "host");
+	}
+}
+
+// Гость (full): свой враг без ИИ разворачивается к цели выстрела хозяина и стреляет сам -
+// пуля настоящая, урон гостю считает игра. В мягком режиме враги стреляют своим ИИ.
+void ApplyShots(uint64_t puppet) {
+	std::vector<Shot> in;
+	AcquireSRWLockExclusive(&g_lock);
+	in.swap(g_shotIn);
+	ReleaseSRWLockExclusive(&g_lock);
+	if (!g_fullSync || g_sendPositions) return;
+	static std::vector<uint64_t> unarmedLogged;
+	for (const Shot& s : in) {
+		if (!s.npc || s.npc == puppet || !Exists(s.npc) || Dead(s.npc)) continue;
+		Locator e{}, t{};
+		if (!NpcLocator(s.npc, e)) continue;
+		if (s.atReceiver ? PlayerLocator(t) : (puppet && NpcLocator(puppet, t))) {
+			const float yaw = std::atan2(t.pos[0] - e.pos[0], t.pos[2] - e.pos[2]);
+			const float rot[4] = { 0.0f, std::sin(yaw * 0.5f), 0.0f, std::cos(yaw * 0.5f) };
+			if (const uint64_t frame = BoundFrame(e.pos, rot)) PlaceNpc(s.npc, frame);
+		}
+		if (!Call(g_dc.npcWeapon, { s.npc })) {
+			if (std::find(unarmedLogged.begin(), unarmedLogged.end(), s.npc) == unarmedLogged.end()) {
+				if (unarmedLogged.size() > 64) unarmedLogged.clear();
+				unarmedLogged.push_back(s.npc);
+				Log("[enemies] %016llX shot at the host but has no weapon here", static_cast<unsigned long long>(s.npc));
+			}
+			continue;
+		}
+		for (uint32_t i = 0; i < (std::min)(s.count, 3u); ++i) Call(g_dc.fireWeapon, { s.npc });
+		Log("[enemies] %016llX fires %u shot(s) at %s, like the host's", static_cast<unsigned long long>(s.npc),
+			s.count, s.atReceiver ? "me" : "the host's copy");
+	}
+}
+
 
 // Гость: враг ушёл далеко от позиции у хозяина - перенести (ИИ не трогаем), но только если ни
 // он сейчас, ни точка переноса не видны в кадре; иначе ждём, пока игрок отвернётся.
@@ -251,10 +380,14 @@ void Tick(uint64_t puppet) {
 		g_in.clear();
 		g_posOut.clear();
 		g_remote.clear();
+		g_shotOut.clear();
+		g_shotIn.clear();
 		ReleaseSRWLockExclusive(&g_lock);
+		g_shotCount.clear();
 	}
 	if (g_reload.exchange(false)) {
 		g_known.clear();
+		g_shotCount.clear();
 		AcquireSRWLockExclusive(&g_lock);
 		g_posOut.clear();
 		g_remote.clear();
@@ -274,6 +407,7 @@ void Tick(uint64_t puppet) {
 	in.swap(g_in);
 	ReleaseSRWLockExclusive(&g_lock);
 	for (const Change& c : in) Apply(c, puppet);
+	ApplyShots(puppet);
 
 	const ULONGLONG now = GetTickCount64();
 	static ULONGLONG lastPos = 0;
@@ -281,8 +415,15 @@ void Tick(uint64_t puppet) {
 		lastPos = now;
 		const int64_t p0 = QpcNow();
 		if (g_sendPositions) SendPositions(puppet);
-		else if (!g_cutscene) CorrectPositions(puppet);  // в катсцене никого не двигаем
+		else if (!g_cutscene) g_fullSync ? FollowHost(puppet) : CorrectPositions(puppet);  // в катсцене никого не двигаем
 		ProfileAdd("[enemy pos]", MicrosecondsSince(p0));
+	}
+	static ULONGLONG lastShotScan = 0;
+	if (g_sendPositions && now - lastShotScan >= kShotScanMs) {
+		lastShotScan = now;
+		const int64_t s0 = QpcNow();
+		ScanShots(puppet);
+		ProfileAdd("[enemy shots]", MicrosecondsSince(s0));
 	}
 	if (now - g_lastScan < kScanMs) return;
 	g_lastScan = now;
@@ -301,8 +442,22 @@ std::vector<Change> TakeOutgoing() {
 
 void Receive(const Change& c) { Push(g_in, c); }
 
+std::vector<Shot> TakeShots() {
+	std::vector<Shot> out;
+	AcquireSRWLockExclusive(&g_lock);
+	out.swap(g_shotOut);
+	ReleaseSRWLockExclusive(&g_lock);
+	return out;
+}
+
+void ReceiveShot(const Shot& s) {
+	AcquireSRWLockExclusive(&g_lock);
+	if (g_shotIn.size() < 256) g_shotIn.push_back(s);
+	ReleaseSRWLockExclusive(&g_lock);
+}
+
 void SetSendPositions(bool on) { g_sendPositions = on; }
-void SetFullSync(bool) { g_fullSync = false; }
+void SetFullSync(bool on) { g_fullSync = on; }
 void SetCutscene(bool on) { g_cutscene = on; }
 
 std::vector<Position> TakePositions() {

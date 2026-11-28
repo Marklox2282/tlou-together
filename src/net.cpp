@@ -550,7 +550,7 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 			partnerDied_ = true;
 			continue;
 		}
-		if (p.type == kEnemy || p.type == kEnemyPos || p.type == kObjectPos || p.type == kDoorOpen) {
+		if (p.type == kEnemy || p.type == kEnemyPos || p.type == kEnemyFire || p.type == kObjectPos || p.type == kDoorOpen) {
 			if (enemyEvents_.size() < 1024) enemyEvents_.push_back(p);
 			continue;
 		}
@@ -637,6 +637,15 @@ void Link::SendEnemyPos(uint64_t npc, const float pos[3], const float rot[4]) {
 	memcpy(p.pos, pos, sizeof(p.pos));
 	memcpy(p.rot, rot, sizeof(p.rot));
 	Send(p);
+}
+
+void Link::SendEnemyFire(uint64_t npc, uint32_t shots, bool atYou) {
+	if (state_ != State::Connected || !npc || !shots) return;
+	Packet p = Make(kEnemyFire);
+	p.target = npc;
+	p.health = static_cast<float>(shots);
+	p.flags = atYou ? kFlagAtYou : 0;
+	Send(p, true);
 }
 
 void Link::SendObjectPos(uint64_t object, const float pos[3], const float rot[4]) {

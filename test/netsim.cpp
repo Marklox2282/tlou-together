@@ -137,6 +137,14 @@ int main() {
 		Check(de.size() == 1 && de[0].type == net::kDoorOpen && de[0].target == 0x5555666677778888ull, "door open event arrives");
 		Check(b.TakeEnemyEvents().empty() && a.TakeEnemyEvents().empty(), "door open taken once, not echoed");
 
+		puts("== enemy fire");
+		a.SendEnemyFire(0x1234567812345678ull, 3, true);
+		Sleep(10);
+		Run(a, b, 2);
+		const std::vector<net::Packet> fe = b.TakeEnemyEvents();
+		Check(fe.size() == 1 && fe[0].type == net::kEnemyFire && fe[0].target == 0x1234567812345678ull &&
+			fe[0].health == 3.0f && (fe[0].flags & net::kFlagAtYou), "enemy shot arrives with count and target");
+
 		puts("== roles");
 		Check(a.Authority() != b.Authority(), "exactly one side decides roles");
 		a.SendPose(pose.pos, pose.rot, false);
