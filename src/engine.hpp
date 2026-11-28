@@ -63,6 +63,7 @@ struct Natives {
 		gestureParams,    // необязательная: alloc-gesture-play-params
 		animState,        // необязательная: get-object-anim-state (состояние анимации, sid)
 		meleeTarget,      // необязательная: get-melee-target (цель рукопашки, 0 - не дерётся)
+		inMelee,          // необязательная: character-in-melee-attack? (персонаж в рукопашной атаке)
 		playSound;        // необязательная: play-sound(звук, флаг) - звук игры
 };
 extern Natives g_dc;

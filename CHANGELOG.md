@@ -7,8 +7,9 @@ The mod updates itself: a new version downloads when the game starts and is used
 
 - `enemy_sync=full`: a guest's enemy whose AI is switched off gets its weapon put in its hands, so it can fire.
 - Infected (clickers, runners...) keep their own AI in full mode and attack the guest themselves; only their position follows the host off-screen.
+- Human enemies that come within 3.5 m of the guest get their own AI back for close combat (punches, grabs) and follow the host again once more than 6 m away and not fighting.
 - Up to 24 enemies follow the host (was 12). An enemy the host stops sending, or every enemy after a reconnect, gets its AI back instead of standing still; host shots are replayed only by enemies that follow the host.
-- `enemy_sync=full`: врагу без ИИ оружие даётся в руки, чтобы он мог стрелять. Заражённые сохраняют свой ИИ и нападают на гостя сами. За хозяином идут до 24 врагов; враг, которого хозяин больше не шлёт, получает ИИ обратно.
+- `enemy_sync=full`: врагу без ИИ оружие даётся в руки, чтобы он мог стрелять. Заражённые сохраняют свой ИИ и нападают на гостя сами. Враг-человек ближе 3,5 м к гостю получает свой ИИ для рукопашной и снова идёт за хозяином дальше 6 м. За хозяином идут до 24 врагов; враг, которого хозяин больше не шлёт, получает ИИ обратно.
 
 ## 0.43.0
 

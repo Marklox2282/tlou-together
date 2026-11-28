@@ -42,6 +42,7 @@ struct Remote {
 	float speed = 0;           // скорость врага у хозяина, м/с
 	bool aiOff = false;        // полная синхронизация: ИИ уже выключен
 	uint64_t prevMode = 0;     // режим скрипта до выключения ИИ
+	bool close = false;        // подошёл к гостю: ИИ временно свой, чтобы бить и хватать
 	int infected = -1;         // -1 не знаем; заражённый сохраняет ИИ (рукопашную не скопировать)
 	int mode = -1;             // последняя команда npc-move-to
 	ULONGLONG cmdAt = 0;
@@ -162,6 +163,8 @@ void FollowHost(uint64_t puppet) {
 		Log("[enemies] %016llX no longer sent by the host: its AI is back", static_cast<unsigned long long>(npc));
 	}
 	const std::vector<uint64_t> buddies = AllBuddies();
+	Locator me{};
+	const bool haveMe = PlayerLocator(me);
 	for (auto& [npc, r] : list) {
 		if (npc == puppet || !Exists(npc) || Dead(npc)) continue;
 		// Спутника ИИ не лишаем (скрипты уровня): только мягкий перенос вне кадра.
@@ -203,6 +206,31 @@ void FollowHost(uint64_t puppet) {
 		}
 		Locator cur{};
 		if (!NpcLocator(npc, cur)) continue;
+		// Рукопашную человека не повторить командой: вблизи гостя (3.5 м) враг получает свой ИИ и
+		// сам бьёт или хватает; отошёл дальше 6 м и не дерётся - снова идёт за хозяином.
+		const float toMe = haveMe ? std::sqrt(Dist2(cur.pos, me.pos)) : 1e9f;
+		const bool wasClose = r.close;
+		if (!r.close && toMe < 3.5f) {
+			Call(g_dc.scriptMode, { npc, r.prevMode, 1 });
+			Call(g_dc.setBlind, { npc, 0 });
+			Call(g_dc.setDeaf, { npc, 0 });
+			r.close = true;
+			Log("[enemies] %016llX is next to me (%.1f m): own AI for melee", static_cast<unsigned long long>(npc), toMe);
+		} else if (r.close && toMe > 6.0f && !(g_dc.inMelee && (Call(g_dc.inMelee, { npc }) & 1))) {
+			Call(g_dc.scriptMode, { npc, 2, 1 });
+			Call(g_dc.setBlind, { npc, 1 });
+			Call(g_dc.setDeaf, { npc, 1 });
+			r.close = false;
+			Log("[enemies] %016llX moved away: follows the host again", static_cast<unsigned long long>(npc));
+		}
+		if (r.close) {
+			if (!wasClose) {
+				AcquireSRWLockExclusive(&g_lock);
+				if (auto it = g_remote.find(npc); it != g_remote.end()) it->second.close = true;
+				ReleaseSRWLockExclusive(&g_lock);
+			}
+			continue;
+		}
 		const float err = std::sqrt(Dist2(cur.pos, r.p.pos));
 		const uint64_t frame = BoundFrame(r.p.pos, r.p.rot);
 		if (!frame) continue;
@@ -223,6 +251,7 @@ void FollowHost(uint64_t puppet) {
 		AcquireSRWLockExclusive(&g_lock);
 		if (auto it = g_remote.find(npc); it != g_remote.end()) {
 			it->second.infected = r.infected;
+			it->second.close = r.close;
 			it->second.aiOff = r.aiOff;
 			it->second.mode = r.mode;
 			it->second.cmdAt = r.cmdAt;
@@ -289,7 +318,7 @@ void ApplyShots(uint64_t puppet) {
 		// Только враг, у которого мы выключили ИИ: со своим ИИ он стреляет сам (вышло бы дважды).
 		AcquireSRWLockExclusive(&g_lock);
 		const auto r = g_remote.find(s.npc);
-		const bool followed = r != g_remote.end() && r->second.aiOff;
+		const bool followed = r != g_remote.end() && r->second.aiOff && !r->second.close;
 		ReleaseSRWLockExclusive(&g_lock);
 		if (!followed || !s.npc || s.npc == puppet || !Exists(s.npc) || Dead(s.npc)) continue;
 		Locator e{}, t{};
