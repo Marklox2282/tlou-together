@@ -48,6 +48,7 @@ struct Steam {
 	bool (*CallDone)(void*, uint64_t, bool*) = nullptr;
 	bool (*CallResult)(void*, uint64_t, void*, int, int, bool*) = nullptr;
 	void (*RegisterCallback)(void*, int) = nullptr;
+	void (*UnregisterCallback)(void*) = nullptr;
 	uint32_t appId = 0;
 } g_steam;
 
@@ -111,6 +112,7 @@ bool SteamInit(Link::LogFn log) {
 	Sym(m, "SteamAPI_ISteamUtils_IsAPICallCompleted", s.CallDone);
 	Sym(m, "SteamAPI_ISteamUtils_GetAPICallResult", s.CallResult);
 	Sym(m, "SteamAPI_RegisterCallback", s.RegisterCallback);
+	Sym(m, "SteamAPI_UnregisterCallback", s.UnregisterCallback);
 	Sym(m, "SteamAPI_SteamUtils_v010", utils);
 	Sym(m, "SteamAPI_SteamNetworkingUtils_SteamAPI_v004", nutils);
 	Sym(m, "SteamAPI_ISteamNetworkingUtils_InitRelayNetworkAccess", initRelay);
@@ -156,10 +158,13 @@ bool SteamInit(Link::LogFn log) {
 	return true;
 }
 
+bool g_inviteRegistered = false;
+
 void RegisterInviteCallback() {
 	static bool done = false;
 	if (done || !g_steam.RegisterCallback) return;
 	done = true;
+	g_inviteRegistered = true;
 	g_inviteCallback.callback = kLobbyJoinRequested;
 	g_steam.RegisterCallback(&g_inviteCallback, kLobbyJoinRequested);
 }
@@ -397,6 +402,7 @@ void Link::OnHello(const Packet& p, uint64_t from, uint64_t nowMs) {
 		}
 	}
 	if (p.modVersion != modVersion_) {
+		if (p.modVersion > modVersion_) peerNewer_ = p.modVersion;
 		// Разные версии мода не соединяем: структуры и смещения могут отличаться.
 		if (!lastMismatchLog_ || nowMs - lastMismatchLog_ >= 10000) {
 			lastMismatchLog_ = nowMs;
@@ -818,6 +824,44 @@ uint64_t Link::TakeInvite() {
 		if (const uint64_t lobby = LobbyFromCommandLine()) return lobby;
 	}
 	return g_invite.exchange(0);
+}
+
+void UnregisterSteamCallbacks() {
+	if (g_inviteRegistered && g_steam.UnregisterCallback) g_steam.UnregisterCallback(&g_inviteCallback);
+	g_inviteRegistered = false;
+}
+
+Handoff Link::Detach() {
+	Handoff h;
+	h.active = state_ != State::Off || lobby_ != 0;
+	h.steam = steam_;
+	h.host = lobbyHost_;
+	h.lobby = lobby_;
+	h.target = target_;
+	h.secret = secret_;
+	h.joinSecret = joinSecret_;
+	if (sock_ != ~uintptr_t(0)) {  // UDP-порт новой версии нужен свободным
+		closesocket(static_cast<SOCKET>(sock_));
+		WSACleanup();
+		sock_ = ~uintptr_t(0);
+	}
+	state_ = State::Off;
+	lobby_ = lobbyCall_ = target_ = 0;
+	log_("net: handed over to the new version (lobby %llu kept)", static_cast<unsigned long long>(h.lobby));
+	return h;
+}
+
+void Link::Adopt(const Handoff& h, const Config& cfg, uint64_t nowMs) {
+	if (!h.active) return;
+	if (!Start(h.steam ? Config{} : cfg, nowMs)) return;
+	lobby_ = h.lobby;
+	lobbyHost_ = h.host;
+	target_ = h.target;
+	secret_ = h.secret;
+	joinSecret_ = h.joinSecret;
+	lastHello_ = 0;
+	log_("net: continuing after the update (lobby %llu, %s)", static_cast<unsigned long long>(lobby_),
+		lobbyHost_ ? "host" : "guest");
 }
 
 void Link::CreateLobby(uint64_t nowMs) {

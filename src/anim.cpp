@@ -106,6 +106,8 @@ std::atomic<uint64_t> g_frameNowMs{ 0 };
 std::atomic<uint64_t> g_lastAppliedMs{ 0 };
 
 std::atomic<uint64_t> g_txCount{ 0 };
+std::atomic<uint64_t> g_hookCalls{ 0 }, g_playerCalls{ 0 }, g_puppetCalls{ 0 }, g_rawTxCount{ 0 };
+std::atomic<uintptr_t> g_sampleAc{ 0 };
 std::atomic<uint64_t> g_rxCount{ 0 };
 std::atomic<uint64_t> g_rxApplied{ 0 };
 std::atomic<uint64_t> g_rxDropped{ 0 };
@@ -561,6 +563,9 @@ bool BuildPreparedRx(uintptr_t animCtrl, const std::vector<uint8_t>& wire, Prepa
 int64_t __fastcall Hook_CreateAnimCmds(uintptr_t animCtrl, void* a2, AnimCmdList* cmdList) {
 	const uintptr_t playerAc = g_playerAc.load(std::memory_order_acquire);
 	const uintptr_t puppetAc = g_puppetAc.load(std::memory_order_acquire);
+	if ((g_hookCalls.fetch_add(1, std::memory_order_relaxed) & 0x3FF) == 0) g_sampleAc.store(animCtrl, std::memory_order_relaxed);
+	if (playerAc && animCtrl == playerAc) g_playerCalls.fetch_add(1, std::memory_order_relaxed);
+	if (puppetAc && animCtrl == puppetAc) g_puppetCalls.fetch_add(1, std::memory_order_relaxed);
 	uint32_t startCursor = 0;
 	uintptr_t bufAddr = 0;
 	if (cmdList) {
@@ -627,12 +632,15 @@ int64_t __fastcall Hook_CreateAnimCmds(uintptr_t animCtrl, void* a2, AnimCmdList
 			g_rawTxMs = stampMs ? stampMs : static_cast<uint32_t>(GetTickCount64());
 			g_hasRawTx = true;
 			ReleaseSRWLockExclusive(&g_rawTxLock);
+			g_rawTxCount.fetch_add(1, std::memory_order_relaxed);
 		}
 	}
 	return ret;
 }
 
 }  // namespace
+
+void Uninstall() { g_hookCreateAnimCmds = {}; }
 
 bool Init(uintptr_t gameBase, LogFn logFn) {
 	if (!gameBase) return false;
@@ -781,6 +789,13 @@ Stats GetStats() {
 		g_rxDropped.load(std::memory_order_relaxed),
 		g_rxMissClips.load(std::memory_order_relaxed),
 		g_rxRetargeted.load(std::memory_order_relaxed),
+		g_hookCalls.load(std::memory_order_relaxed),
+		g_playerCalls.load(std::memory_order_relaxed),
+		g_puppetCalls.load(std::memory_order_relaxed),
+		g_rawTxCount.load(std::memory_order_relaxed),
+		g_playerAc.load(std::memory_order_relaxed),
+		g_puppetAc.load(std::memory_order_relaxed),
+		g_sampleAc.load(std::memory_order_relaxed),
 		g_hookOk.load(std::memory_order_acquire),
 	};
 }

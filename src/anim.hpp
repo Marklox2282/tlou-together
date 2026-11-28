@@ -9,6 +9,7 @@ namespace anim {
 using LogFn = void(*)(const char*, ...);
 
 bool Init(uintptr_t gameBase, LogFn logFn);
+void Uninstall();  // обновление мода на лету
 void Shutdown();
 
 // Обновляет целевые объекты (локальный игрок для TX, марионетка партнёра для RX)
@@ -43,6 +44,11 @@ struct Stats {
 	uint64_t rxDropped = 0;
 	uint64_t rxMissClips = 0;
 	uint64_t rxRetargeted = 0;
+	uint64_t hookCalls = 0;     // все вызовы CreateAnimCmds
+	uint64_t playerCalls = 0;   // из них - AnimControl своего игрока
+	uint64_t puppetCalls = 0;   // из них - AnimControl копии
+	uint64_t rawTx = 0;         // снятые кадры игрока (до сборки пакета)
+	uintptr_t playerAc = 0, puppetAc = 0, sampleAc = 0;  // для сверки смещений
 	bool hookOk = false;
 };
 Stats GetStats();

@@ -581,6 +581,21 @@ void ReceivePosition(const Position& p) {
 	ReleaseSRWLockExclusive(&g_lock);
 }
 void Reset() { g_reset = true; }
+
+void ShutdownForReload() {
+	std::vector<std::pair<uint64_t, uint64_t>> aiBack;
+	AcquireSRWLockExclusive(&g_lock);
+	for (const auto& [npc, r] : g_remote)
+		if (r.aiOff) aiBack.push_back({ npc, r.prevMode });
+	g_remote.clear();
+	ReleaseSRWLockExclusive(&g_lock);
+	for (const auto& [npc, mode] : aiBack)
+		if (Exists(npc) && !Dead(npc)) {
+			Call(g_dc.scriptMode, { npc, mode, 1 });
+			Call(g_dc.setBlind, { npc, 0 });
+			Call(g_dc.setDeaf, { npc, 0 });
+		}
+}
 void OnReload() { g_reload = true; }
 void ResendDead() { g_resendDead = true; }
 void NoteCopyShot() { g_copyShotAt = GetTickCount64(); }

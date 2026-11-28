@@ -3,6 +3,12 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## 0.43.4
+
+- The partner's copy takes a weapon-ready stance while the partner aims standing (aiming was not visible).
+- Diagnostics for animation copying (the copy walks to the partner instead of repeating their moves): every 10 s the log shows whether the animation hook sees your character and the copy.
+- Копия напарника встаёт в стойку с оружием наготове, когда напарник целится стоя. Диагностика переноса анимаций в журнале (раз в 10 с).
+
 ## 0.43.3
 
 - Where the level has no other people, the partner's copy is now made from the hero's own spawner (Joel's spawner is often loaded), so the partner looks like Joel and the real Ellie stays with you. Ellie stands in only if that fails too.

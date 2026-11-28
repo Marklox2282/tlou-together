@@ -34,6 +34,8 @@ engine::Chapter MyChapter();
 // Раз за кадр в скриптовом контексте (хук интерпретатора); OnFrame - из обработчика кадра.
 void OnFrame();
 void ScriptTick();
+// Обновление мода на лету (скриптовый контекст): копию спрятать, спутника и врагов вернуть игре.
+bool ShutdownForReload();  // false - занято, повторить
 uint64_t TakeWorkMicroseconds();  // время работы ScriptTick с прошлого вызова
 
 uint64_t Current();  // id марионетки (для журнала падений)

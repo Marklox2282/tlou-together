@@ -55,6 +55,15 @@ struct Friend {
 	std::string name;
 };
 
+// Обновление мода на лету: старая версия отдаёт новой лобби, не выходя из него.
+struct Handoff {
+	bool active = false, steam = true, host = false;
+	uint64_t lobby = 0, target = 0;
+	uint32_t secret = 0, joinSecret = 0;
+};
+// Старая версия перед подменой: Steam больше не зовёт её обработчики.
+void UnregisterSteamCallbacks();
+
 // Не потокобезопасно: все вызовы из одного потока (у мода - игровой кадр).
 class Link {
 public:
@@ -64,6 +73,12 @@ public:
 
 	bool Start(const Config& cfg, uint64_t nowMs);
 	void Stop();
+	// Обновление на лету. Detach: перестать работать, не выходя из лобби и не прощаясь (партнёр
+	// подождёт); Adopt: новая версия продолжает в том же лобби.
+	Handoff Detach();
+	void Adopt(const Handoff& h, const Config& cfg, uint64_t nowMs);
+	// У партнёра версия мода новее нашей (0 - нет): подсказать обновиться.
+	uint32_t PeerNewerVersion() const { return peerNewer_; }
 	// Отправляет приветствия при поиске и принимает пакеты. Возвращает true, если пришла поза.
 	bool Tick(uint64_t nowMs, Packet& pose);
 	// character: выбранный персонаж отправителя (sid имени), в поле target.
@@ -192,6 +207,7 @@ private:
 	uint64_t lastReadySent_ = 0;
 	Chapter lastSentChapter_{};
 	uint16_t port_ = 0;
+	uint32_t peerNewer_ = 0;
 };
 
 }  // namespace net

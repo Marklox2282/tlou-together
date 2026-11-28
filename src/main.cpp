@@ -125,6 +125,18 @@ net::Config LoadConfig(std::string& name) {
 // (crash log "access violation" на закрытии игры). Сеть освобождает сама система.
 net::Link& g_link = *new net::Link(Log, kModVersion);
 
+// ---- обновление на лету по F3 ----
+// 1: поток качает обновление и загружает копию новой DLL; 2: скриптовый поток прячет копию и
+// отдаёт врагам/спутнику ИИ; 3: кадр передаёт лобби, старая версия замолкает, поток снимает
+// перехваты и запускает новую. Старый модуль не выгружается (на него могут смотреть игра и Steam).
+std::atomic<int> g_reload{ 0 };
+std::atomic<bool> g_retired{ false };     // эта версия уже передала работу новой
+std::atomic<bool> g_skipEnter{ false };   // новая версия: игрок уже в игре, это не "вход в уровень"
+std::atomic<bool> g_haveAdopt{ false };
+HMODULE g_nextModule = nullptr;
+net::Handoff g_handoff, g_adopt;
+PVOID g_veh = nullptr;
+
 // Лобби в меню игры: состояние для его текста (меню читает из своего потока) и "Да".
 std::atomic<int> g_menuAction{ 0 };  // menu::Action из меню игры
 bool g_codeError = false;            // "войти по коду", а в буфере обмена не код
@@ -410,6 +422,10 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	static ULONGLONG autoLaunchSince = 0, firstLivePoseAt = 0, lastPoseAt = 0, enteredAt = 0;
 	static bool hadPlayer = false;
 	if (gotPose) lastPoseAt = now;
+	if (g_skipEnter.exchange(false)) {  // обновились на лету посреди игры: главу не перезагружать
+		hadPlayer = havePlayer;
+		everHadPlayer = everHadPlayer || havePlayer;
+	}
 	const bool entered = havePlayer && !hadPlayer;  // только что появились в игре (загрузка закончилась)
 	const bool leftGame = !havePlayer && hadPlayer;  // ушли на экран загрузки / смерть / меню
 	hadPlayer = havePlayer;
@@ -572,11 +588,86 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	}
 }
 
+// Поток: скачать обновление и загрузить копию winmm.dll с диска. Новая версия должна быть новее
+// (force - любая, для проверки своих сборок).
+DWORD WINAPI PrepareReload(LPVOID param) {
+	const bool force = param != nullptr;
+	const std::wstring dll = GameDirFile(L"winmm.dll");
+	if (!force) update::Run(kModVersion, dll, update::kReleaseUrl, Log);  // новая версия встаёт на место winmm.dll
+	wchar_t file[64];
+	swprintf(file, 64, L"tlou-together-run-%llu.dll", static_cast<unsigned long long>(GetTickCount64()));
+	const std::wstring run = GameDirFile(file);
+	HMODULE m = CopyFileW(dll.c_str(), run.c_str(), FALSE) ? LoadLibraryW(run.c_str()) : nullptr;
+	using VersionFn = uint32_t (*)();
+	const auto version = m ? reinterpret_cast<VersionFn>(GetProcAddress(m, "TlouTogetherVersion")) : nullptr;
+	const uint32_t v = version ? version() : 0;
+	if (!m || !version || !GetProcAddress(m, "TlouTogetherAdopt") || (v <= kModVersion && !force)) {
+		Log("update: nothing to switch to (%s on disk)", v ? version::Name(v).c_str() : "no compatible mod");
+		menu::Notify(menu::NoteRaw, v && v <= kModVersion ? "The mod is up to date" : "Mod update failed");
+		if (m) FreeLibrary(m);
+		DeleteFileW(run.c_str());
+		g_reload = 0;
+		return 0;
+	}
+	Log("update: switching to %s now", version::Name(v).c_str());
+	g_nextModule = m;
+	g_reload = 2;
+	return 0;
+}
+
+// Поток: старая версия уже молчит - снять её перехваты и запустить новую в этой же игре.
+DWORD WINAPI FinishReload(LPVOID) {
+	Sleep(300);  // вызовы перехватов, начатые до g_retired, успевают закончиться
+	g_frameHook = {};
+	g_scriptHook = {};
+	menu::Uninstall();
+	objects::UninstallDoors();
+	anim::Uninstall();
+	if (g_veh) RemoveVectoredExceptionHandler(g_veh);
+	g_veh = nullptr;
+	Log("update: old version stopped, starting the new one");
+	CloseLog();
+	using AdoptFn = void (*)(const net::Handoff*, uint32_t);
+	reinterpret_cast<AdoptFn>(GetProcAddress(g_nextModule, "TlouTogetherAdopt"))(&g_handoff, sizeof(net::Handoff));
+	return 0;
+}
+
 void FrameTick(safetyhook::Context&) {
 	static ULONGLONG lastLog = 0;
 	static unsigned frames = 0;
-	static bool f10Down = false, f9Down = false, f7Down = false, f5Down = false, f11Down = false;
+	static bool f10Down = false, f9Down = false, f7Down = false, f5Down = false, f11Down = false, f3Down = false;
 	static uint64_t frameUs = 0;
+	if (g_retired) return;
+	if (g_reload == 3) {  // скрипты убраны: отдать лобби и замолчать
+		g_handoff = g_link.Detach();
+		net::UnregisterSteamCallbacks();  // здесь, в потоке, где игра зовёт обработчики Steam
+		g_retired = true;
+		if (HANDLE t = CreateThread(nullptr, 0, FinishReload, nullptr, 0, nullptr)) CloseHandle(t);
+		return;
+	}
+	if (g_haveAdopt.exchange(false)) {
+		std::string name;
+		const net::Config cfg = LoadConfig(name);
+		g_link.SetName(name);
+		g_link.Adopt(g_adopt, cfg, GetTickCount64());
+	}
+	// F3: обновить мод прямо сейчас (Shift+F3 - перезапустить ту же версию с диска, для разработки).
+	if (KeyPressed(VK_F3, f3Down) && g_reload == 0) {
+		g_reload = 1;
+		const bool force = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+		Log("update: F3 - %s", force ? "reloading the mod from disk" : "checking for a new version");
+		if (HANDLE t = CreateThread(nullptr, 0, PrepareReload, reinterpret_cast<LPVOID>(force ? 1 : 0), 0, nullptr))
+			CloseHandle(t);
+		else g_reload = 0;
+	}
+	// У партнёра новее: подсказать (раз на версию).
+	static uint32_t toldNewer = 0;
+	if (const uint32_t newer = g_link.PeerNewerVersion(); newer > kModVersion && newer != toldNewer) {
+		toldNewer = newer;
+		const std::string text = "Partner has mod " + version::Name(newer) + " - press F3 to update";
+		Log("update: %s", text.c_str());
+		menu::Notify(menu::NoteRaw, text);
+	}
 	LARGE_INTEGER start;
 	QueryPerformanceCounter(&start);
 	++frames;
@@ -641,6 +732,19 @@ void FrameTick(safetyhook::Context&) {
 					static_cast<unsigned long long>(st.rxMissClips), static_cast<unsigned long long>(st.rxRetargeted));
 			}
 		}
+		// Диагностика переноса анимаций: срабатывает ли хук на своего игрока и на копию.
+		static ULONGLONG lastAnimDiag = 0;
+		if (anim::HooksOk() && now - lastAnimDiag >= 10000) {
+			lastAnimDiag = now;
+			const anim::Stats st = anim::GetStats();
+			Log("anim diag: hook=%llu player=%llu puppet=%llu raw=%llu tx=%llu rx=%llu applied=%llu | ac player=%llX puppet=%llX sample=%llX ent player=%llX",
+				static_cast<unsigned long long>(st.hookCalls), static_cast<unsigned long long>(st.playerCalls),
+				static_cast<unsigned long long>(st.puppetCalls), static_cast<unsigned long long>(st.rawTx),
+				static_cast<unsigned long long>(st.txFrames), static_cast<unsigned long long>(st.rxFrames),
+				static_cast<unsigned long long>(st.rxApplied), static_cast<unsigned long long>(st.playerAc),
+				static_cast<unsigned long long>(st.puppetAc), static_cast<unsigned long long>(st.sampleAc),
+				static_cast<unsigned long long>(engine::PlayerEntity()));
+		}
 	}
 	LARGE_INTEGER end, freq;
 	QueryPerformanceCounter(&end);
@@ -649,6 +753,11 @@ void FrameTick(safetyhook::Context&) {
 }
 
 void ScriptInvoke(safetyhook::Context&) {
+	if (g_retired) return;
+	if (g_reload == 2) {
+		if (puppet::ShutdownForReload()) g_reload = 3;  // и врагам ИИ назад
+		return;
+	}
 	puppet::ScriptTick();
 	menu::ScriptTick();
 }
@@ -701,7 +810,7 @@ void InstallCrashLog() {
 	const std::wstring path = GameDirFile(L"tlou-together-crash.log");
 	if (path.empty()) return;
 	g_crashFile = CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-	if (g_crashFile != INVALID_HANDLE_VALUE && AddVectoredExceptionHandler(1, OnException)) Log("crash log: on");
+	if (g_crashFile != INVALID_HANDLE_VALUE && (g_veh = AddVectoredExceptionHandler(1, OnException))) Log("crash log: on");
 }
 
 // ---- запуск и обновление на лету ------------------------------------------------------------
@@ -722,6 +831,13 @@ DWORD WINAPI Boot(LPVOID) {
 	Log("tlou-together %s starting", version::Name(kModVersion).c_str());
 	const std::wstring dll = GameDirFile(L"winmm.dll");
 	update::CleanupOld(dll);
+	// Копии от обновлений по F3 в прошлых запусках игры (загруженные сейчас не удалятся - и ладно).
+	WIN32_FIND_DATAW fd;
+	if (HANDLE f = FindFirstFileW(GameDirFile(L"tlou-together-run-*.dll").c_str(), &fd); f != INVALID_HANDLE_VALUE) {
+		do DeleteFileW(GameDirFile(fd.cFileName).c_str());
+		while (FindNextFileW(f, &fd));
+		FindClose(f);
+	}
 	static std::atomic<int> result{ -1 };
 	HANDLE t = CreateThread(nullptr, 0, [](LPVOID p) -> DWORD {
 		result = static_cast<int>(update::Run(kModVersion, *static_cast<const std::wstring*>(p), update::kReleaseUrl, Log));
@@ -772,7 +888,7 @@ void RunMod(bool handedOver) {
 		std::string name;
 		LoadConfig(name);  // персонаж, anim_sync и режим врагов - сразу, до установки хуков
 	}
-	logsend::SendPreviousSession(kModVersion);  // только при log_webhook в ini
+	if (!g_haveAdopt) logsend::SendPreviousSession(kModVersion);  // только при log_webhook в ini; не при обновлении на лету
 	if (g_animSync || g_climbAnims) anim::Init(engine::g_base, Log);
 	else Log("anim: disabled");
 	// Код лобби в буфере обмена (для окна "войти по коду"): "0D7C-RFW" или пусто.
@@ -785,6 +901,20 @@ void RunMod(bool handedOver) {
 
 // Новая версия после обновления на лету: старая (winmm.dll) передаёт ей запуск.
 extern "C" __declspec(dllexport) void TlouTogetherRun() { RunMod(true); }
+
+// Обновление на лету (F3): какая это версия и запуск посреди игры с лобби старой версии.
+// Раскладку net::Handoff не менять (её передаёт старая версия), size - проверка.
+extern "C" __declspec(dllexport) uint32_t TlouTogetherVersion() { return kModVersion; }
+extern "C" __declspec(dllexport) void TlouTogetherAdopt(const net::Handoff* h, uint32_t size) {
+	if (h && size == sizeof(net::Handoff)) {
+		g_adopt = *h;
+		g_haveAdopt = true;
+	}
+	g_skipEnter = true;
+	menu::SkipRegistration();  // пункт меню игра уже знает от старой версии
+	RunMod(true);
+	Log("update: now running %s without restarting the game", version::Name(kModVersion).c_str());
+}
 
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
 	if (reason == DLL_PROCESS_ATTACH) {

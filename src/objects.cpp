@@ -207,6 +207,8 @@ void TickDoors(ULONGLONG now) {
 
 }  // namespace
 
+void UninstallDoors() { g_doorHook = {}; }
+
 bool InitDoors() {
 	if (!g_base || BuildTimestamp() != kBuildTimestamp) return false;
 	auto res = safetyhook::InlineHook::create(

@@ -961,6 +961,7 @@ void RecordLocalAnim(uint64_t nowMs, std::vector<uint8_t> frame) {
 void UseNetwork(bool on) { ClearTrail(on ? kNetDelayMs : kLocalDelayMs); }
 bool UsingNetwork() { return g_trailDelay.load() == kNetDelayMs; }
 void SetWanted(bool on) { g_wanted = on; }
+
 bool Wanted() { return g_wanted; }
 void SetFollow(bool on) { g_follow = on; }
 bool Follow() { return g_follow; }
@@ -1065,7 +1066,23 @@ float LastErrorMeters() { return g_puppet ? g_lastErrM.load(std::memory_order_re
 // за кадр на всех потоках), и проверка там должна стоить одно сравнение. Раньше здесь читался
 // счётчик кадров игры через проверяемое чтение памяти, и FPS заметно проседал.
 std::atomic<uint64_t> g_frame{ 0 };
+std::atomic_flag g_scriptBusy = ATOMIC_FLAG_INIT;  // ScriptTick идёт (в одном потоке за раз)
 std::atomic<bool> g_hiddenBuddyAtomic{ false };  // спрятан спутник: тик нужен, чтобы вернуть его
+
+// Обновление на лету: не посреди ScriptTick в другом потоке.
+bool ShutdownForReload() {
+	if (g_scriptBusy.test_and_set(std::memory_order_acquire)) return false;  // ScriptTick идёт - в следующий раз
+	Hide();  // копия прячется, взятый спутник получает ИИ обратно
+	if (g_hiddenBuddy) ShowBuddy(g_hiddenBuddy);
+	g_hiddenBuddy = 0;
+	g_hiddenBuddyAtomic = false;
+	g_wanted = false;
+	g_netActive = false;
+	enemies::ShutdownForReload();
+	Log("puppet: cleaned up for the update");
+	g_scriptBusy.clear(std::memory_order_release);  // старая версия больше не тикает
+	return true;
+}
 std::atomic<uint64_t> g_workUs{ 0 };
 
 void OnFrame() { g_frame.fetch_add(1, std::memory_order_relaxed); }
@@ -1123,7 +1140,7 @@ void ScriptTick() {
 	if (done == frame || !g_doneFrame.compare_exchange_strong(done, frame)) return;
 	// Работа может ещё идти в другом потоке, когда начался следующий кадр: у неё общее
 	// состояние, поэтому один поток за раз.
-	static std::atomic_flag busy = ATOMIC_FLAG_INIT;
+	std::atomic_flag& busy = g_scriptBusy;
 	if (busy.test_and_set(std::memory_order_acquire)) return;
 	LARGE_INTEGER a, b, f;
 	QueryPerformanceCounter(&a);
@@ -1442,8 +1459,15 @@ void ScriptTick() {
 		// Когда приходят анимации партнёра (anim::HasActiveRx), манеры NPC ИИ не трогаем, иначе
 		// они перебивают перенесённые слои. npc-set-demeanor ждёт число (0=ambient, 3=crouch) и флаг force.
 		const bool aiDriven = !anim::HasActiveRx(GetTickCount64());  // позу ведёт не перенос анимаций
-		if (puppet && !g_hidden && aiDriven && (puppet != appliedTo || crouch != crouchNow)) {
-			Call(g_dc.setDemeanor, { puppet, crouch ? 3ull : 0ull, 0ull });  // номер: 0 ambient, 1 uneasy, 2 aggressive, 3 crouch, 4 search, 5 crawl (npc-demeanor-matrix); название читалось как мусор -> боевая стойка
+		// Целится стоя - манера 2 (aggressive): NPC держит оружие наготове, иначе прицел без ИИ
+		// почти не виден (npc-weapon-up у спутника без ИИ оружие не поднимал).
+		const bool aimStance = !crouch && (UsingNetwork() ? g_partnerAiming.load() : g_meAiming.load()) &&
+			(UsingNetwork() ? g_partnerWeapon.load() : g_myWeapon.load()) != 0;
+		static bool aimStanceNow = false;
+		if (puppet && !g_hidden && aiDriven && (puppet != appliedTo || crouch != crouchNow || aimStance != aimStanceNow)) {
+			Call(g_dc.setDemeanor, { puppet, crouch ? 3ull : (aimStance ? 2ull : 0ull), 0ull });
+			if (aimStance != aimStanceNow) Log("puppet: %s", aimStance ? "aims (weapon ready stance)" : "stops aiming");
+			aimStanceNow = aimStance;  // номер: 0 ambient, 1 uneasy, 2 aggressive, 3 crouch, 4 search, 5 crawl (npc-demeanor-matrix); название читалось как мусор -> боевая стойка
 			if (crouch != crouchNow) Log("puppet: %s", crouch ? "crouches" : "stands up");
 			appliedTo = puppet;
 			crouchNow = crouch;
