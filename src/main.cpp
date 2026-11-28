@@ -16,6 +16,7 @@
 
 #include "version.hpp"
 #include "anim.hpp"
+#include "bot.hpp"
 #include "enemies.hpp"
 #include "objects.hpp"
 #include "engine.hpp"
@@ -50,16 +51,16 @@ bool KeyPressed(int vk, bool& wasDown) {
 // ---- сеть ----------------------------------------------------------------------------------
 bool g_storySync = true;  // ini story_sync=off - не подтягиваться к чекпоинту партнёра
 bool g_sharedDeath = true;  // ini shared_death=off - смерть партнёра не перезагружает нас
-bool g_animSync = false;
-bool g_climbAnims = false;  // ini climb_anims_experimental=on. Хук анимаций (CreateAnimCmds) ронял игру в движке анимаций (краш-логи 0.41.0/0.42.0) - по умолчанию выкл
-ULONGLONG g_lastStoryJoin = 0;  // последняя загрузка главы партнёра (общая пауза для всех причин)  // ini anim_sync=on - экспериментальный перенос анимаций игрока (по умолчанию выкл)
+bool g_animSync = true;
+bool g_climbAnims = true;
+ULONGLONG g_lastStoryJoin = 0;  // последняя загрузка главы партнёра (общая пауза для всех причин)
 // tlou-together.ini рядом с игрой; без peer_ip связь идёт через Steam.
 net::Config LoadConfig(std::string& name) {
 	net::Config cfg;
 	g_storySync = true;
 	g_sharedDeath = true;
-	g_animSync = false;
-	g_climbAnims = false;
+	g_animSync = true;
+	g_climbAnims = true;
 	const std::wstring path = GameDirFile(L"tlou-together.ini");
 	// Мод назывался tlou1-coop: настройки из старого файла переносим один раз.
 	if (const std::wstring old = GameDirFile(L"tlou1-coop.ini"); !path.empty() && !old.empty())
@@ -105,14 +106,14 @@ net::Config LoadConfig(std::string& name) {
 		else if (key == "name") name = value;
 		else if (key == "port") cfg.port = static_cast<uint16_t>(atoi(value.c_str()));
 		else if (key == "peer_port") cfg.peerPort = static_cast<uint16_t>(atoi(value.c_str()));
-		else if (key == "enemy_sync") enemies::SetFullSync(value == "full");
+		else if (key == "enemy_sync") enemies::SetFullSync(false);  // full отключён ради стабильности
 		else if (key == "story_sync") g_storySync = value != "off";
 		else if (key == "shared_death") g_sharedDeath = value != "off";
 		else if (key == "enemies_see_partner") puppet::SetEnemiesSeePartner(value != "off");
 		else if (key == "partner_outline") puppet::SetPartnerOutline(value != "off");
 		else if (key == "character") puppet::SetMyCharacter(puppet::CharacterFromName(value));
-		else if (key == "anim_sync") g_animSync = (value == "on" || value == "1" || value == "true");
-		else if (key == "climb_anims_experimental") g_climbAnims = value == "on";  // старая строка climb_anims=on больше не включает
+		else if (key == "anim_sync") g_animSync = value != "force_off";
+		else if (key == "climb_anims_experimental") g_climbAnims = value != "force_off";
 	}
 	fclose(f);
 	puppet::SetAnimSync(g_animSync);
@@ -174,17 +175,24 @@ menu::Lobby ReadLobby() {
 
 // Все сетевые вызовы - из игрового кадра (основной поток): Link не потокобезопасен.
 void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
-	static bool f8Down = false, f6Down = false;
+	static bool f8Down = false, f6Down = false, f12Down = false;
 	static ULONGLONG lastSend = 0;
 	static bool wasOn = false;
 	const int action = g_menuAction.exchange(0);
 	const bool off = g_link.GetState() == net::State::Off;
 	std::string name;
-	if (KeyPressed(VK_F8, f8Down) && off) {  // F8: без лобби, к любому другу, который тоже нажал F8
+	if (KeyPressed(VK_F12, f12Down)) {
+		if (!bot::Active()) {
+			LoadConfig(name);
+			g_link.SetName(name);
+		}
+		bot::Toggle(now, kModVersion, Log, g_link, havePlayer, me, puppet::MyChapter());
+	} else if (KeyPressed(VK_F8, f8Down) && off) {  // F8: без лобби, к любому другу, который тоже нажал F8
 		const net::Config cfg = LoadConfig(name);
 		g_link.SetName(name);
 		g_link.Start(cfg, now);
 	} else if ((KeyPressed(VK_F6, f6Down) && !off) || action == menu::Leave) {
+		bot::Stop(g_link);
 		g_link.LeaveLobby();  // и отключиться
 	}
 	if (action == menu::CreateLobby) {
@@ -253,6 +261,8 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 		g_link.SetName(name);
 		g_link.JoinLobby({ invite, 0 }, now);  // приглашение Steam - от друга, секрет не нужен
 	}
+
+	bot::Tick(now, havePlayer, puppet::MyChapter(), g_link);
 
 	net::Packet pose;
 	const bool gotPose = g_link.Tick(now, pose);  // и ответы Steam по лобби, даже когда сеть выключена
@@ -401,7 +411,13 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	static bool hadPlayer = false;
 	if (gotPose) lastPoseAt = now;
 	const bool entered = havePlayer && !hadPlayer;  // только что появились в игре (загрузка закончилась)
+	const bool leftGame = !havePlayer && hadPlayer;  // ушли на экран загрузки / смерть / меню
 	hadPlayer = havePlayer;
+	if (leftGame) {
+		anim::SetTargets(0, 0);
+		enemies::OnReload();
+		objects::OnReload();
+	}
 	if (havePlayer) everHadPlayer = true;
 	if (!connected) everHadPlayer = false;
 	// Загрузка из меню уже запущена: пока идёт загрузка (игрока ещё нет), позы хоста идут дальше -
@@ -469,10 +485,13 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	// Общие враги: свои удары - партнёру (без подключения просто в журнал), его - в игру.
 	for (const enemies::Change& c : enemies::TakeOutgoing()) g_link.SendEnemy(c.npc, c.health, c.dead);
 	for (const objects::Placement& o : objects::TakeOutgoing()) g_link.SendObjectPos(o.object, o.pos, o.rot);
+	for (uint64_t door : objects::TakeDoors()) g_link.SendDoorOpen(door);
 	enemies::SetSendPositions(connected && g_link.Authority());
 	for (const enemies::Position& p : enemies::TakePositions()) g_link.SendEnemyPos(p.npc, p.pos, p.rot);
 	for (const net::Packet& p : g_link.TakeEnemyEvents()) {
-		if (p.type == net::kObjectPos) {
+		if (p.type == net::kDoorOpen) {
+			objects::ReceiveDoor(p.target);
+		} else if (p.type == net::kObjectPos) {
 			objects::Placement o{ p.target, {}, {} };
 			memcpy(o.pos, p.pos, sizeof(o.pos));
 			memcpy(o.rot, p.rot, sizeof(o.rot));
@@ -501,18 +520,22 @@ void NetTick(ULONGLONG now, bool havePlayer, const Locator& me) {
 	puppet::SetPartnerInCutscene(connected && partnerCut);
 	enemies::SetCutscene(meCut || (connected && partnerCut));
 	const bool sameChapterNow = connected && theirs && mine && (theirs == mine);
-	if (sameChapterNow && !wasSameChapter && g_link.Authority()) enemies::ResendDead();
+	if (sameChapterNow && !wasSameChapter && g_link.Authority()) {
+		enemies::ResendDead();
+		objects::ResendDoors();
+	}
 	wasSameChapter = sameChapterNow;
 	if (connected && theirs && mine) {
 		if (!(theirs == lastTheirs)) {
 			if (lastTheirs && !(theirs == mine)) {
-				const ULONGLONG waitMs = (partnerCut || meCut) ? 600 : 2000;
+				const ULONGLONG waitMs = (partnerCut || meCut) ? 0 : 2000;
 				followAt = now + waitMs;
 			}
 			lastTheirs = theirs;
 		}
+		if (followAt && (partnerCut || meCut) && followAt > now) followAt = now;
 		if (followAt && now >= followAt && havePlayer) {  // из главного меню не грузим
-			const ULONGLONG cooldownMs = (partnerCut && !meCut) ? 2500 : 6000;
+			const ULONGLONG cooldownMs = (partnerCut || meCut) ? 1200 : 6000;
 			// Оба сменили чекпоинт почти одновременно (каждый в свой): хост остаётся, следует только гость,
 			// иначе оба грузили бы чекпоинт друг друга и менялись местами по кругу.
 			const bool hostStays = g_link.Authority() && now - mineChangedAt < 5000;
@@ -602,6 +625,19 @@ void FrameTick(safetyhook::Context&) {
 		lastLog = now;
 		frames = 0;
 		frameUs = 0;
+		static ULONGLONG lastAnimLog = 0;
+		static uint64_t prevTx = 0, prevRx = 0, prevApplied = 0, prevDrop = 0;
+		if (anim::HooksOk() && now - lastAnimLog >= 4000) {
+			const anim::Stats st = anim::GetStats();
+			if (st.txFrames != prevTx || st.rxFrames != prevRx || st.rxApplied != prevApplied || st.rxDropped != prevDrop) {
+				lastAnimLog = now;
+				prevTx = st.txFrames; prevRx = st.rxFrames; prevApplied = st.rxApplied; prevDrop = st.rxDropped;
+				Log("anim: tx=%llu rx=%llu applied=%llu dropped=%llu miss=%llu retarget=%llu",
+					static_cast<unsigned long long>(st.txFrames), static_cast<unsigned long long>(st.rxFrames),
+					static_cast<unsigned long long>(st.rxApplied), static_cast<unsigned long long>(st.rxDropped),
+					static_cast<unsigned long long>(st.rxMissClips), static_cast<unsigned long long>(st.rxRetargeted));
+			}
+		}
 	}
 	LARGE_INTEGER end, freq;
 	QueryPerformanceCounter(&end);
@@ -728,14 +764,14 @@ void RunMod(bool handedOver) {
 	auto script = safetyhook::MidHook::create(reinterpret_cast<void*>(engine::g_base + engine::kScriptInvokeRva), ScriptInvoke);
 	if (script) g_scriptHook = std::move(*script);
 	Log("script hook: %s", g_scriptHook ? "ok" : "FAILED");
+	objects::InitDoors();
 	{
 		std::string name;
 		LoadConfig(name);  // персонаж, anim_sync и режим врагов - сразу, до установки хуков
 	}
 	logsend::SendPreviousSession(kModVersion);  // только при log_webhook в ini
 	if (g_animSync || g_climbAnims) anim::Init(engine::g_base, Log);
-	else Log("anim: off (climb_anims_experimental and anim_sync are off)");
-	Log("anim: %s", g_animSync ? "full copy (anim_sync=on)" : g_climbAnims ? "copied only while climbing/jumping" : "not copied");
+	else Log("anim: disabled");
 	// Код лобби в буфере обмена (для окна "войти по коду"): "0D7C-RFW" или пусто.
 	menu::Install(ReadLobby, [](menu::Action a) { g_menuAction = a; },
 		[] { return net::Link::LobbyCode(net::Link::LobbyFromCode(clipboard::Text())); });  // проверенный код, не сам буфер

@@ -27,6 +27,7 @@ struct Known { float health; bool dead; };
 std::unordered_map<uint64_t, Known> g_known;  // только поток Tick
 ULONGLONG g_lastScan = 0;
 std::atomic<bool> g_reset{ false };
+std::atomic<bool> g_reload{ false };
 std::atomic<bool> g_resendDead{ false };
 std::atomic<ULONGLONG> g_copyShotAt{ 0 }, g_ownShotAt{ 0 };
 constexpr ULONGLONG kShotWindowMs = 400;
@@ -103,19 +104,18 @@ void SendPositions(uint64_t puppet) {
 	if (!PlayerLocator(me)) return;
 	std::vector<std::pair<float, Position>> closest;
 	// Спутники - всегда (расстояние -1: в начале списка), потом ближайшие враги.
+	// NpcLocator быстрее entity-exists?, поэтому сначала читаем координаты и фильтруем мёртвых.
 	for (uint64_t npc : AllBuddies()) {
-		if (npc == puppet || !Exists(npc) || Dead(npc)) continue;
 		Locator l{};
-		if (!NpcLocator(npc, l) || !std::isfinite(l.pos[0])) continue;
+		if (npc == puppet || !NpcLocator(npc, l) || Dead(npc)) continue;
 		Position p{ npc, {}, {} };
 		memcpy(p.pos, l.pos, sizeof(p.pos));
 		memcpy(p.rot, l.rot, sizeof(p.rot));
 		closest.push_back({ -1.0f, p });
 	}
 	for (uint64_t npc : AllEnemies()) {
-		if (npc == puppet || !Exists(npc) || Dead(npc)) continue;
 		Locator l{};
-		if (!NpcLocator(npc, l) || !std::isfinite(l.pos[0])) continue;
+		if (npc == puppet || !NpcLocator(npc, l) || Dead(npc)) continue;
 		Position p{ npc, {}, {} };
 		memcpy(p.pos, l.pos, sizeof(p.pos));
 		memcpy(p.rot, l.rot, sizeof(p.rot));
@@ -128,58 +128,7 @@ void SendPositions(uint64_t puppet) {
 	ReleaseSRWLockExclusive(&g_lock);
 }
 
-// Полная синхронизация: враг у гостя без ИИ идёт за врагом хозяина (как марионетка: шаг/бег/
-// спринт по скорости, телепорт при отставании больше 4 м).
-void FollowHost(uint64_t puppet) {
-	const ULONGLONG now = GetTickCount64();
-	std::vector<std::pair<uint64_t, Remote>> list;
-	AcquireSRWLockExclusive(&g_lock);
-	for (auto it = g_remote.begin(); it != g_remote.end();) {
-		if (now - it->second.at > 2000) { it = g_remote.erase(it); continue; }
-		list.push_back({ it->first, it->second });
-		++it;
-	}
-	ReleaseSRWLockExclusive(&g_lock);
-	const std::vector<uint64_t> buddies = AllBuddies();
-	for (auto& [npc, r] : list) {
-		if (npc == puppet || !Exists(npc) || Dead(npc)) continue;
-		// Спутника ИИ не лишаем (скрипты уровня): только мягкий перенос вне кадра.
-		if (std::find(buddies.begin(), buddies.end(), npc) != buddies.end()) continue;
-		if (!r.aiOff) {
-			Call(g_dc.scriptMode, { npc, 2, 1 });
-			Call(g_dc.setBlind, { npc, 1 });
-			Call(g_dc.setDeaf, { npc, 1 });
-			r.aiOff = true;
-			Log("[enemies] %016llX follows the host's copy (AI off)", static_cast<unsigned long long>(npc));
-		}
-		Locator cur{};
-		if (!NpcLocator(npc, cur)) continue;
-		const float err = std::sqrt(Dist2(cur.pos, r.p.pos));
-		const uint64_t frame = BoundFrame(r.p.pos, r.p.rot);
-		if (!frame) continue;
-		if (err > 4.0f) {
-			PlaceNpc(npc, frame);
-			r.mode = -1;
-		} else if (g_dc.setObjectLocator) {
-			Call(g_dc.setObjectLocator, { npc, frame });
-		} else if (r.speed > 0.4f || err > 1.0f) {
-			const float speed = (std::max)(r.speed, err * 0.8f);
-			const int mode = speed < 1.8f ? 0 : (speed < 4.2f ? 1 : 2);
-			if (mode != r.mode || now - r.cmdAt > 600) {
-				Call(g_dc.moveTo, { npc, frame, static_cast<uint64_t>(mode), 0, 0, 0, 0, 0 });
-				r.mode = mode;
-				r.cmdAt = now;
-			}
-		}
-		AcquireSRWLockExclusive(&g_lock);
-		if (auto it = g_remote.find(npc); it != g_remote.end()) {
-			it->second.aiOff = r.aiOff;
-			it->second.mode = r.mode;
-			it->second.cmdAt = r.cmdAt;
-		}
-		ReleaseSRWLockExclusive(&g_lock);
-	}
-}
+// Полная синхронизация отключена (враги без ИИ не атаковали); оставляем только мягкую синхронизацию.
 
 // Гость: враг ушёл далеко от позиции у хозяина - перенести (ИИ не трогаем), но только если ни
 // он сейчас, ни точка переноса не видны в кадре; иначе ждём, пока игрок отвернётся.
@@ -245,13 +194,24 @@ void Scan(uint64_t puppet) {
 	// Убитый враг сразу пропадает из списка и мёртвым там обычно не виден: каждого, кто был
 	// жив и пропал, проверяем отдельно. Нет совсем - убран скриптом, это не убийство.
 	std::sort(seen.begin(), seen.end());
-	for (auto& [npc, k] : g_known) {
-		if (k.dead || std::binary_search(seen.begin(), seen.end(), npc) || !Exists(npc)) continue;
+	for (auto it = g_known.begin(); it != g_known.end();) {
+		const uint64_t npc = it->first;
+		Known& k = it->second;
+		if (k.dead || std::binary_search(seen.begin(), seen.end(), npc)) {
+			++it;
+			continue;
+		}
+		if (!Exists(npc)) {
+			// Убран скриптом не мёртвым (ушёл со сцены): удаляем из кэша, чтобы не опрашивать дальше.
+			it = g_known.erase(it);
+			continue;
+		}
 		if (Dead(npc) || Health(npc) <= 0.0f) {
 			Push(g_out, { npc, 0.0f, true });
 			Log("[enemies] local kill %016llX (left the enemy list dead)", static_cast<unsigned long long>(npc));
 			k = { 0.0f, true };
 		}
+		++it;
 	}
 }
 
@@ -289,6 +249,15 @@ void Tick(uint64_t puppet) {
 		AcquireSRWLockExclusive(&g_lock);
 		g_out.clear();
 		g_in.clear();
+		g_posOut.clear();
+		g_remote.clear();
+		ReleaseSRWLockExclusive(&g_lock);
+	}
+	if (g_reload.exchange(false)) {
+		g_known.clear();
+		AcquireSRWLockExclusive(&g_lock);
+		g_posOut.clear();
+		g_remote.clear();
 		ReleaseSRWLockExclusive(&g_lock);
 	}
 	if (g_resendDead.exchange(false)) {
@@ -312,9 +281,7 @@ void Tick(uint64_t puppet) {
 		lastPos = now;
 		const int64_t p0 = QpcNow();
 		if (g_sendPositions) SendPositions(puppet);
-		else if (g_cutscene) {}  // в катсцене никого не двигаем
-		else if (g_fullSync) { FollowHost(puppet); CorrectPositions(puppet); }  // спутники - мягко и тут
-		else CorrectPositions(puppet);
+		else if (!g_cutscene) CorrectPositions(puppet);  // в катсцене никого не двигаем
 		ProfileAdd("[enemy pos]", MicrosecondsSince(p0));
 	}
 	if (now - g_lastScan < kScanMs) return;
@@ -335,7 +302,7 @@ std::vector<Change> TakeOutgoing() {
 void Receive(const Change& c) { Push(g_in, c); }
 
 void SetSendPositions(bool on) { g_sendPositions = on; }
-void SetFullSync(bool on) { g_fullSync = on; }
+void SetFullSync(bool) { g_fullSync = false; }
 void SetCutscene(bool on) { g_cutscene = on; }
 
 std::vector<Position> TakePositions() {
@@ -360,6 +327,7 @@ void ReceivePosition(const Position& p) {
 	ReleaseSRWLockExclusive(&g_lock);
 }
 void Reset() { g_reset = true; }
+void OnReload() { g_reload = true; }
 void ResendDead() { g_resendDead = true; }
 void NoteCopyShot() { g_copyShotAt = GetTickCount64(); }
 void NoteOwnShot() { g_ownShotAt = GetTickCount64(); }

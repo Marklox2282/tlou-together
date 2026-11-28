@@ -11,7 +11,7 @@ namespace net {
 
 constexpr uint32_t kMagic = 0x4F433154;  // "T1CO"
 constexpr uint8_t kProtocol = 3;          // 1 = v7 (без рукопожатия), 2 = v8 (без врагов)
-enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kEnemyPos = 6, kDeath = 7, kSettings = 8, kWeapon = 9, kStart = 10, kAnim = 11, kReady = 12, kPing = 13, kPong = 14, kThrow = 15, kObjectPos = 16, kWebhook = 17 };  // 5 - бывший обмен ролями
+enum : uint8_t { kHello = 1, kPose = 2, kBye = 3, kEnemy = 4, kEnemyPos = 6, kDeath = 7, kSettings = 8, kWeapon = 9, kStart = 10, kAnim = 11, kReady = 12, kPing = 13, kPong = 14, kThrow = 15, kObjectPos = 16, kWebhook = 17, kDoorOpen = 18 };  // 5 - бывший обмен ролями
 constexpr uint16_t kFlagDead = 1;  // kEnemy: враг убит
 constexpr uint16_t kFlagHero = 2;  // kPose: отправитель играет за героя главы
 constexpr uint16_t kFlagFiring = 4;  // kPose: отправитель стреляет
@@ -74,8 +74,9 @@ public:
 	// Ведущая сторона (позиции врагов): хозяин лобби; без лобби - больший Steam ID (по UDP - меньший порт).
 	bool Authority() const;
 	void SendEnemy(uint64_t npc, float health, bool dead);  // через Steam - с гарантией доставки
-	std::vector<Packet> TakeEnemyEvents();                  // полученные kEnemy, kEnemyPos и kObjectPos с прошлого раза
+	std::vector<Packet> TakeEnemyEvents();                  // полученные kEnemy, kEnemyPos, kObjectPos и kDoorOpen с прошлого раза
 	void SendObjectPos(uint64_t object, const float pos[3], const float rot[4]);  // переносной предмет поставлен сюда
+	void SendDoorOpen(uint64_t door);                       // игрок открыл дверь (sid двери)
 	void SendEnemyPos(uint64_t npc, const float pos[3], const float rot[4]);  // хозяин: где его враг
 	void SendDeath();          // свой игрок погиб (с гарантией доставки)
 	void SendSettings(uint32_t difficulty);  // ведущая сторона: её сложность

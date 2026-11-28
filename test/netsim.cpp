@@ -129,6 +129,14 @@ int main() {
 		const std::vector<net::Packet> pe = b.TakeEnemyEvents();
 		Check(pe.size() == 1 && pe[0].type == net::kEnemyPos && pe[0].target == 0x77 && pe[0].pos[2] == 3.0f, "enemy position arrives");
 
+		puts("== doors");
+		a.SendDoorOpen(0x5555666677778888ull);
+		Sleep(10);
+		Run(a, b, 2);
+		const std::vector<net::Packet> de = b.TakeEnemyEvents();
+		Check(de.size() == 1 && de[0].type == net::kDoorOpen && de[0].target == 0x5555666677778888ull, "door open event arrives");
+		Check(b.TakeEnemyEvents().empty() && a.TakeEnemyEvents().empty(), "door open taken once, not echoed");
+
 		puts("== roles");
 		Check(a.Authority() != b.Authority(), "exactly one side decides roles");
 		a.SendPose(pose.pos, pose.rot, false);
@@ -300,15 +308,18 @@ int main() {
 		Check(b.GetState() == net::State::Connected, "b connects anyway");
 	}
 
-	puts("== silence for 10 s -> searching");
+	puts("== silence for 25 s -> searching");
 	{
 		net::Link a(Log, 8), b(Log, 8);
 		a.Start(Cfg(7841, 7842), t);
 		b.Start(Cfg(7842, 7841), t);
 		Run(a, b, 20);
-		t += 11000;
+		t += 12000;
 		b.Tick(t, pose);
-		Check(b.GetState() == net::State::Searching, "timeout");
+		Check(b.GetState() == net::State::Connected, "still connected across 12 s loading stall");
+		t += 14000;
+		b.Tick(t, pose);
+		Check(b.GetState() == net::State::Searching, "timeout after 25 s");
 		Run(a, b, 40);  // связь вернулась
 		Check(a.GetState() == net::State::Connected && b.GetState() == net::State::Connected, "reconnects by itself after a drop");
 	}

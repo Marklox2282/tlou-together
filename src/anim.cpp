@@ -6,7 +6,6 @@
 #include <atomic>
 #include <cstring>
 #include <deque>
-#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -50,7 +49,7 @@ constexpr uintptr_t kAnimDbBucketCount     = 0x4130;
 constexpr uint16_t kOpHeader               = 0x0003;  // 2 dwords
 constexpr uint16_t kOpTerm                 = 0x0004;  // 2 dwords
 constexpr uint16_t kOpClip                 = 0x0007;  // 6 dwords local, 7 dwords wire
-constexpr uint16_t kOpBlend                = 0x0008;  // 6 dwords (no ptrs)
+constexpr uint16_t kOpBlend                = 0x0008;  // 6 dwords
 constexpr uint16_t kOpFeather              = 0x0009;  // 12 dwords
 constexpr uint16_t kOpSlotA                = 0x000A;  // 2 dwords
 constexpr uint16_t kOpMirror               = 0x000B;  // 2 dwords
@@ -59,16 +58,18 @@ constexpr uint16_t kOpMarkLayer            = 0x001B;  // 4 dwords (debug)
 
 constexpr uint8_t  kWireVersion            = 1;
 constexpr size_t   kMaxCmdDwords           = 1024;
-constexpr uint64_t kRxActiveWindowMs       = 650;
+constexpr uint32_t kMaxOutDwords           = 900;
+constexpr uint32_t kMaxListCursor          = 16384;
+constexpr uint64_t kRxHoldMs               = 350;
 constexpr uint64_t kAnimJitterMs           = 20;
 constexpr size_t   kMaxRxQueue             = 12;
 
 struct AnimCmdList {
-	uint32_t* buf;         // +0x00
-	uint64_t  unk08;       // +0x08
-	uint32_t  cursor;      // +0x0C
+	uint32_t* buf;           // +0x00
+	uint64_t  unk08;         // +0x08
+	uint32_t  cursor;        // +0x0C
 	uint32_t* headerSlotPtr; // +0x10 (points at OP_HEADER[1])
-	uint32_t  maxSlot;     // +0x18
+	uint32_t  maxSlot;       // +0x18
 };
 
 struct LookupAnimResult {
@@ -85,6 +86,13 @@ struct BufferedRx {
 	std::vector<uint8_t> bytes;
 };
 
+struct PreparedFrame {
+	bool valid = false;
+	uint32_t targetHierSkelId = 0;
+	uint64_t readyAt = 0;
+	std::vector<uint32_t> words;
+};
+
 uintptr_t g_base = 0;
 LogFn g_log = nullptr;
 safetyhook::InlineHook g_hookCreateAnimCmds;
@@ -94,27 +102,37 @@ std::atomic<uintptr_t> g_puppetAc{ 0 };
 std::atomic<bool> g_txEnabled{ false };
 std::atomic<bool> g_rxEnabled{ true };
 std::atomic<bool> g_hookOk{ false };
-std::atomic<uint64_t> g_lastRxArrivalMs{ 0 };
+std::atomic<uint64_t> g_frameNowMs{ 0 };
+std::atomic<uint64_t> g_lastAppliedMs{ 0 };
 
 std::atomic<uint64_t> g_txCount{ 0 };
 std::atomic<uint64_t> g_rxCount{ 0 };
+std::atomic<uint64_t> g_rxApplied{ 0 };
+std::atomic<uint64_t> g_rxDropped{ 0 };
 std::atomic<uint64_t> g_rxMissClips{ 0 };
 std::atomic<uint64_t> g_rxRetargeted{ 0 };
 std::atomic<uint32_t> g_puppetTposeStreak{ 0 };  // кадров подряд копия в Т-позе (только bindpose, ни одного клипа)
 
-std::mutex g_txMu;
-std::vector<uint8_t> g_pendingTx;
-bool g_hasPendingTx = false;
+// Сырой буфер TX: пишет фоновый поток CreateAnimCmds (только memcpy), читает игровой поток (PollTx).
+SRWLOCK g_rawTxLock = SRWLOCK_INIT;
+std::vector<uint32_t> g_rawTx;
+uint32_t g_rawTxMs = 0;
+bool g_hasRawTx = false;
 
-std::mutex g_rxMu;
+// Входящая сетевая очередь и подготовленный кадр RX.
+SRWLOCK g_rxQueueLock = SRWLOCK_INIT;
 std::deque<BufferedRx> g_rxQueue;
 uint64_t g_rxBaseSenderMs = 0;
 uint64_t g_rxBaseLocalMs = 0;
 
-std::mutex g_cacheMu;
+SRWLOCK g_preparedLock = SRWLOCK_INIT;
+PreparedFrame g_prepared;
+
+// Кэши резолва клипов: используются ТОЛЬКО на основном/скриптовом потоке (PollTx / PrepareRx).
 std::unordered_map<uintptr_t, uint64_t> g_clipPtrToSid;
 std::unordered_map<uint64_t, uintptr_t> g_sidToClipPtr;
 std::unordered_set<uint16_t> g_loggedUnknownOps;
+uint64_t g_lastRebuildMs = 0;
 
 template <typename T>
 bool SafeRead(uintptr_t addr, T& out) {
@@ -132,12 +150,53 @@ uintptr_t SafeReadPtr(uintptr_t addr) {
 	return SafeRead(addr, v) ? v : 0;
 }
 
+bool SafeCopyWords(void* dst, uintptr_t src, uint32_t wordCount) {
+	if (!dst || src < 0x10000 || !wordCount || wordCount > kMaxCmdDwords) return false;
+	__try {
+		memcpy(dst, reinterpret_cast<const void*>(src), static_cast<size_t>(wordCount) * 4);
+		return true;
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		return false;
+	}
+}
+
+bool SafeWriteCmds(AnimCmdList* cmdList, uint32_t startCursor, const uint32_t* words, uint32_t wordCount) {
+	if (!cmdList || !words || !wordCount || startCursor > kMaxListCursor || wordCount > kMaxOutDwords) return false;
+	__try {
+		uint32_t* buf = cmdList->buf;
+		if (reinterpret_cast<uintptr_t>(buf) < 0x10000) return false;
+		memcpy(buf + startCursor, words, static_cast<size_t>(wordCount) * 4);
+		cmdList->cursor = startCursor + wordCount;
+		cmdList->headerSlotPtr = nullptr;
+		cmdList->maxSlot = 0;
+		return true;
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		return false;
+	}
+}
+
 uint32_t Hdr(uint16_t op, uint16_t wc) {
 	return static_cast<uint32_t>(op) | (static_cast<uint32_t>(wc) << 16);
 }
 
-// Лениво индексирует [kRvaAnimDbPtr] -> (AnimClip* -> sid), чтобы сериализовать указатели без догадок.
-void RebuildClipIndexLocked() {
+bool ReadAnimControlSkeleton(uintptr_t animCtrl, uintptr_t& outArtSkel, uint32_t& outHierSkelId) {
+	outArtSkel = 0;
+	outHierSkelId = 0;
+	if (animCtrl < 0x10000) return false;
+	const uintptr_t fgAnim = SafeReadPtr(animCtrl + kAcFgAnim);
+	if (!fgAnim) return false;
+	uintptr_t artSkel = SafeReadPtr(fgAnim + kFgArtSkelPrimary);
+	if (!artSkel) artSkel = SafeReadPtr(fgAnim + kFgArtSkelFallback);
+	outArtSkel = artSkel;
+	const uintptr_t hier = artSkel ? SafeReadPtr(artSkel + kArtSkelHierarchy) : 0;
+	if (hier) SafeRead(hier + kHierSkelId, outHierSkelId);
+	return outHierSkelId != 0;
+}
+
+// Индексирует [kRvaAnimDbPtr] -> (AnimClip* -> sid) только на игровом потоке.
+void RebuildClipIndex(uint64_t nowMs) {
+	if (nowMs && g_lastRebuildMs && nowMs - g_lastRebuildMs < 2000) return;
+	g_lastRebuildMs = nowMs;
 	const uintptr_t db = SafeReadPtr(g_base + kRvaAnimDbPtr);
 	if (!db) return;
 	const uintptr_t bucketsPtr = SafeReadPtr(db + kAnimDbBuckets);
@@ -160,16 +219,13 @@ void RebuildClipIndexLocked() {
 	}
 }
 
-uint64_t ResolveClipSid(uintptr_t clip, uint32_t& outId32) {
+uint64_t ResolveClipSid(uintptr_t clip, uint32_t& outId32, uint64_t nowMs) {
 	outId32 = 0;
 	if (!clip) return 0;
 	SafeRead(clip + kClipId32, outId32);
-	{
-		std::lock_guard<std::mutex> lk(g_cacheMu);
-		if (auto it = g_clipPtrToSid.find(clip); it != g_clipPtrToSid.end()) return it->second;
-		RebuildClipIndexLocked();
-		if (auto it = g_clipPtrToSid.find(clip); it != g_clipPtrToSid.end()) return it->second;
-	}
+	if (auto it = g_clipPtrToSid.find(clip); it != g_clipPtrToSid.end()) return it->second;
+	RebuildClipIndex(nowMs);
+	if (auto it = g_clipPtrToSid.find(clip); it != g_clipPtrToSid.end()) return it->second;
 	return 0;
 }
 
@@ -226,15 +282,11 @@ int FeatherBlendRaw(uintptr_t fnLogin, uintptr_t fnChan, void* featherTable, uin
 }
 
 uintptr_t ResolveClipOnRx(uint64_t sid, uint32_t fallbackId32, uintptr_t artSkel, uint32_t targetHierSkelId) {
-	const uint32_t targetArtSkelId = artSkel ? [&]() {
-		uint32_t v = 0; SafeRead(artSkel + kArtSkelId, v); return v;
-	}() : 0;
+	uint32_t targetArtSkelId = 0;
+	if (artSkel) SafeRead(artSkel + kArtSkelId, targetArtSkelId);
 
 	const uint64_t cacheKey = sid ^ (static_cast<uint64_t>(targetHierSkelId) << 32) ^ (static_cast<uint64_t>(fallbackId32) << 1);
-	{
-		std::lock_guard<std::mutex> lk(g_cacheMu);
-		if (auto it = g_sidToClipPtr.find(cacheKey); it != g_sidToClipPtr.end()) return it->second;
-	}
+	if (auto it = g_sidToClipPtr.find(cacheKey); it != g_sidToClipPtr.end()) return it->second;
 
 	uintptr_t resolved = 0;
 	if (sid) {
@@ -252,7 +304,6 @@ uintptr_t ResolveClipOnRx(uint64_t sid, uint32_t fallbackId32, uintptr_t artSkel
 		}
 	}
 
-	// Запасной поиск клипа по 32-битному animId непосредственно под целевой скелет марионетки.
 	if (!resolved && fallbackId32 && targetHierSkelId) {
 		if (const uintptr_t clip = LookupExRaw(g_base + kRvaLookupAnimEx, fallbackId32, targetHierSkelId)) {
 			resolved = clip;
@@ -261,7 +312,6 @@ uintptr_t ResolveClipOnRx(uint64_t sid, uint32_t fallbackId32, uintptr_t artSkel
 	}
 
 	if (resolved) {
-		std::lock_guard<std::mutex> lk(g_cacheMu);
 		if (g_sidToClipPtr.size() > 8192) g_sidToClipPtr.clear();
 		g_sidToClipPtr[cacheKey] = resolved;
 	} else {
@@ -283,24 +333,23 @@ uint64_t LookupFeatherSid(int featherId) {
 	return sid;
 }
 
-// Сериализует команды анимации игрока (TX) в компактный независимый от процесса буфер.
-void SerializeTxCmds(const uint32_t* cmds, uint32_t countDwords) {
-	if (!cmds || countDwords < 2 || countDwords > kMaxCmdDwords) return;
+bool SerializeTxCmds(const uint32_t* cmds, uint32_t countDwords, uint32_t senderMs, std::vector<uint8_t>& outBytes) {
+	if (!cmds || countDwords < 2 || countDwords > kMaxCmdDwords) return false;
+	const uint64_t nowMs = GetTickCount64();
 
 	std::vector<uint32_t> outWords;
 	outWords.reserve(countDwords + 8);
-	// Заголовок кадра: [magic/ver(u8) + reserved(u24), senderMs(u32), maxSlot(u32)].
 	outWords.push_back(static_cast<uint32_t>(kWireVersion));
-	outWords.push_back(static_cast<uint32_t>(GetTickCount64()));
-	outWords.push_back(0);  // будет заполнено maxSlot
+	outWords.push_back(senderMs);
+	outWords.push_back(0);  // maxSlot
 
 	uint32_t maxSlot = 0;
-	uint32_t i = 0;
-	while (i < countDwords) {
+	uint32_t clipCount = 0;
+	for (uint32_t i = 0; i < countDwords;) {
 		const uint32_t hdr = cmds[i];
 		const uint16_t op = static_cast<uint16_t>(hdr & 0xFFFFu);
 		const uint16_t wc = static_cast<uint16_t>(hdr >> 16);
-		if (wc == 0 || i + wc > countDwords) break;
+		if (wc == 0 || i + wc > countDwords) return false;
 
 		if (op == kOpTerm) {
 			outWords.push_back(Hdr(kOpTerm, 2));
@@ -320,62 +369,58 @@ void SerializeTxCmds(const uint32_t* cmds, uint32_t countDwords) {
 			uint64_t clipPtr = 0;
 			memcpy(&clipPtr, &cmds[i + 2], 8);
 			uint32_t id32 = 0;
-			const uint64_t sid = ResolveClipSid(clipPtr, id32);
-			if (sid || id32) {
-				outWords.push_back(Hdr(kOpClip, 7));
-				outWords.push_back(cmds[i + 1]);  // slot
-				const uint32_t* sidParts = reinterpret_cast<const uint32_t*>(&sid);
-				outWords.push_back(sidParts[0]);
-				outWords.push_back(sidParts[1]);
-				outWords.push_back(cmds[i + 4]);  // flags
-				outWords.push_back(cmds[i + 5]);  // float frame
-				outWords.push_back(id32);         // fallback id32
-				maxSlot = (std::max)(maxSlot, cmds[i + 1]);
-			}
+			const uint64_t sid = ResolveClipSid(clipPtr, id32, nowMs);
+			if (!sid && !id32) return false;  // без неразрешимого клипа: не шлём дырявый граф
+			outWords.push_back(Hdr(kOpClip, 7));
+			outWords.push_back(cmds[i + 1]);
+			const uint32_t* sidParts = reinterpret_cast<const uint32_t*>(&sid);
+			outWords.push_back(sidParts[0]);
+			outWords.push_back(sidParts[1]);
+			outWords.push_back(cmds[i + 4]);
+			outWords.push_back(cmds[i + 5]);
+			outWords.push_back(id32);
+			maxSlot = (std::max)(maxSlot, cmds[i + 1]);
+			++clipCount;
 		} else if (op == kOpFeather && wc >= 12) {
 			const int featherId = static_cast<int>(cmds[i + 10]);
 			const uint64_t fbSid = LookupFeatherSid(featherId);
 			for (uint32_t k = 0; k < 6; ++k) outWords.push_back(cmds[i + k]);
 			const uint32_t* fbParts = reinterpret_cast<const uint32_t*>(&fbSid);
-			outWords.push_back(fbParts[0]);  // вместо маски передаём 64-бит fbSid
+			outWords.push_back(fbParts[0]);
 			outWords.push_back(fbParts[1]);
-			outWords.push_back(0);           // factors lo
-			outWords.push_back(0);           // factors hi
+			outWords.push_back(0);
+			outWords.push_back(0);
 			outWords.push_back(cmds[i + 10]);
 			outWords.push_back(cmds[i + 11]);
 			maxSlot = (std::max)({ maxSlot, cmds[i + 1], cmds[i + 2], cmds[i + 3] });
 		} else if (op == kOpMarkLayer) {
-			// Отладочный маркер не нужен для воспроизведения.
+			// Отладочный маркер не нужен.
 		} else {
-			bool firstTime = false;
-			{
-				std::lock_guard<std::mutex> lk(g_cacheMu);
-				firstTime = g_loggedUnknownOps.insert(op).second;
-			}
-			if (firstTime && g_log) g_log("anim: skipped unknown opcode 0x%x (wc=%u)", op, wc);
+			if (g_loggedUnknownOps.insert(op).second && g_log)
+				g_log("anim: skipped frame with unknown opcode 0x%x (wc=%u)", op, wc);
+			return false;  // неизвестный опкод может сдвинуть слоты или прятать указатель
 		}
 		i += wc;
 	}
 
-	if (outWords.size() <= 5) return;  // ничего кроме заголовка
+	if (!clipCount || outWords.size() <= 5) return false;
 	if ((outWords.back() & 0xFFFFu) != kOpTerm && outWords[outWords.size() - 2] != Hdr(kOpTerm, 2)) {
 		outWords.push_back(Hdr(kOpTerm, 2));
 		outWords.push_back(0);
 	}
 	outWords[2] = maxSlot;
-
-	std::lock_guard<std::mutex> lk(g_txMu);
-	g_pendingTx.resize(outWords.size() * 4);
-	memcpy(g_pendingTx.data(), outWords.data(), g_pendingTx.size());
-	g_hasPendingTx = true;
+	outBytes.resize(outWords.size() * 4);
+	memcpy(outBytes.data(), outWords.data(), outBytes.size());
 	g_txCount.fetch_add(1, std::memory_order_relaxed);
+	return true;
 }
 
 bool SelectRxFrame(uint64_t nowMs, std::vector<uint8_t>& outBytes) {
-	std::lock_guard<std::mutex> lk(g_rxMu);
-	if (g_rxQueue.empty()) return false;
-
-	// Отбрасываем слишком старые кадры; выбираем ближайший ко времени с джиттер-буфером 20мс.
+	AcquireSRWLockExclusive(&g_rxQueueLock);
+	if (g_rxQueue.empty()) {
+		ReleaseSRWLockExclusive(&g_rxQueueLock);
+		return false;
+	}
 	while (g_rxQueue.size() > 1) {
 		const auto& front = g_rxQueue.front();
 		const auto& second = g_rxQueue[1];
@@ -387,158 +432,161 @@ bool SelectRxFrame(uint64_t nowMs, std::vector<uint8_t>& outBytes) {
 		}
 	}
 	outBytes = g_rxQueue.front().bytes;
+	ReleaseSRWLockExclusive(&g_rxQueueLock);
 	return !outBytes.empty();
 }
 
-// Записывает реплицированные команды в cmdList марионетки вместо её локальной логики ИИ.
-bool ApplyRxCmds(uintptr_t animCtrl, AnimCmdList* cmdList, uint32_t startCursor, const std::vector<uint8_t>& wire) {
-	if (!cmdList || !cmdList->buf || wire.size() < 20 || (wire.size() & 3) != 0) return false;
+bool BuildPreparedRx(uintptr_t animCtrl, const std::vector<uint8_t>& wire, PreparedFrame& outFrame) {
+	if (!animCtrl || wire.size() < 20 || (wire.size() & 3) != 0) return false;
 	const uint32_t nWords = static_cast<uint32_t>(wire.size() / 4);
 	const uint32_t* w = reinterpret_cast<const uint32_t*>(wire.data());
 	if ((w[0] & 0xFFu) != kWireVersion || nWords < 5) return false;
 
-	const uintptr_t fgAnim = SafeReadPtr(animCtrl + kAcFgAnim);
-	uintptr_t artSkel = fgAnim ? SafeReadPtr(fgAnim + kFgArtSkelPrimary) : 0;
-	if (!artSkel && fgAnim) artSkel = SafeReadPtr(fgAnim + kFgArtSkelFallback);
-	const uintptr_t hier = artSkel ? SafeReadPtr(artSkel + kArtSkelHierarchy) : 0;
+	uintptr_t artSkel = 0;
 	uint32_t targetHierSkelId = 0;
-	if (hier) SafeRead(hier + kHierSkelId, targetHierSkelId);
+	if (!ReadAnimControlSkeleton(animCtrl, artSkel, targetHierSkelId)) return false;
 
-	uint32_t* const out = cmdList->buf;
-	uint32_t outPos = startCursor;
-	constexpr uint32_t kMaxOutDwords = 900;  // безопасный запас внутри буфера кадра
-
-	// Ищем OP_HEADER в wire или вставляем дефолтный.
+	std::vector<uint32_t> out;
+	out.reserve(nWords + 8);
 	uint32_t maxSlotSeen = 0;
 	bool slotValid[64]{};
 	auto markValid = [&](uint32_t s) { if (s < 64) slotValid[s] = true; };
 	auto isValid = [&](uint32_t s) { return s < 64 && slotValid[s]; };
 
-	const uint32_t headerIdx = outPos;
-	out[outPos++] = Hdr(kOpHeader, 2);
-	out[outPos++] = 1;
+	out.push_back(Hdr(kOpHeader, 2));
+	out.push_back(1);
 
 	void* const featherTable = reinterpret_cast<void*>(g_base + kRvaFeatherTable);
-
-	uint32_t wrotePayloadOps = 0;
-	uint32_t i = 3;
-	while (i < nWords && outPos + 16 < startCursor + kMaxOutDwords) {
+	uint32_t clipCount = 0;
+	for (uint32_t i = 3; i < nWords && out.size() + 16 < kMaxOutDwords;) {
 		const uint32_t hdr = w[i];
 		const uint16_t op = static_cast<uint16_t>(hdr & 0xFFFFu);
 		const uint16_t wc = static_cast<uint16_t>(hdr >> 16);
-		if (wc == 0 || i + wc > nWords) break;
+		if (wc == 0 || i + wc > nWords) return false;
 
 		if (op == kOpTerm) {
 			break;
 		} else if (op == kOpHeader) {
-			// Заголовок уже выставлен выше.
-		} else if (op == kOpSlotA || op == kOpMirror || op == kOpBindpose) {
-			if (wc >= 2) {
-				if (op != kOpBindpose || w[i + 1] == 0) {
-					out[outPos++] = Hdr(op, 2);
-					out[outPos++] = w[i + 1];
-					if (op == kOpBindpose) { markValid(w[i + 1]); maxSlotSeen = (std::max)(maxSlotSeen, w[i + 1]); ++wrotePayloadOps; }
-				}
+			// Заголовок уже добавлен.
+		} else if ((op == kOpSlotA || op == kOpMirror || op == kOpBindpose) && wc >= 2) {
+			out.push_back(Hdr(op, 2));
+			out.push_back(w[i + 1]);
+			if (op == kOpBindpose) {
+				if (w[i + 1] >= 64) return false;
+				markValid(w[i + 1]);
+				maxSlotSeen = (std::max)(maxSlotSeen, w[i + 1]);
 			}
 		} else if (op == kOpClip && wc >= 7) {
 			const uint32_t slot = w[i + 1];
+			if (slot >= 64) return false;
 			uint64_t sid = 0;
 			memcpy(&sid, &w[i + 2], 8);
 			const uint32_t flags = w[i + 4];
 			const uint32_t frameBits = w[i + 5];
 			const uint32_t id32 = w[i + 6];
 			const uintptr_t clip = ResolveClipOnRx(sid, id32, artSkel, targetHierSkelId);
-			if (clip) {
-				out[outPos++] = Hdr(kOpClip, 6);
-				out[outPos++] = slot;
-				const uint32_t* p = reinterpret_cast<const uint32_t*>(&clip);
-				out[outPos++] = p[0];
-				out[outPos++] = p[1];
-				out[outPos++] = flags;
-				out[outPos++] = frameBits;
-				markValid(slot);
-				maxSlotSeen = (std::max)(maxSlotSeen, slot);
-				++wrotePayloadOps;
-			}
+			if (!clip) return false;  // целый граф: при пропуске клипа не портим кадр
+			out.push_back(Hdr(kOpClip, 6));
+			out.push_back(slot);
+			const uint32_t* p = reinterpret_cast<const uint32_t*>(&clip);
+			out.push_back(p[0]);
+			out.push_back(p[1]);
+			out.push_back(flags);
+			out.push_back(frameBits);
+			markValid(slot);
+			maxSlotSeen = (std::max)(maxSlotSeen, slot);
+			++clipCount;
 		} else if (op == kOpBlend && wc >= 6) {
 			const uint32_t dst = w[i + 1], srcA = w[i + 2], srcB = w[i + 3];
-			if (isValid(srcA) && isValid(srcB)) {
-				for (uint32_t k = 0; k < 6; ++k) out[outPos++] = w[i + k];
-				markValid(dst);
-				maxSlotSeen = (std::max)({ maxSlotSeen, dst, srcA, srcB });
-				++wrotePayloadOps;
-			} else if (isValid(srcA) && dst != srcA) {
-				// Если один слой не нашёлся, не затираем валидный слой bindpose'ом — просто сохраняем srcA.
-			}
+			if (dst >= 64 || !isValid(srcA) || !isValid(srcB)) return false;
+			for (uint32_t k = 0; k < 6; ++k) out.push_back(w[i + k]);
+			markValid(dst);
+			maxSlotSeen = (std::max)({ maxSlotSeen, dst, srcA, srcB });
 		} else if (op == kOpFeather && wc >= 12) {
 			const uint32_t dst = w[i + 1], srcA = w[i + 2], srcB = w[i + 3];
-			if (isValid(srcA) && isValid(srcB)) {
-				uint64_t fbSid = 0;
-				memcpy(&fbSid, &w[i + 6], 8);
-				float w1 = 0.0f, w2 = 0.0f;
-				memcpy(&w1, &w[i + 5], 4);
-				memcpy(&w2, &w[i + 11], 4);
-
-				int newId = -1;
-				void* masks = nullptr;
-				void* factors = nullptr;
-				if (fbSid && artSkel) {
-					newId = FeatherBlendRaw(g_base + kRvaFeatherLogin, g_base + kRvaFeatherChannel,
-						featherTable, fbSid, reinterpret_cast<const void*>(artSkel), w2, &masks, &factors);
-				}
-				if (newId >= 0 && masks && factors) {
-					out[outPos++] = Hdr(kOpFeather, 12);
-					out[outPos++] = dst;
-					out[outPos++] = srcA;
-					out[outPos++] = srcB;
-					out[outPos++] = w[i + 4];
-					out[outPos++] = w[i + 5];
-					const uint32_t* mp = reinterpret_cast<const uint32_t*>(&masks);
-					const uint32_t* fp = reinterpret_cast<const uint32_t*>(&factors);
-					out[outPos++] = mp[0];
-					out[outPos++] = mp[1];
-					out[outPos++] = fp[0];
-					out[outPos++] = fp[1];
-					out[outPos++] = static_cast<uint32_t>(newId);
-					out[outPos++] = w[i + 11];
-				} else {
-					out[outPos++] = Hdr(kOpBlend, 6);
-					out[outPos++] = dst;
-					out[outPos++] = srcA;
-					out[outPos++] = srcB;
-					out[outPos++] = w[i + 4];
-					out[outPos++] = w[i + 5];
-				}
-				markValid(dst);
-				maxSlotSeen = (std::max)({ maxSlotSeen, dst, srcA, srcB });
-				++wrotePayloadOps;
+			if (dst >= 64 || !isValid(srcA) || !isValid(srcB)) return false;
+			uint64_t fbSid = 0;
+			memcpy(&fbSid, &w[i + 6], 8);
+			float w2 = 0.0f;
+			memcpy(&w2, &w[i + 11], 4);
+			int newId = -1;
+			void* masks = nullptr;
+			void* factors = nullptr;
+			if (fbSid && artSkel) {
+				newId = FeatherBlendRaw(g_base + kRvaFeatherLogin, g_base + kRvaFeatherChannel,
+					featherTable, fbSid, reinterpret_cast<const void*>(artSkel), w2, &masks, &factors);
 			}
+			if (newId >= 0 && masks && factors) {
+				out.push_back(Hdr(kOpFeather, 12));
+				out.push_back(dst);
+				out.push_back(srcA);
+				out.push_back(srcB);
+				out.push_back(w[i + 4]);
+				out.push_back(w[i + 5]);
+				const uint32_t* mp = reinterpret_cast<const uint32_t*>(&masks);
+				const uint32_t* fp = reinterpret_cast<const uint32_t*>(&factors);
+				out.push_back(mp[0]);
+				out.push_back(mp[1]);
+				out.push_back(fp[0]);
+				out.push_back(fp[1]);
+				out.push_back(static_cast<uint32_t>(newId));
+				out.push_back(w[i + 11]);
+			} else {
+				out.push_back(Hdr(kOpBlend, 6));
+				out.push_back(dst);
+				out.push_back(srcA);
+				out.push_back(srcB);
+				out.push_back(w[i + 4]);
+				out.push_back(w[i + 5]);
+			}
+			markValid(dst);
+			maxSlotSeen = (std::max)({ maxSlotSeen, dst, srcA, srcB });
+		} else {
+			return false;
 		}
 		i += wc;
 	}
 
-	if (wrotePayloadOps == 0) return false;
+	if (!clipCount) return false;
+	out.push_back(Hdr(kOpTerm, 2));
+	out.push_back(0);
+	out[1] = maxSlotSeen + 1;
 
-	out[outPos++] = Hdr(kOpTerm, 2);
-	out[outPos++] = 0;
-
-	out[headerIdx + 1] = maxSlotSeen + 1;
-	cmdList->cursor = outPos;
-	cmdList->headerSlotPtr = nullptr;
-	cmdList->maxSlot = 0;
+	outFrame.valid = true;
+	outFrame.targetHierSkelId = targetHierSkelId;
+	outFrame.words = std::move(out);
 	return true;
 }
 
 int64_t __fastcall Hook_CreateAnimCmds(uintptr_t animCtrl, void* a2, AnimCmdList* cmdList) {
 	const uintptr_t playerAc = g_playerAc.load(std::memory_order_acquire);
 	const uintptr_t puppetAc = g_puppetAc.load(std::memory_order_acquire);
-	const uint32_t startCursor = cmdList ? cmdList->cursor : 0;
+	uint32_t startCursor = 0;
+	uintptr_t bufAddr = 0;
+	if (cmdList) {
+		SafeRead(reinterpret_cast<uintptr_t>(&cmdList->cursor), startCursor);
+		SafeRead(reinterpret_cast<uintptr_t>(&cmdList->buf), bufAddr);
+	}
 
-	if (puppetAc && animCtrl == puppetAc && g_rxEnabled.load(std::memory_order_acquire) && cmdList && cmdList->buf) {
-		const uint64_t nowMs = GetTickCount64();
-		if (HasActiveRx(nowMs)) {
-			std::vector<uint8_t> wire;
-			if (SelectRxFrame(nowMs, wire) && ApplyRxCmds(animCtrl, cmdList, startCursor, wire)) {
+	// Фоновый поток анимаций: НИКАКИХ вызовов движка, только копирование уже готового кадра.
+	if (puppetAc && animCtrl == puppetAc && g_rxEnabled.load(std::memory_order_acquire) && cmdList && bufAddr) {
+		uintptr_t artSkel = 0;
+		uint32_t targetHierId = 0;
+		if (ReadAnimControlSkeleton(animCtrl, artSkel, targetHierId)) {
+			const uint64_t nowMs = g_frameNowMs.load(std::memory_order_relaxed);
+			bool applied = false;
+			AcquireSRWLockShared(&g_preparedLock);
+			if (g_prepared.valid && g_prepared.targetHierSkelId == targetHierId &&
+				nowMs >= g_prepared.readyAt && nowMs - g_prepared.readyAt <= kRxHoldMs &&
+				!g_prepared.words.empty()) {
+				applied = SafeWriteCmds(cmdList, startCursor, g_prepared.words.data(),
+					static_cast<uint32_t>(g_prepared.words.size()));
+			}
+			ReleaseSRWLockShared(&g_preparedLock);
+			if (applied) {
+				g_lastAppliedMs.store(nowMs, std::memory_order_release);
+				g_rxApplied.fetch_add(1, std::memory_order_relaxed);
+				g_puppetTposeStreak.store(0, std::memory_order_relaxed);
 				return 0;
 			}
 		}
@@ -546,16 +594,18 @@ int64_t __fastcall Hook_CreateAnimCmds(uintptr_t animCtrl, void* a2, AnimCmdList
 
 	const int64_t ret = g_hookCreateAnimCmds.call<int64_t>(animCtrl, a2, cmdList);
 
-	// Сторож Т-позы копии: игра не нашла ей анимаций и выдала только bindpose без единого клипа.
-	if (puppetAc && animCtrl == puppetAc && cmdList && cmdList->buf) {
-		const uint32_t endCursor = cmdList->cursor;
-		if (endCursor > startCursor && endCursor - startCursor <= kMaxCmdDwords) {
-			const uint32_t* c = cmdList->buf + startCursor;
-			const uint32_t n = endCursor - startCursor;
+	uint32_t endCursor = 0;
+	if (cmdList && bufAddr) SafeRead(reinterpret_cast<uintptr_t>(&cmdList->cursor), endCursor);
+
+	if (puppetAc && animCtrl == puppetAc && cmdList && bufAddr && endCursor > startCursor &&
+		endCursor - startCursor <= kMaxCmdDwords) {
+		uint32_t buf[kMaxCmdDwords];
+		const uint32_t n = endCursor - startCursor;
+		if (SafeCopyWords(buf, bufAddr + static_cast<size_t>(startCursor) * 4, n)) {
 			uint32_t clips = 0, binds = 0;
 			for (uint32_t i = 0; i < n;) {
-				const uint16_t op = static_cast<uint16_t>(c[i] & 0xFFFFu);
-				const uint16_t wc = static_cast<uint16_t>(c[i] >> 16);
+				const uint16_t op = static_cast<uint16_t>(buf[i] & 0xFFFFu);
+				const uint16_t wc = static_cast<uint16_t>(buf[i] >> 16);
 				if (wc == 0 || i + wc > n || op == kOpTerm) break;
 				if (op == kOpClip) ++clips;
 				else if (op == kOpBindpose) ++binds;
@@ -566,10 +616,17 @@ int64_t __fastcall Hook_CreateAnimCmds(uintptr_t animCtrl, void* a2, AnimCmdList
 		}
 	}
 
-	if (playerAc && animCtrl == playerAc && g_txEnabled.load(std::memory_order_acquire) && cmdList && cmdList->buf) {
-		const uint32_t endCursor = cmdList->cursor;
-		if (endCursor > startCursor && endCursor - startCursor <= kMaxCmdDwords) {
-			SerializeTxCmds(cmdList->buf + startCursor, endCursor - startCursor);
+	if (playerAc && animCtrl == playerAc && g_txEnabled.load(std::memory_order_acquire) && cmdList && bufAddr &&
+		endCursor > startCursor && endCursor - startCursor <= kMaxCmdDwords) {
+		uint32_t raw[kMaxCmdDwords];
+		const uint32_t n = endCursor - startCursor;
+		if (SafeCopyWords(raw, bufAddr + static_cast<size_t>(startCursor) * 4, n)) {
+			const uint32_t stampMs = static_cast<uint32_t>(g_frameNowMs.load(std::memory_order_relaxed));
+			AcquireSRWLockExclusive(&g_rawTxLock);
+			g_rawTx.assign(raw, raw + n);
+			g_rawTxMs = stampMs ? stampMs : static_cast<uint32_t>(GetTickCount64());
+			g_hasRawTx = true;
+			ReleaseSRWLockExclusive(&g_rawTxLock);
 		}
 	}
 	return ret;
@@ -591,7 +648,7 @@ bool Init(uintptr_t gameBase, LogFn logFn) {
 	}
 	g_hookCreateAnimCmds = std::move(*res);
 	g_hookOk.store(true, std::memory_order_release);
-	if (g_log) g_log("anim: hooked CreateAnimCmds at 0x%llX", static_cast<unsigned long long>(gameBase + kRvaCreateAnimCmds));
+	if (g_log) g_log("anim: hooked CreateAnimCmds at 0x%llX (game-thread pipeline)", static_cast<unsigned long long>(gameBase + kRvaCreateAnimCmds));
 	return true;
 }
 
@@ -612,29 +669,55 @@ void SetTargets(uintptr_t playerEntity, uintptr_t puppetEntity) {
 		if (const uintptr_t fg = SafeReadPtr(puppetEntity + kGoFgAnim)) SafeRead(fg + 0x10, nAc);
 	}
 	g_playerAc.store(pAc, std::memory_order_release);
-	if (g_puppetAc.exchange(nAc, std::memory_order_acq_rel) != nAc) g_puppetTposeStreak.store(0, std::memory_order_relaxed);
+	const uintptr_t prevPuppetAc = g_puppetAc.exchange(nAc, std::memory_order_acq_rel);
+	if (prevPuppetAc != nAc) {
+		g_puppetTposeStreak.store(0, std::memory_order_relaxed);
+		g_lastAppliedMs.store(0, std::memory_order_release);
+		AcquireSRWLockExclusive(&g_preparedLock);
+		g_prepared.valid = false;
+		g_prepared.words.clear();
+		ReleaseSRWLockExclusive(&g_preparedLock);
+		if (!nAc) {
+			AcquireSRWLockExclusive(&g_rxQueueLock);
+			g_rxQueue.clear();
+			ReleaseSRWLockExclusive(&g_rxQueueLock);
+		}
+	}
 }
 
 void SetTxEnabled(bool enabled) {
 	g_txEnabled.store(enabled, std::memory_order_release);
 	if (!enabled) {
-		std::lock_guard<std::mutex> lk(g_txMu);
-		g_pendingTx.clear();
-		g_hasPendingTx = false;
+		AcquireSRWLockExclusive(&g_rawTxLock);
+		g_rawTx.clear();
+		g_hasRawTx = false;
+		ReleaseSRWLockExclusive(&g_rawTxLock);
 	}
 }
 
 void SetRxEnabled(bool enabled) {
 	g_rxEnabled.store(enabled, std::memory_order_release);
+	if (!enabled) {
+		g_lastAppliedMs.store(0, std::memory_order_release);
+		AcquireSRWLockExclusive(&g_preparedLock);
+		g_prepared.valid = false;
+		ReleaseSRWLockExclusive(&g_preparedLock);
+	}
 }
 
 bool PollTx(std::vector<uint8_t>& out) {
-	std::lock_guard<std::mutex> lk(g_txMu);
-	if (!g_hasPendingTx || g_pendingTx.empty()) return false;
-	out = std::move(g_pendingTx);
-	g_pendingTx.clear();
-	g_hasPendingTx = false;
-	return true;
+	std::vector<uint32_t> raw;
+	uint32_t stampMs = 0;
+	AcquireSRWLockExclusive(&g_rawTxLock);
+	if (!g_hasRawTx || g_rawTx.empty()) {
+		ReleaseSRWLockExclusive(&g_rawTxLock);
+		return false;
+	}
+	raw.swap(g_rawTx);
+	stampMs = g_rawTxMs;
+	g_hasRawTx = false;
+	ReleaseSRWLockExclusive(&g_rawTxLock);
+	return SerializeTxCmds(raw.data(), static_cast<uint32_t>(raw.size()), stampMs, out);
 }
 
 void PushRx(const uint8_t* data, size_t len, uint64_t nowMs) {
@@ -644,36 +727,58 @@ void PushRx(const uint8_t* data, size_t len, uint64_t nowMs) {
 	memcpy(&senderMs, data + 4, 4);
 	if ((verWord & 0xFFu) != kWireVersion) return;
 
-	g_lastRxArrivalMs.store(nowMs, std::memory_order_release);
 	g_rxCount.fetch_add(1, std::memory_order_relaxed);
-
-	std::lock_guard<std::mutex> lk(g_rxMu);
+	AcquireSRWLockExclusive(&g_rxQueueLock);
 	if (g_rxQueue.empty() || nowMs - g_rxQueue.back().arrivalMs > 500 || senderMs < g_rxBaseSenderMs) {
 		g_rxBaseSenderMs = senderMs;
 		g_rxBaseLocalMs = nowMs + kAnimJitterMs;
 	}
-	if (!g_rxQueue.empty() && senderMs < g_rxQueue.back().senderMs) return;  // вне порядка -> отбросить
+	if (!g_rxQueue.empty() && senderMs < g_rxQueue.back().senderMs) {
+		ReleaseSRWLockExclusive(&g_rxQueueLock);
+		return;
+	}
 	while (g_rxQueue.size() >= kMaxRxQueue) g_rxQueue.pop_front();
 	BufferedRx b;
 	b.senderMs = senderMs;
 	b.arrivalMs = nowMs;
 	b.bytes.assign(data, data + len);
 	g_rxQueue.push_back(std::move(b));
+	ReleaseSRWLockExclusive(&g_rxQueueLock);
+}
+
+void PrepareRx(uint64_t nowMs) {
+	g_frameNowMs.store(nowMs, std::memory_order_relaxed);
+	const uintptr_t puppetAc = g_puppetAc.load(std::memory_order_acquire);
+	if (!puppetAc || !g_rxEnabled.load(std::memory_order_acquire)) return;
+
+	std::vector<uint8_t> wire;
+	if (!SelectRxFrame(nowMs, wire)) return;
+
+	PreparedFrame next;
+	if (!BuildPreparedRx(puppetAc, wire, next)) {
+		g_rxDropped.fetch_add(1, std::memory_order_relaxed);
+		return;
+	}
+	next.readyAt = nowMs;
+	AcquireSRWLockExclusive(&g_preparedLock);
+	g_prepared = std::move(next);
+	ReleaseSRWLockExclusive(&g_preparedLock);
 }
 
 uint32_t PuppetTposeStreak() { return g_puppetTposeStreak.load(std::memory_order_relaxed); }
-
 bool HooksOk() { return g_hookOk.load(std::memory_order_acquire); }
 
 bool HasActiveRx(uint64_t nowMs) {
-	const uint64_t last = g_lastRxArrivalMs.load(std::memory_order_acquire);
-	return last != 0 && nowMs - last <= kRxActiveWindowMs;
+	const uint64_t last = g_lastAppliedMs.load(std::memory_order_acquire);
+	return last != 0 && nowMs >= last && nowMs - last <= kRxHoldMs;
 }
 
 Stats GetStats() {
 	return {
 		g_txCount.load(std::memory_order_relaxed),
 		g_rxCount.load(std::memory_order_relaxed),
+		g_rxApplied.load(std::memory_order_relaxed),
+		g_rxDropped.load(std::memory_order_relaxed),
 		g_rxMissClips.load(std::memory_order_relaxed),
 		g_rxRetargeted.load(std::memory_order_relaxed),
 		g_hookOk.load(std::memory_order_acquire),

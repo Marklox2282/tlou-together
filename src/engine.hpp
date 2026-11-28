@@ -127,7 +127,17 @@ static_assert(offsetof(SpawnerHead, sid) == kSpSid && offsetof(SpawnerHead, name
 	offsetof(SpawnerHead, flags0) == kSpFlags0 && offsetof(SpawnerHead, flags1) == kSpFlags1);
 
 // Человек-NPC для партнёра, под пол и имя героя (hero - "joel", пусто = любой); exclude -
-// спавнеры, которые уже не сработали.
+// спавнеры, которые уже не сработали. Возвращает список кандидатов (от лучшего к худшему),
+// а заодно отмечает всех сюжетных героев, чьи сущности уже присутствуют на уровне.
+struct BuddyCandidate {
+	uintptr_t spawner;
+	std::string name;
+	std::string art;
+	std::string hero;
+	int rank;
+};
+std::vector<BuddyCandidate> FindBuddyCandidates(const std::string& hero, const std::vector<uintptr_t>& exclude,
+	const std::vector<std::string>& badHeroes);
 uintptr_t FindBuddySpawner(const std::string& hero, const std::vector<uintptr_t>& exclude, std::string& nameOut);
 // Имена (sid) NPC всех спавнеров этого сюжетного персонажа ("marlene") на загруженных уровнях.
 std::vector<uint64_t> CharacterSids(const std::string& character);

@@ -117,6 +117,7 @@ float YawDiff(const float a[4], const float b[4]) {
 // ---- состояние -----------------------------------------------------------------------------
 std::atomic<bool> g_wanted{ false }, g_follow{ false }, g_teleport{ false }, g_netActive{ false };
 std::atomic<uint64_t> g_puppet{ 0 }, g_doneFrame{ 0 };
+std::atomic<float> g_lastErrM{ 0.0f };
 // Место в сюжете: своё (читается в скриптовом потоке) и партнёра (из сети, игровой кадр).
 SRWLOCK g_chapterLock = SRWLOCK_INIT;
 Chapter g_myChapter, g_partnerChapter;
@@ -215,42 +216,36 @@ const char* TraversalStateName(uint64_t state) {
 	const auto it = map.find(state);
 	return it == map.end() ? nullptr : it->second;
 }
-// Партнёр (без сети - мы сами, с задержкой локальной петли) сейчас лезет/прыгает.
-bool PartnerClimbs(ULONGLONG now) {
-	if (UsingNetwork()) {
-		const ULONGLONG at = g_partnerTraversalAt;
-		return at && now - at < 400;
-	}
-	const ULONGLONG at = g_meTraversalAt;
-	return at && now - at < kLocalDelayMs + 600;
-}
 bool g_puppetIsBuddy = false;  // марионетка - настоящий спутник главы (у героя)
 uint64_t g_buddyMode = 0;      // его режим скрипта до нас - вернуть при отпускании
 SRWLOCK g_namesLock = SRWLOCK_INIT;
 std::string g_heroName, g_companionName;
 
-// Партнёра изображает настоящий спутник главы: партнёр выбрал спутника, или это проверка
-// без сети (F10 - спутник ходит и стреляет за нас); но не когда мы сами спутник (наш спрятан).
-bool PartnerIsBuddy() { return (PartnerCharacter() == 1 || !UsingNetwork()) && MyCharacter() != 1; }
+// Партнёра изображает настоящий спутник главы только по сети, когда партнёр явно выбрал companion
+// (и мы сами не companion). В одиночном тесте F10 всегда спавним отдельную копию, не отключая Элли.
+bool PartnerIsBuddy() { return UsingNetwork() && PartnerCharacter() == 1 && MyCharacter() != 1; }
+
+bool g_hasBuddyFaction = false;
+uint64_t g_lastBuddyFaction = 0;
+
+void ApplyAllyFaction(uint64_t npc) {
+	if (const uint64_t buddy = CurrentBuddy(npc)) {
+		g_lastBuddyFaction = Call(g_dc.getFaction, { buddy });
+		g_hasBuddyFaction = true;
+	}
+	const uint64_t faction = g_hasBuddyFaction ? g_lastBuddyFaction : Call(g_dc.getFaction, { Sid("player") });
+	Call(g_dc.setFaction, { npc, faction });
+}
 
 // Без собственной воли: тот же набор, что у марионетки в TLOU2-Coop.
 void AiOff(uint64_t npc) {
 	Call(g_dc.scriptMode, { npc, 2, 1 });  // выключить ИИ и сюжетные команды
 	for (NativeFn on : { g_dc.setBlind, g_dc.setDeaf }) Call(on, { npc, 1 });
 	// Враги по замыслу игры не замечают спутников (стелс): чтобы они охотились и на партнёра, его
-	// копия - во фракции самого игрока (так делает TLOU2-Coop) и не "игнорируется" ИИ.
-	if (g_enemiesSee) {
-		Call(g_dc.setIgnore, { npc, 0 });
-		// Фракция спутника главы (как у Тесс): союзника игрок не может схватить и задушить (в игре
-		// всегда включено "allies don't get grabbed"); с фракцией игрока копию душили. Нет спутника -
-		// фракция игрока.
-		uint64_t faction = 0;
-		if (const uint64_t buddy = CurrentBuddy(0)) faction = Call(g_dc.getFaction, { buddy });
-		if (!faction) faction = Call(g_dc.getFaction, { Sid("player") });
-		if (faction) Call(g_dc.setFaction, { npc, faction });
-	} else {
-		Call(g_dc.setIgnore, { npc, 1 });
-	}
+	// копия - во фракции спутника главы (союзника игрок не может схватить и задушить).
+	// Если при перезагрузке спутник ещё не заспавнился, берём последнюю известную фракцию спутника.
+	Call(g_dc.setIgnore, { npc, g_enemiesSee ? 0ull : 1ull });
+	ApplyAllyFaction(npc);
 	for (NativeFn off : { g_dc.hitReactions, g_dc.stun, g_dc.dodges }) Call(off, { npc, 0 });
 	Call(g_dc.setUnshootable, { npc, 1 });  // напарника не подстрелить
 	if (g_dc.npcForcePush) Call(g_dc.npcForcePush, { npc, 0, F(0.0f) });
@@ -307,70 +302,20 @@ uint64_t Spawn(const Locator& at) {
 		g_badHeroes.clear();
 		g_badForChapter = LoadChapter(g_myChapter).task;
 	}
-	// Персонаж, который сейчас сам есть на уровне по сюжету (Роберт в его миссии), не копируем:
-	// игрок видел "лишнего" Роберта. Имя (sid) NPC спавнера совпадает с sid самого спавнера.
-	uintptr_t sp = 0;
-	// Сюжетного персонажа проверяем по всем его спавнерам: настоящую Марлин уровень создал из
-	// другого спавнера, и рядом с ней появлялась вторая.
-	// Спутники главы, живые сейчас (Тесс, Элли...): их спавнер игра отдаёт вместе с настоящим
-	// сюжетным персонажем - мод выключал ему ИИ, скрипты уровня тянули своё, игра падала.
+	// Персонаж, который сейчас сам есть на уровне по сюжету (Роберт, Тесс, Марлин), не копируем:
+	// один проход по всем спавнерам вместо O(N^2) и без лимита в 64 попытки.
 	std::vector<uint64_t> buddies;
-	std::vector<std::string> buddyHeroes;
+	std::vector<std::string> skipHeroes = g_badHeroes;
 	for (uint64_t b = CurrentBuddy(0); b && buddies.size() < 4; b = CurrentBuddy(b)) {
 		if (std::find(buddies.begin(), buddies.end(), b) != buddies.end()) break;
 		buddies.push_back(b);
-		if (const std::string h = HeroName(ArtOfNpc(b)); !h.empty()) buddyHeroes.push_back(h);
-	}
-	auto inScene = [&](uintptr_t spawner) {
-		uint64_t spSid = 0;
-		if (Read(spawner + kSpSid, spSid) && Call(g_dc.entityExists, { spSid })) return true;
-		const std::string hero = HeroName(ReadName(ReadPtr(spawner + kSpArt)));
-		// Сюжетный персонаж в игре называется своим именем ("tess"): если он уже в сцене, его спавнер
-		// отдаёт его самого или двойника с тем же именем - не трогаем (не зависит от списка спутников,
-		// который сразу после загрузки уровня ещё пуст).
-		if (!hero.empty() && Call(g_dc.entityExists, { Sid(hero.c_str()) })) return true;
-		if (!hero.empty() && std::find(buddyHeroes.begin(), buddyHeroes.end(), hero) != buddyHeroes.end()) return true;
-		if (!hero.empty() && std::find(g_badHeroes.begin(), g_badHeroes.end(), hero) != g_badHeroes.end()) return true;
-		for (uint64_t sid : CharacterSids(HeroName(ReadName(ReadPtr(spawner + kSpArt)))))
-			if (Call(g_dc.entityExists, { sid })) return true;
-		return false;
-	};
-	std::vector<uintptr_t> skip = g_badSpawners;
-	for (int tries = 0; tries < 64; ++tries) {  // сюжетных спавнеров бывает много (у Тесс 8)
-		sp = FindBuddySpawner(HeroName(look), skip, name);
-		if (!sp || !inScene(sp)) break;
-		Log("puppet: %s is in the scene already, skipping", name.c_str());
-		skip.push_back(sp);
-		sp = 0;
-	}
-	// Ничего не осталось (партнёр выбрал персонажа, который и так здесь, а других NPC нет - пролог):
-	// берём любой NPC и надеваем выбранный облик. Двойник лучше невидимого партнёра.
-	if (!sp && !look.empty()) {
-		std::vector<uintptr_t> skipAny = g_badSpawners;
-		for (int tries = 0; tries < 64; ++tries) {  // сюжетных спавнеров бывает много (у Тесс 8)
-			sp = FindBuddySpawner(std::string(), skipAny, name);
-			if (!sp || !inScene(sp)) break;
-			skipAny.push_back(sp);
-			sp = 0;
+		if (const std::string h = HeroName(ArtOfNpc(b)); !h.empty() &&
+			std::find(skipHeroes.begin(), skipHeroes.end(), h) == skipHeroes.end()) {
+			skipHeroes.push_back(h);
 		}
-		if (sp) Log("puppet: no other NPC to use; %s will wear the look", name.c_str());
 	}
-	g_lastSpawner = sp;
-	// Спавнер того же пола выбирается первым (SpawnerRank); другой пол - только если своего нет
-	// (пролог: кроме Сары женских NPC нет). Образ всё равно надеваем: лучше Сара с чуть кривым
-	// бегом, чем Джоэл вместо Сары.
-	// Скелет другого пола: облик не надеваем, копия в своём виде. Ходьба на чужом скелете работала,
-	// но присед, стойки ожидания и т.п. давали Т-позу (наборы анимаций под другой пол на таком уровне
-	// не загружены - set-overlay-set "male-buddy" отказал). Двигается правильно - важнее облика.
-	if (!look.empty() && sp && !SameSex(ReadName(ReadPtr(sp + kSpArt)), HeroName(look))) {
-		Log("puppet: no %s-like NPC here; the copy keeps its own look (%s) so it animates properly",
-			HeroName(look).c_str(), ReadName(ReadPtr(sp + kSpArt)).c_str());
-		look.clear();
-	}
-	uint64_t sid = 0;
-	uint8_t f1 = 0;
-	if (!sp || !Read(sp + kSpSid, sid) || !Read(sp + kSpFlags1, f1)) {
-		// Для разбора: какие облики вообще есть на загруженных уровнях (раз за главу).
+	const std::vector<BuddyCandidate> candidates = FindBuddyCandidates(HeroName(look), g_badSpawners, skipHeroes);
+	if (candidates.empty()) {
 		static uint64_t listedFor = 0;
 		if (listedFor != g_badForChapter) {
 			listedFor = g_badForChapter;
@@ -382,36 +327,54 @@ uint64_t Spawn(const Locator& at) {
 		Log("puppet: no buddy spawner in loaded levels");
 		return 0;
 	}
-	// До вызова движка: если он упадёт, в логе будет видно, на каком спавнере.
-	Log("puppet: spawning from %s, look %s", name.c_str(), look.empty() ? "-" : look.c_str());
-	// Бит "multi-spawn": иначе движок переиспользует и телепортирует сюжетного NPC уровня.
-	auto* flags1 = reinterpret_cast<uint8_t*>(sp + kSpFlags1);
-	*flags1 = static_cast<uint8_t>(f1 | kSpMultiSpawn);
 	const uint64_t frame = BoundFrame(at.pos, at.rot);
-	// Сначала с внешностью героя; если движок такой образ не примет - образ самого спавнера.
-	uint64_t npc = frame && !look.empty() ? Call(g_dc.spawnWithLook, { sid, frame, Sid(look.c_str()) }) : 0;
-	if (!look.empty()) Log("puppet: look %s %s", look.c_str(), npc && npc != sid ? "applied" : "refused");
-	if (!npc || npc == sid) npc = frame ? Call(g_dc.spawnWithLook, { sid, frame, 0 }) : 0;
-	*flags1 = f1;
-	if (!npc || npc == sid) {
-		Log("puppet: spawn from %s failed (npc=%016llX)", name.c_str(), static_cast<unsigned long long>(npc));
-		return 0;
+	if (!frame) return 0;
+	for (size_t idx = 0; idx < candidates.size() && idx < 4; ++idx) {
+		const BuddyCandidate& cand = candidates[idx];
+		const uintptr_t sp = cand.spawner;
+		g_lastSpawner = sp;
+		std::string tryLook = look;
+		// Скелет другого пола: облик не надеваем, иначе на приседе/стойках бывает Т-поза.
+		if (!tryLook.empty() && !SameSex(cand.art, HeroName(tryLook))) {
+			Log("puppet: no %s-like NPC here; the copy keeps its own look (%s) so it animates properly",
+				HeroName(tryLook).c_str(), cand.art.c_str());
+			tryLook.clear();
+		}
+		uint64_t sid = 0;
+		uint8_t f1 = 0;
+		if (!Read(sp + kSpSid, sid) || !Read(sp + kSpFlags1, f1)) {
+			g_badSpawners.push_back(sp);
+			continue;
+		}
+		Log("puppet: spawning from %s, look %s", cand.name.c_str(), tryLook.empty() ? "-" : tryLook.c_str());
+		auto* flags1 = reinterpret_cast<uint8_t*>(sp + kSpFlags1);
+		*flags1 = static_cast<uint8_t>(f1 | kSpMultiSpawn);
+		uint64_t npc = !tryLook.empty() ? Call(g_dc.spawnWithLook, { sid, frame, Sid(tryLook.c_str()) }) : 0;
+		if (!tryLook.empty()) Log("puppet: look %s %s", tryLook.c_str(), npc && npc != sid ? "applied" : "refused");
+		if (!npc || npc == sid) npc = Call(g_dc.spawnWithLook, { sid, frame, 0 });
+		*flags1 = f1;
+		if (!npc || npc == sid) {
+			Log("puppet: spawn from %s failed (npc=%016llX)", cand.name.c_str(), static_cast<unsigned long long>(npc));
+			g_badSpawners.push_back(sp);
+			continue;
+		}
+		// Игра отдала настоящего спутника главы вместо новой копии - не трогаем его, спавнер в чёрный список.
+		if (std::find(buddies.begin(), buddies.end(), npc) != buddies.end() || npc == CurrentBuddy(0) ||
+			(!cand.hero.empty() && npc == Sid(cand.hero.c_str()))) {
+			Log("puppet: %s gave the chapter's real companion %016llX, not a copy - leaving it alone", cand.name.c_str(),
+				static_cast<unsigned long long>(npc));
+			g_badSpawners.push_back(sp);
+			if (!cand.hero.empty()) g_badHeroes.push_back(cand.hero);
+			continue;
+		}
+		g_puppetLook = tryLook.empty() ? cand.art : tryLook;
+		AiOff(npc);
+		const uint64_t wantWeapon = UsingNetwork() ? g_partnerWeapon.load() : g_myWeapon.load();
+		if (!wantWeapon && Call(g_dc.npcWeapon, { npc })) Call(g_dc.destroyWeapon, { npc });
+		Log("puppet: %s -> %016llX", cand.name.c_str(), static_cast<unsigned long long>(npc));
+		return npc;
 	}
-	// Игра отдала настоящего спутника главы вместо новой копии - не трогаем его, спавнер в чёрный список.
-	const std::string spawnedHero = HeroName(ReadName(ReadPtr(sp + kSpArt)));
-	if (std::find(buddies.begin(), buddies.end(), npc) != buddies.end() || npc == CurrentBuddy(0) ||
-		(!spawnedHero.empty() && npc == Sid(spawnedHero.c_str()))) {
-		Log("puppet: %s gave the chapter's real companion %016llX, not a copy - leaving it alone", name.c_str(),
-			static_cast<unsigned long long>(npc));
-		g_badSpawners.push_back(sp);
-		// Все спавнеры этого персонажа дадут то же самое (у Тесс их на уровне 7): больше не пробуем,
-		// иначе каждые несколько секунд появлялась новая Тесс.
-		if (const std::string hero = HeroName(ReadName(ReadPtr(sp + kSpArt))); !hero.empty()) g_badHeroes.push_back(hero);
-		return 0;
-	}
-	AiOff(npc);
-	Log("puppet: %s -> %016llX", name.c_str(), static_cast<unsigned long long>(npc));
-	return npc;
+	return 0;
 }
 
 // Друг далеко (другая глава или другой конец уровня): его координаты могут быть в
@@ -443,6 +406,7 @@ constexpr uint64_t kBoxedSymbol = 7;
 std::atomic<bool> g_hidden{ false };
 
 void Hide() {
+	anim::SetTargets(PlayerEntity(), 0);  // мгновенный Detach до скрытия/освобождения NPC
 	const uint64_t puppet = g_puppet;
 	if (puppet && g_puppetIsBuddy) {  // настоящего спутника не прячем, а отдаём обратно ИИ
 		ReleaseBuddy(puppet);
@@ -478,6 +442,7 @@ void Update() {
 	const bool checkNow = now - g_spawnedAt < 500 || now - lastExistsCheck >= 500;
 	if (checkNow) lastExistsCheck = now;
 	if (puppet && checkNow && !Call(g_dc.entityExists, { puppet })) {
+		anim::SetTargets(PlayerEntity(), 0);
 		const bool instant = now - g_spawnedAt < 2000;
 		Log("puppet %016llX is gone %s", static_cast<unsigned long long>(puppet),
 			instant ? "right after spawning: the level removes it, trying another spawner" : "(death or checkpoint reload)");
@@ -519,6 +484,24 @@ void Update() {
 		if (!puppet) ++g_failures;
 		return;
 	}
+	if (puppet && checkNow && !g_puppetIsBuddy && PartnerIsBuddy()) {
+		if (const uint64_t buddy = CurrentBuddy(puppet)) {
+			const uint64_t old = puppet;
+			Locator at{};
+			Hide();
+			if (NpcLocator(old, at)) {
+				at.pos[1] -= 1000.0f;
+				if (const uint64_t frame = BoundFrame(at.pos, at.rot)) PlaceNpc(old, frame);
+			}
+			TakeOverBuddy(buddy);
+			g_puppet = puppet = buddy;
+			g_lastSpawner = 0;
+			g_lastSpawnTry = g_spawnedAt = now;
+			Log("puppet: switched from temp copy %016llX to real companion %016llX",
+				static_cast<unsigned long long>(old), static_cast<unsigned long long>(buddy));
+			return;
+		}
+	}
 	if (g_hidden) Show(puppet, target);
 	if (now - g_spawnedAt > 2000) g_failures = 0;
 	// Локальная петля анимаций для одиночного теста (F10): отдаём кадр с той же задержкой 1 с.
@@ -550,16 +533,15 @@ void Update() {
 		return;
 	}
 	wasFollowing = true;
-	// Точное покадровое позиционирование через set-object-locator: когда приходят анимации партнёра
-	// (anim_sync или подъём/прыжок) или партнёр лезет по лестнице/прыгает - туда npc-move-to не ведёт.
+	// Точное покадровое позиционирование через set-object-locator: только когда реально
+	// приходят анимации костей (animRx). Без анимаций при подъёме/уклоне set-object-locator
+	// отрывал копию от пола и она "летела" статуей в воздухе — пусть идёт через npc-move-to / snap.
 	static bool wasExact = false;
-	const bool climbing = PartnerClimbs(now);
-	const bool exact = g_dc.setObjectLocator && (animRx || climbing);
+	const bool exact = g_dc.setObjectLocator && animRx;
 	if (exact != wasExact) {
 		wasExact = exact;
 		lastMode = -1;
-		Log("puppet: %s", exact ? (climbing ? "partner climbs/jumps - copy follows exactly" : "follows partner's animation exactly")
-								: "back to walking on its own");
+		Log("puppet: %s", exact ? "follows partner's animation exactly" : "back to walking on its own");
 		Locator here{};
 		if (exact && NpcLocator(puppet, here))  // остановить свой путь ИИ, чтобы не тянул в сторону
 			if (const uint64_t frame = BoundFrame(here.pos, here.rot)) Call(g_dc.moveTo, { puppet, frame, 0, 0, 0, 0, 0, 0 });
@@ -568,6 +550,7 @@ void Update() {
 		Locator cur{};
 		const bool haveCur = NpcLocator(puppet, cur);
 		const float err = haveCur ? Dist(cur.pos, target.pos) : 999.0f;
+		if (haveCur) g_lastErrM.store(err, std::memory_order_relaxed);
 		if (const uint64_t frame = BoundFrame(target.pos, target.rot)) {
 			if (!placedPuppet || err > 15.0f) {
 				PlaceNpc(puppet, frame);
@@ -592,19 +575,21 @@ void Update() {
 		return;
 	}
 	const float err = Dist(cur.pos, target.pos);
-	const float targetSpeed = Dist(before.pos, target.pos) / 0.25f;
+	g_lastErrM.store(err, std::memory_order_relaxed);
+	const float rawSpeed = Dist(before.pos, target.pos) / 0.25f;
+	const float targetSpeed = rawSpeed > 8.0f ? 0.0f : rawSpeed;  // скачок/телепорт партнёра не считаем бегом (не упреждаем в стену)
 	// Отстала - догоняет бегом/спринтом (режим растёт с отрывом, см. ниже). Телепорт - только
-	// если отрыв больше 15 м или она застряла: 2 с отстаёт больше чем на 3 м и не приближается
+	// если отрыв больше 15 м или она застряла: 2.5 с отстаёт больше чем на 4 м и не приближается
 	// (прыжки, лестницы, обрывы - туда npc-move-to её не ведёт).
-	// Застряла: 2 с сама почти не сдвинулась (меньше 0.5 м), хотя отстаёт больше чем на 3 м.
+	// Застряла: 2.5 с сама почти не сдвинулась (меньше 0.5 м), хотя отстаёт больше чем на 4 м.
 	// Сокращение отрыва не годится: когда игрок бежит быстрее, отрыв растёт и у бегущей.
 	static float movedFrom[3]{};
 	static ULONGLONG movedAt = 0;
-	if (Dist(cur.pos, movedFrom) > 0.5f || err < 3.0f || !movedAt) {
+	if (Dist(cur.pos, movedFrom) > 0.5f || err < 4.0f || !movedAt) {
 		memcpy(movedFrom, cur.pos, sizeof(movedFrom));
 		movedAt = now;
 	}
-	const bool stuck = err > 3.0f && now - movedAt > 2000;
+	const bool stuck = err > 4.0f && now - movedAt > 2500;
 	// Телепорт, после которого она так и осталась далеко (точка недоступна), не повторяем каждые
 	// 2 с: после двух таких подряд - пауза 10 с.
 	static int uselessSnaps = 0;
@@ -621,7 +606,7 @@ void Update() {
 	static ULONGLONG snapWantedSince = 0;
 	const CameraView view = CurrentView();
 	const bool onScreen = Seen(view, cur.pos, 40.0f) || Seen(view, target.pos, 40.0f);
-	const bool wantSnap = err > 15.0f || stuck || (UsingNetwork() && (err > 8.0f || (err > 4.0f && !onScreen)));
+	const bool wantSnap = err > 15.0f || stuck || (UsingNetwork() && (err > 10.0f || (err > 4.5f && !onScreen)));
 	bool snapNow = wantSnap;
 	if (snapNow && err < 30.0f && !UsingNetwork()) {  // по сети - сразу: рассинхрон хуже рывка
 		if (!snapWantedSince) snapWantedSince = now;
@@ -642,7 +627,7 @@ void Update() {
 	}
 	// Партнёр стоит: через 0.7 с ставим марионетку точно на его место и с его поворотом (переносом
 	// на месте - он же сбрасывает застывшую "широкую стойку" начала шага), дальше держим совпадение
-	// не чаще раза в 1.5 с. Микрошаги командами давали рывки, а поворот стоя не менялся вовсе.
+	// не чаще раза в 2 с. Микрошаги командами давали рывки, а поворот стоя не менялся вовсе.
 	static ULONGLONG standingSince = 0, lastSettle = 0;
 	if (targetSpeed < 0.3f) {
 		if (!standingSince) standingSince = now;
@@ -651,15 +636,14 @@ void Update() {
 	}
 	if (UsingNetwork() && standingSince && now - standingSince >= 700 && err < 3.0f) {  // без сети партнёр - мы сами: встала бы в нас
 		const float yawOff = std::fabs(YawDiff(cur.rot, target.rot));
-		if ((err > 2.0f || yawOff > 1.5f) && now - lastSettle >= 3000) {  // только при заметной разнице (рывки)
+		if ((err > 0.8f || yawOff > 0.45f) && now - lastSettle >= 2000) {
 			lastSettle = lastCmdAt = now;
 			lastMode = -1;
 			if (const uint64_t frame = BoundFrame(target.pos, target.rot)) PlaceNpc(puppet, frame);
 		}
-		// Долго стоит без команд - игра включает ей анимации ожидания; раз в 4 с повторяем
-		// "стой здесь" и манеру стойки (0 = ambient, 3 = crouch).
+		// Стоит без команд - освежаем "стой здесь" и стойку (0 = ambient, 3 = crouch), чтобы не застывала в шаге.
 		static ULONGLONG lastIdleRefresh = 0;
-		if (now - standingSince >= 4000 && now - lastIdleRefresh >= 4000 && now - lastSettle >= 1000) {
+		if (now - standingSince >= 800 && now - lastIdleRefresh >= 3500 && now - lastSettle >= 800) {
 			lastIdleRefresh = lastCmdAt = now;
 			const bool crouch = UsingNetwork() ? g_partnerCrouched.load() : g_meCrouched.load();
 			if (const uint64_t frame = BoundFrame(cur.pos, target.rot)) Call(g_dc.moveTo, { puppet, frame, 0, 0, 0, 0, 0, 0 });
@@ -667,29 +651,39 @@ void Update() {
 		}
 		return;
 	}
-	if (targetSpeed < 0.5f && err < 1.5f) return;
-	// Догон по месту (как в v36): ИИ бежит своей дорогой, а сюжетный NPC (например, Тесс из
-	// скрипта уровня) команд движения почти не слушается и стоит. Сверх 1.5 м подтягиваем копию
-	// к настоящей позиции партнёра - половину лишнего раз в 0.1 с; бег (анимацию) ведёт команда ниже.
-	if (UsingNetwork() && g_dc.setObjectLocator && targetSpeed > 0.5f && err > 3.0f && err < 15.0f) {
-		const float k = 0.5f * (err - 3.0f) / err;  // мягко: половину лишнего сверх 1.5 м и только на ходу (рывки)
+	if (targetSpeed < 0.5f && err < 0.8f) return;
+	// Мягкий догон по ровной земле (не тянем по диагонали в воздухе через ямы/ступени).
+	if (UsingNetwork() && g_dc.setObjectLocator && targetSpeed > 0.5f && err > 4.5f && err < 15.0f &&
+		std::fabs(target.pos[1] - cur.pos[1]) < 0.8f) {
+		const float k = 0.5f * (err - 4.5f) / err;
 		float pulled[3];
 		for (int i = 0; i < 3; ++i) pulled[i] = cur.pos[i] + (target.pos[i] - cur.pos[i]) * k;
 		// Высоту тянем вместе с горизонталью: если держать старую, на ступеньках и уклонах копия уходила
 		// в пол. ("Полёт" раньше давала настоящая Тесс, которую мод ошибочно водил, - это исправлено.)
 		if (const uint64_t frame = BoundFrame(pulled, cur.rot)) Call(g_dc.setObjectLocator, { puppet, frame });
 	}
-	// Скорость партнёра плюс догон: чем больше отстала, тем быстрее (бег - с 1.5 м/с, спринт - с 3.5).
+	// Скорость партнёра плюс догон: гистерезис не даёт переключать ходьба/бег/спринт туда-сюда каждые 0.2 с.
 	const float speed = targetSpeed + (err > 1.0f ? (err - 1.0f) * 1.2f : 0.0f);
-	const int mode = speed < 1.5f ? 0 : (speed < 3.5f ? 1 : 2);
-	// Цель с упреждением: где партнёр будет через ~0.5 с при той же скорости (дальше - чаще
-	// оказывалась за стеной на поворотах, и NPC срезал сквозь неё). Команда - только если цель
-	// ушла больше чем на 2 м, сменился режим или прошло 2.5 с: каждая новая команда
-	// перезапускала шаг, и NPC отставал и дёргался (особенно при медленной ходьбе).
-	float goal[3];
-	const float lead = targetSpeed > 0.5f ? 0.5f : 0.0f;
-	for (int i = 0; i < 3; ++i) goal[i] = target.pos[i] + (target.pos[i] - before.pos[i]) * 4.0f * lead;
-	goal[1] = target.pos[1];  // по высоте не упреждаем
+	int mode = lastMode;
+	if (mode < 0) mode = speed < 1.5f ? 0 : (speed < 3.5f ? 1 : 2);
+	else if (mode == 0 && speed > 1.7f) mode = speed > 3.7f ? 2 : 1;
+	else if (mode == 1) {
+		if (speed < 1.3f) mode = 0;
+		else if (speed > 3.7f) mode = 2;
+	} else if (mode == 2 && speed < 3.2f) {
+		mode = speed < 1.3f ? 0 : 1;
+	}
+	// Цель с упреждением не дальше 1.0 м (при скачках скорости не улетает в стены).
+	float goal[3]{ target.pos[0], target.pos[1], target.pos[2] };
+	const float lead = targetSpeed > 0.5f ? 0.35f : 0.0f;
+	if (lead > 0.0f) {
+		const float dx = (target.pos[0] - before.pos[0]) * 4.0f * lead;
+		const float dz = (target.pos[2] - before.pos[2]) * 4.0f * lead;
+		const float d = std::sqrt(dx * dx + dz * dz);
+		const float s = d > 1.0f ? (1.0f / d) : 1.0f;
+		goal[0] += dx * s;
+		goal[2] += dz * s;
+	}
 	// Партнёр остановился: прежняя цель была впереди - поправить на точное место сразу.
 	const float resend = lead > 0.0f ? 1.2f : 0.75f;
 	if (mode == lastMode && Dist(goal, lastGoal) < resend && now - lastCmdAt < 1500) return;
@@ -764,6 +758,7 @@ void CompanionTick(bool on) {
 	if (const uint64_t task = LoadChapter(g_myChapter).task; task != lastTask) {
 		lastTask = task;  // после загрузки облик игрока снова родной - подменим заново
 		g_lookNow.clear();
+		g_heroLook.clear();
 	}
 	if (on && mine >= 2) {
 		if (g_hiddenBuddy) ShowBuddy(g_hiddenBuddy);
@@ -772,10 +767,12 @@ void CompanionTick(bool on) {
 		if (g_heroLook.empty() && PlayerLocator(me)) g_heroLook = HeroLook(me.pos);
 		static int triedFor = -1;
 		static uint64_t triedTask = 0;
-		if (g_lookNow.empty() && (triedFor != mine || triedTask != lastTask)) {  // перебор спавнеров - раз на главу
+		if (g_lookNow.empty() || triedFor != mine || triedTask != lastTask) {  // перебор спавнеров - раз на главу или при смене персонажа
 			triedFor = mine;
 			triedTask = lastTask;
-			SwapLook(ArtOfCharacter(CharacterName(mine)));
+			const std::string art = ArtOfCharacter(CharacterName(mine));
+			if (!art.empty()) SwapLook(art);
+			else if (!g_lookNow.empty() && !g_heroLook.empty() && g_lookNow != g_heroLook) SwapLook(g_heroLook);
 		}
 		return;
 	}
@@ -821,7 +818,7 @@ void NamesTick() {
 void ReadChapter() {
 	static ULONGLONG last = 0;
 	const ULONGLONG now = GetTickCount64();
-	if (now - last < 100) return;
+	if (now - last < 33) return;
 	last = now;
 	const Chapter c = CurrentChapter();
 	if (c == LoadChapter(g_myChapter)) return;
@@ -837,6 +834,7 @@ std::atomic<int> g_joinRequest{ 0 };  // 0 нет, 1 к партнёру, 2 св
 std::atomic<ULONGLONG> g_joinAt{ 0 };  // идёт загрузка с F5 (проверяется вне блокировки)
 ULONGLONG g_joinReadyAt = 0;
 Chapter g_joinTarget;
+bool g_joinOwn = false;
 
 void StartJoin(bool own) {
 	const Chapter target = LoadChapter(own ? g_myChapter : g_partnerChapter);
@@ -848,12 +846,13 @@ void StartJoin(bool own) {
 		static_cast<unsigned long long>(target.node), static_cast<unsigned long long>(target.task));
 	PlayChapter(target);
 	g_joinTarget = target;
+	g_joinOwn = own;
 	g_joinAt = GetTickCount64();
 	g_joinReadyAt = 0;
 }
 
-// После загрузки: игрок есть, глава та, марионетка рядом с партнёром - переносим (без сети -
-// просто сообщаем, что загрузилось).
+// После загрузки: игрок есть и нужная глава открылась - переносим к партнёру по сетевой
+// позиции (не ждём 90 с спавна марионетки, если партнёр далеко или ещё догружается).
 void FinishJoin() {
 	if (!g_joinAt) return;
 	const ULONGLONG now = GetTickCount64();
@@ -862,17 +861,17 @@ void FinishJoin() {
 		g_joinAt = 0;
 		return;
 	}
-	Locator me{};
-	const bool ready = now - g_joinAt > kJoinSettleMs && PlayerLocator(me) && LoadChapter(g_myChapter) == g_joinTarget &&
-		(!UsingNetwork() || (g_puppet && !g_hidden));
+	Locator me{}, partner{};
+	const bool ready = now - g_joinAt > kJoinSettleMs && PlayerLocator(me) && LoadChapter(g_myChapter) == g_joinTarget;
 	if (!ready) {
 		g_joinReadyAt = 0;
 		return;
 	}
 	if (!g_joinReadyAt) g_joinReadyAt = now;
 	if (now - g_joinReadyAt < 1500) return;  // ещё пару кадров после загрузки
+	if (UsingNetwork() && !g_joinOwn && !DelayedTarget(now, partner) && now - g_joinReadyAt < 4000) return;
 	g_joinAt = 0;
-	if (UsingNetwork()) TeleportToPartner();
+	if (UsingNetwork() && (!g_joinOwn || DelayedTarget(now, partner))) TeleportToPartner();
 	else Log("F5: chapter loaded");
 }
 
@@ -881,9 +880,8 @@ void FinishJoin() {
 void Record(uint64_t nowMs, const Locator& l, uint32_t senderMs) {
 	AcquireSRWLockExclusive(&g_trailLock);
 	ULONGLONG t = nowMs;
-	// Время по часам отправителя (с v31) давало копии старые позиции, когда часы съезжали:
-	// раскладываем позы по времени прихода, как до v31 (копия была видна всегда).
-	senderMs = 0;
+	// Время отправителя сглаживает сетевой джиттер: привязываем к минимальной задержке
+	// (если пакет пришёл быстрее базы -> подтягиваем базу; если сильно отстал -> сбрасываем).
 	if (senderMs) {
 		if (!g_lastArrivalMs || nowMs - g_lastArrivalMs > 500 || senderMs < g_lastSenderMs || senderMs - g_lastSenderMs > 500) {
 			g_senderBase = senderMs;
@@ -892,12 +890,10 @@ void Record(uint64_t nowMs, const Locator& l, uint32_t senderMs) {
 		g_lastSenderMs = senderMs;
 		g_lastArrivalMs = nowMs;
 		t = g_localBase + (senderMs - g_senderBase);
-		if (t + 250 < nowMs) {
+		if (t > nowMs || t + 180 < nowMs) {
 			g_senderBase = senderMs;
 			g_localBase = nowMs;
 			t = nowMs;
-		} else if (t > nowMs + 100) {
-			t = nowMs + 100;
 		}
 	}
 	const Sample& last = g_trail[(g_trailHead + kTrail - 1) % kTrail];
@@ -1014,6 +1010,7 @@ std::string CompanionCharacter() {
 	return s;
 }
 uint64_t Current() { return g_puppet; }
+float LastErrorMeters() { return g_puppet ? g_lastErrM.load(std::memory_order_relaxed) : 0.0f; }
 
 // Свой номер кадра: хук интерпретатора срабатывает на каждом вызове скриптовой функции (тысячи
 // за кадр на всех потоках), и проверка там должна стоить одно сравнение. Раньше здесь читался
@@ -1051,9 +1048,7 @@ static void TraversalTick() {
 	}
 	memcpy(prev, me.pos, sizeof(prev));
 	prevAt = now;
-	// Рукопашка: у игрока есть цель удара (get-melee-target) - анимацию тоже копируем.
-	const bool melee = g_dc.meleeTarget && Call(g_dc.meleeTarget, { Sid("player") }) != 0;
-	if (melee && !stateName) stateName = "melee";
+	// Рукопашку и схватки в список не берём (без anim-хука копия лишь замирала статуей).
 	if (stateName || vertical) g_meTraversalAt = now;
 	const ULONGLONG at = g_meTraversalAt;
 	const bool on = at && now - at < 600;
@@ -1088,7 +1083,7 @@ void ScriptTick() {
 	{
 		static ULONGLONG lastCutCheck = 0;
 		const ULONGLONG tNow = GetTickCount64();
-		if (tNow - lastCutCheck >= 100) {
+		if (tNow - lastCutCheck >= 33) {
 			lastCutCheck = tNow;
 			const bool ic = InCutscene();
 			if (ic != g_inCutscene.exchange(ic))
@@ -1206,8 +1201,13 @@ void ScriptTick() {
 				missingSaid.clear();
 			}
 			if (look.empty()) {
-				static uint64_t lastGroup = 0;
+				static uint64_t lastGroup = 0, lastLookTask = 0;
 				static std::string lastArt;
+				const uint64_t curLookTask = LoadChapter(g_myChapter).task;
+				if (curLookTask && curLookTask != lastLookTask) {
+					lastLookTask = curLookTask;
+					lastArt.clear();
+				}
 				const uint64_t group = Call(g_dc.artGroup, { Sid("player") });
 				if (group != lastGroup || lastArt.empty()) {
 					lastGroup = group;
@@ -1220,44 +1220,51 @@ void ScriptTick() {
 			ReleaseSRWLockExclusive(&g_lookLock);
 		}
 	}
-	// Свой выстрел: флаг игры держится мгновение и часто пропускается, поэтому ещё и по патронам:
-	// у того же оружия их стало меньше - был выстрел (перезарядка общий запас не меняет).
+	// Свой выстрел: только когда игрок есть в мире (в меню/загрузке нативы игрока не зовём).
+	Locator selfLoc{};
+	const bool haveSelf = PlayerLocator(selfLoc);
 	{
 		static uint64_t ammoOf = 0;
 		static int64_t lastAmmo = -1;
-		const bool flag = (Call(g_dc.isFiring, {}) & 1) != 0;
-		bool spent = false;
-		const uint64_t weapon = g_myWeapon;
-		if (g_dc.totalAmmo && weapon) {
-			const int64_t ammo = static_cast<int32_t>(Call(g_dc.totalAmmo, { weapon }));
-			spent = weapon == ammoOf && lastAmmo >= 0 && ammo < lastAmmo;
-			ammoOf = weapon;
-			lastAmmo = ammo;
-		}
-		// Бросок, а не выстрел: в руках бросаемый предмет и его стало меньше. Откуда - от головы
-		// игрока, куда - точка в 15 м по взгляду камеры.
-		if (spent && IsThrowable(weapon)) {
-			spent = false;
-			Locator me{};
-			const CameraView cam = CurrentView();
-			if (PlayerLocator(me) && cam.ok) {
-				Throw t{ weapon, { me.pos[0], me.pos[1] + 1.5f, me.pos[2] }, {} };
-				for (int i = 0; i < 3; ++i) t.to[i] = cam.cam.pos[i] + cam.fwd[i] * 15.0f;
-				AcquireSRWLockExclusive(&g_throwLock);
-				if (g_myThrows.size() < 8) g_myThrows.push_back(t);
-				if (!UsingNetwork() && g_partnerThrows.size() < 8) g_partnerThrows.push_back(t);  // F10: копия повторит сама
-				ReleaseSRWLockExclusive(&g_throwLock);
-				Log("me: threw %016llX", static_cast<unsigned long long>(weapon));
-			}
-		}
-		// Флаг держим 120 мс: поза уходит раз в 50 мс, выстрел в один кадр иначе проскочит между пакетами.
 		static ULONGLONG shotAt = 0;
-		if (flag || spent) {
-			shotAt = GetTickCount64();
-			Log("me: shot (%s)", flag ? "flag" : "ammo");
+		if (!haveSelf) {
+			ammoOf = 0;
+			lastAmmo = -1;
+			shotAt = 0;
+			g_meFiring = false;
+		} else {
+			const bool flag = (Call(g_dc.isFiring, {}) & 1) != 0;
+			bool spent = false;
+			const uint64_t weapon = g_myWeapon;
+			if (g_dc.totalAmmo && weapon) {
+				const int64_t ammo = static_cast<int32_t>(Call(g_dc.totalAmmo, { weapon }));
+				spent = weapon == ammoOf && lastAmmo >= 0 && ammo < lastAmmo;
+				ammoOf = weapon;
+				lastAmmo = ammo;
+			}
+			// Бросок, а не выстрел: в руках бросаемый предмет и его стало меньше. Откуда - от головы
+			// игрока, куда - точка в 15 м по взгляду камеры.
+			if (spent && IsThrowable(weapon)) {
+				spent = false;
+				const CameraView cam = CurrentView();
+				if (cam.ok) {
+					Throw t{ weapon, { selfLoc.pos[0], selfLoc.pos[1] + 1.5f, selfLoc.pos[2] }, {} };
+					for (int i = 0; i < 3; ++i) t.to[i] = cam.cam.pos[i] + cam.fwd[i] * 15.0f;
+					AcquireSRWLockExclusive(&g_throwLock);
+					if (g_myThrows.size() < 8) g_myThrows.push_back(t);
+					if (!UsingNetwork() && g_partnerThrows.size() < 8) g_partnerThrows.push_back(t);  // F10: копия повторит сама
+					ReleaseSRWLockExclusive(&g_throwLock);
+					Log("me: threw %016llX", static_cast<unsigned long long>(weapon));
+				}
+			}
+			// Флаг держим 120 мс: поза уходит раз в 50 мс, выстрел в один кадр иначе проскочит между пакетами.
+			if (flag || spent) {
+				shotAt = GetTickCount64();
+				Log("me: shot (%s)", flag ? "flag" : "ammo");
+			}
+			g_meFiring = shotAt && GetTickCount64() - shotAt < 120;
+			if (flag || spent) enemies::NoteOwnShot();
 		}
-		g_meFiring = shotAt && GetTickCount64() - shotAt < 120;
-		if (flag || spent) enemies::NoteOwnShot();
 	}
 	// Поза: своя - для отправки (5 раз в секунду хватает), партнёра - на марионетку при смене.
 	// Манеры NPC из скриптов игры: 'crouch - присед, 'ambient - обычная.
@@ -1317,19 +1324,51 @@ void ScriptTick() {
 	static ULONGLONG lastStance = 0;
 	if (GetTickCount64() - lastStance >= 100) {  // присед/прицел - без заметной задержки
 		lastStance = GetTickCount64();
-		g_meCrouched = (Call(g_dc.isCrouched, {}) & 1) != 0;
-		g_meAiming = (Call(g_dc.isAiming, {}) & 1) != 0;
-		Locator self{};  // фонарик - только при игроке (без него функции игрока могут уронить игру)
-		if (g_dc.flashlightOn && PlayerLocator(self)) g_meFlashlight = (Call(g_dc.flashlightOn, {}) & 1) != 0;
-		if (g_meAiming) {
-			const CameraView cam = CurrentView();
-			if (cam.ok) g_meAimPitch = std::asin(std::clamp(cam.fwd[1], -0.98f, 0.98f));
-		}
 		static uint64_t appliedTo = 0, flOf = 0, colOf = 0, aimOf = 0, aimBanned = 0;
 		static bool crouchNow = false, flNow = false, colHidden = true, aimNow = false;
+		static uint64_t weaponOf = 0, weaponNow = 0, refusedWeapon = 0;
+		static ULONGLONG lastWeaponCheck = 0, refusedAt = 0;
+		static bool hadSelfStance = false;
+		static uint64_t lastStanceTask = 0;
+		const uint64_t curTask = LoadChapter(g_myChapter).task;
+		if (haveSelf && (!hadSelfStance || (curTask && curTask != lastStanceTask))) {
+			// После загрузки/смены чекпоинта игра может пересоздать спутника с тем же sid (t1x-tess, t1x-ellie).
+			appliedTo = flOf = colOf = aimOf = weaponOf = 0;
+			colHidden = true;
+		}
+		hadSelfStance = haveSelf;
+		if (curTask) lastStanceTask = curTask;
+		if (haveSelf) {
+			g_meCrouched = (Call(g_dc.isCrouched, {}) & 1) != 0;
+			g_meAiming = (Call(g_dc.isAiming, {}) & 1) != 0;
+			if (g_dc.flashlightOn) g_meFlashlight = (Call(g_dc.flashlightOn, {}) & 1) != 0;
+			if (g_meAiming) {
+				const CameraView cam = CurrentView();
+				if (cam.ok) g_meAimPitch = std::asin(std::clamp(cam.fwd[1], -0.98f, 0.98f));
+			}
+			g_myWeapon = Call(g_dc.playerWeapon, {});
+		} else {
+			g_meCrouched = false;
+			g_meAiming = false;
+			g_meFlashlight = false;
+			g_myWeapon = 0;
+		}
 		const uint64_t puppet = g_puppet;
 		const bool crouch = UsingNetwork() ? g_partnerCrouched.load() : g_meCrouched.load();
 		const bool fl = UsingNetwork() ? g_partnerFlashlight.load() : g_meFlashlight.load();
+		// Если при спавне спутник главы ещё не успел появиться (после смерти/перезагрузки), обновляем фракцию копии,
+		// как только он появился - чтобы копию солдата нельзя было схватить (grab).
+		if (puppet && !g_hidden && !g_puppetIsBuddy) {
+			if (const uint64_t buddy = CurrentBuddy(puppet)) {
+				const uint64_t bf = Call(g_dc.getFaction, { buddy });
+				g_lastBuddyFaction = bf;
+				g_hasBuddyFaction = true;
+				if (Call(g_dc.getFaction, { puppet }) != bf) {
+					Call(g_dc.setFaction, { puppet, bf });
+					Log("puppet: faction updated to companion's (%llu)", static_cast<unsigned long long>(bf));
+				}
+			}
+		}
 		// Чтобы марионетка не толкала игрока в узких проходах / при телепорте (F7).
 		if (g_dc.ignoreCollision && puppet && (puppet != colOf || g_hidden != colHidden)) {
 			Call(g_dc.ignoreCollision, { g_hidden ? 0 : puppet });
@@ -1360,20 +1399,45 @@ void ScriptTick() {
 			crouchNow = crouch;
 		}
 		// Оружие: у марионетки в руках то же, что у партнёра (без него npc-fire-weapon не стреляет).
-		g_myWeapon = Call(g_dc.playerWeapon, {});
-		static uint64_t weaponOf = 0, weaponNow = 0;
+		// Если движок сбросил оружие копии (например, после рукопашки), перевыдаём при проверке раз в 0.5 с.
+		static ULONGLONG unarmedRefusedAt = 0;
 		const uint64_t weapon = UsingNetwork() ? g_partnerWeapon.load() : g_myWeapon.load();
-		if (puppet != weaponOf) weaponNow = 0;
-		if (puppet && !g_hidden && weapon && weapon != weaponNow) {
+		if (puppet != weaponOf) {
+			weaponNow = ~0ull;
+			refusedWeapon = 0;
+			lastWeaponCheck = 0;
+			unarmedRefusedAt = 0;
+		}
+		const ULONGLONG wNow = GetTickCount64();
+		if (puppet && !g_hidden && (weapon != weaponNow || wNow - lastWeaponCheck >= 500)) {
+			lastWeaponCheck = wNow;
 			const uint64_t had = Call(g_dc.npcWeapon, { puppet });
-			if (had != weapon) {
-				Call(g_dc.destroyWeapon, { puppet });
+			if (weapon == 0) {
+				if (had && (!unarmedRefusedAt || wNow - unarmedRefusedAt >= 2500)) {
+					Call(g_dc.destroyWeapon, { puppet });
+					const uint64_t nowHad = Call(g_dc.npcWeapon, { puppet });
+					unarmedRefusedAt = nowHad ? wNow : 0;
+					Log("puppet: weapon %016llX -> 0 (now %016llX)", static_cast<unsigned long long>(had),
+						static_cast<unsigned long long>(nowHad));
+					aimNow = false;
+				}
+			} else if (had != weapon && (weapon != refusedWeapon || wNow - refusedAt >= 2500)) {
+				if (had) Call(g_dc.destroyWeapon, { puppet });
 				Call(g_dc.giveWeapon, { puppet, weapon, 999, 1 });
+				const uint64_t nowHad = Call(g_dc.npcWeapon, { puppet });
+				if (nowHad != weapon) {
+					refusedWeapon = weapon;
+					refusedAt = wNow;
+				} else {
+					refusedWeapon = 0;
+				}
+				if (weapon != weaponNow || nowHad == weapon) {
+					Log("puppet: weapon %016llX -> %016llX (now %016llX)", static_cast<unsigned long long>(had),
+						static_cast<unsigned long long>(weapon), static_cast<unsigned long long>(nowHad));
+				}
+				aimNow = false;  // новое оружие - поднять снова, если партнёр целится
 			}
-			Log("puppet: weapon %016llX -> %016llX (now %016llX)", static_cast<unsigned long long>(had),
-				static_cast<unsigned long long>(weapon), static_cast<unsigned long long>(Call(g_dc.npcWeapon, { puppet })));
 			weaponNow = weapon;
-			aimNow = false;  // новое оружие - поднять снова, если партнёр целится
 		}
 		weaponOf = puppet;
 		// Прицел партнёра: оружие вверх/вниз и наклон ствола (npc-aim-at-point). На скелете без
@@ -1392,7 +1456,7 @@ void ScriptTick() {
 			aimNow = false;
 			Log("puppet: aiming gives this copy a T-pose - aiming off for it");
 		}
-		const bool aimOk = puppet && puppet != aimBanned && !g_hidden && aiDriven;
+		const bool aimOk = puppet && puppet != aimBanned && !g_hidden && aiDriven && weapon != 0;
 		const bool aimTarget = aimOk && aimWant;
 		if (puppet && !g_hidden && aimTarget != aimNow && (aimOk || aimNow)) {
 			Call(aimTarget ? g_dc.weaponUp : g_dc.weaponDown, { puppet });
@@ -1416,22 +1480,28 @@ void ScriptTick() {
 		}
 	}
 	// Привязка реальных указателей игрока (TX) и марионетки (RX) для хука CreateAnimCmds.
-	if (anim::HooksOk()) {  // anim_sync или анимации подъёма (climb_anims), плюс сторож Т-позы
+	// При отсутствии/скрытии марионетки сбрасываем указатель мгновенно (без задержки), а клипы и
+	// feather-маски резолвим прямо здесь, в безопасном игровом/скриптовом потоке.
+	if (anim::HooksOk()) {
 		static ULONGLONG lastAnimBind = 0;
 		static uint64_t lastBoundPuppet = 0;
 		static uintptr_t cachedPuppetPtr = 0;
 		const ULONGLONG nowAnim = GetTickCount64();
 		const uint64_t curPuppet = g_puppet.load();
-		if (curPuppet != lastBoundPuppet || !curPuppet || nowAnim - lastAnimBind >= 150) {
+		if (!curPuppet || g_hidden) {
+			cachedPuppetPtr = 0;
+			lastBoundPuppet = 0;
+		} else if (curPuppet != lastBoundPuppet || !cachedPuppetPtr || nowAnim - lastAnimBind >= 33) {
 			lastAnimBind = nowAnim;
 			lastBoundPuppet = curPuppet;
-			cachedPuppetPtr = curPuppet && !g_hidden ? ResolveEntity(curPuppet) : 0;
+			cachedPuppetPtr = ResolveEntity(curPuppet);
 		}
 		anim::SetTargets(PlayerEntity(), cachedPuppetPtr);
-		// Без anim_sync свои анимации шлём только на время подъёма/прыжка.
 		const bool txWanted = (UsingNetwork() && g_netActive.load()) || (!UsingNetwork() && g_wanted.load());
 		anim::SetTxEnabled(txWanted && (g_animSync.load(std::memory_order_relaxed) || g_meTraversing.load()));
-		anim::SetRxEnabled(!g_inCutscene.load(std::memory_order_relaxed));
+		const bool rxWanted = !g_inCutscene.load(std::memory_order_relaxed);
+		anim::SetRxEnabled(rxWanted);
+		if (rxWanted && cachedPuppetPtr) anim::PrepareRx(nowAnim);
 	} else {
 		anim::SetTxEnabled(false);
 		anim::SetRxEnabled(false);
@@ -1441,11 +1511,14 @@ void ScriptTick() {
 	static ULONGLONG lastShot = 0;
 	const bool shoot = UsingNetwork() ? g_partnerFiring.load() : g_meFiring.load();
 	if (shoot && (g_puppetIsBuddy || g_enemiesSee) && g_puppet && !g_hidden && GetTickCount64() - lastShot >= 180) {
-		lastShot = GetTickCount64();
-		if (UsingNetwork()) enemies::NoteCopyShot();  // её пули - только для вида
-		const uint64_t r = Call(g_dc.fireWeapon, { g_puppet });
-		Log("puppet: fires (%llu, weapon %016llX)", static_cast<unsigned long long>(r),
-			static_cast<unsigned long long>(Call(g_dc.npcWeapon, { g_puppet })));
+		const uint64_t heldWeapon = Call(g_dc.npcWeapon, { g_puppet });
+		if (heldWeapon) {
+			lastShot = GetTickCount64();
+			if (UsingNetwork()) enemies::NoteCopyShot();  // её пули - только для вида
+			const uint64_t r = Call(g_dc.fireWeapon, { g_puppet });
+			Log("puppet: fires (%llu, weapon %016llX)", static_cast<unsigned long long>(r),
+				static_cast<unsigned long long>(heldWeapon));
+		}
 	}
 	// Броски партнёра: тот же предмет летит из его места в его точку (настоящий: горит, взрывается).
 	// Без сети (F10) - свой бросок через 1 с из места копии.

@@ -140,10 +140,12 @@ namespace {
 
 // Кэш общий для всех потоков: скрипты идут то на одном потоке, то на другом, и у каждого потока
 // свой кэш почти всегда промахивался (VirtualQuery ~1-2 мс за вызов, 300+ мс за 2 с).
+// Образ самой игры [g_base, g_base + imageSize) не выгружается, его проверяем один раз.
 struct Region { uintptr_t begin, end; ULONGLONG at; };
-Region g_regions[64];
+Region g_regions[256];
 unsigned g_nextRegion = 0;
 SRWLOCK g_regionLock = SRWLOCK_INIT;
+uintptr_t g_imageBase = 0, g_imageEnd = 0;
 
 bool IsReadableProtect(DWORD p) {
 	if (p & (PAGE_GUARD | PAGE_NOACCESS)) return false;
@@ -151,17 +153,36 @@ bool IsReadableProtect(DWORD p) {
 		PAGE_EXECUTE_WRITECOPY)) != 0;
 }
 
+bool InGameImage(uintptr_t begin, uintptr_t end) {
+	const uintptr_t base = g_base;
+	if (!base) return false;
+	if (g_imageBase != base) {
+		MEMORY_BASIC_INFORMATION mbi{};
+		if (VirtualQuery(reinterpret_cast<const void*>(base), &mbi, sizeof(mbi)) && mbi.State == MEM_COMMIT &&
+			IsReadableProtect(mbi.Protect)) {
+			const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+			const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+			g_imageEnd = base + nt->OptionalHeader.SizeOfImage;
+			g_imageBase = base;
+		}
+	}
+	return g_imageBase == base && begin >= g_imageBase && end <= g_imageEnd;
+}
+
 bool Readable(uintptr_t begin, uintptr_t end) {
+	if (InGameImage(begin, end)) return true;
 	const ULONGLONG now = GetTickCount64();
 	for (uintptr_t p = begin; p < end;) {
 		bool cached = false;
 		AcquireSRWLockShared(&g_regionLock);
-		for (const Region& r : g_regions)
+		for (const Region& r : g_regions) {
+			if (!r.at) continue;
 			if (p >= r.begin && p < r.end && now - r.at < 200) {
 				p = r.end;
 				cached = true;
 				break;
 			}
+		}
 		ReleaseSRWLockShared(&g_regionLock);
 		if (cached) continue;
 		MEMORY_BASIC_INFORMATION mbi{};
@@ -173,7 +194,7 @@ bool Readable(uintptr_t begin, uintptr_t end) {
 			return false;
 		const uintptr_t rb = reinterpret_cast<uintptr_t>(mbi.BaseAddress), re = rb + mbi.RegionSize;
 		AcquireSRWLockExclusive(&g_regionLock);
-		g_regions[g_nextRegion++ % 64] = { rb, re, now };
+		g_regions[g_nextRegion++ % 256] = { rb, re, now ? now : 1 };
 		ReleaseSRWLockExclusive(&g_regionLock);
 		p = re;
 	}
@@ -193,11 +214,21 @@ uintptr_t ReadPtr(uintptr_t a) {
 	return Read(a, v) && v >= 0x10000 && v <= 0x7FFFFFFFFFFFull ? v : 0;
 }
 
-// По байту до нуля: строка может кончаться у границы страницы.
+// Читаем кусками до границы 4КБ-страницы: по 1 байту на обходе спавнеров тормозило.
 std::string ReadName(uintptr_t p) {
 	char buf[96]{};
 	size_t n = 0;
-	while (n + 1 < sizeof(buf) && SafeCopy(&buf[n], p + n, 1) && buf[n]) ++n;
+	while (n + 1 < sizeof(buf)) {
+		const size_t pageLeft = 0x1000 - ((p + n) & 0xFFFull);
+		const size_t chunk = (std::min)(sizeof(buf) - 1 - n, pageLeft);
+		if (!SafeCopy(buf + n, p + n, chunk)) break;
+		const void* z = memchr(buf + n, 0, chunk);
+		if (z) {
+			n += static_cast<const char*>(z) - (buf + n);
+			break;
+		}
+		n += chunk;
+	}
 	buf[n] = 0;
 	return buf;
 }
@@ -483,6 +514,53 @@ std::vector<uint64_t> CarryableSids(std::vector<std::string>& names) {
 	return out;
 }
 
+static bool IsCutsceneSpawnerName(const std::string& name) {
+	return name.rfind("continue-", 0) == 0 || name.rfind("igc-", 0) == 0 || name.rfind("movie-", 0) == 0 ||
+		name.find("-igc-") != std::string::npos || name.find("-movie-") != std::string::npos ||
+		name.find("-continue-") != std::string::npos ||
+		(name.size() >= 4 && name.compare(name.size() - 4, 4, "-igc") == 0);
+}
+
+std::vector<BuddyCandidate> FindBuddyCandidates(const std::string& hero, const std::vector<uintptr_t>& exclude,
+	const std::vector<std::string>& badHeroes) {
+	std::vector<BuddyCandidate> candidates;
+	std::vector<std::string> activeHeroes = badHeroes;
+	ForEachSpawner([&](uintptr_t sp, const SpawnerHead& h) {
+		if (!h.type || (h.flags0 & kSpDisabled)) return true;
+		for (uintptr_t bad : exclude)
+			if (bad == sp) return true;
+		const std::string name = ReadName(h.name);
+		if (IsCutsceneSpawnerName(name)) return true;
+		const std::string art = ReadName(h.art);
+		const int artRank = SpawnerRank(art, hero);
+		if (!artRank) return true;
+		const std::string spHero = HeroName(art);
+		if (!spHero.empty()) {
+			if (std::find(activeHeroes.begin(), activeHeroes.end(), spHero) != activeHeroes.end()) return true;
+			if (Call(g_dc.entityExists, { Sid(spHero.c_str()) }) || (h.sid && Call(g_dc.entityExists, { h.sid }))) {
+				activeHeroes.push_back(spHero);
+				return true;
+			}
+		} else if (h.sid && Call(g_dc.entityExists, { h.sid })) {
+			return true;
+		}
+		const bool isNpc = name.rfind("npc-", 0) == 0 || name.find("-npc-") != std::string::npos;
+		const bool isSnpc = name.rfind("snpc-", 0) == 0 || name.find("-snpc-") != std::string::npos;
+		const int nameBonus = isNpc ? 3 : (isSnpc ? 0 : 1);
+		const int rank = artRank * 4 + nameBonus;
+		candidates.push_back({ sp, name + " (" + art + ")", art, spHero, rank });
+		return true;
+	});
+	// Отбрасываем сюжетных героев, которые всплыли как живые уже после того, как их ранний спавнер попал в список.
+	candidates.erase(std::remove_if(candidates.begin(), candidates.end(), [&](const BuddyCandidate& c) {
+		return !c.hero.empty() && std::find(activeHeroes.begin(), activeHeroes.end(), c.hero) != activeHeroes.end();
+	}), candidates.end());
+	std::stable_sort(candidates.begin(), candidates.end(), [](const BuddyCandidate& a, const BuddyCandidate& b) {
+		return a.rank > b.rank;
+	});
+	return candidates;
+}
+
 uintptr_t FindBuddySpawner(const std::string& hero, const std::vector<uintptr_t>& exclude, std::string& nameOut) {
 	uintptr_t best = 0;
 	int bestRank = 0;
@@ -491,8 +569,8 @@ uintptr_t FindBuddySpawner(const std::string& hero, const std::vector<uintptr_t>
 		for (uintptr_t bad : exclude)
 			if (bad == sp) return true;
 		const std::string name = ReadName(h.name);
-		// Чекпоинт/катсцен-спаунеры (continue-*, igc-*, movie-*) не являются обычными NPC-спаунерами.
-		if (name.rfind("continue-", 0) == 0 || name.rfind("igc-", 0) == 0 || name.rfind("movie-", 0) == 0)
+		// Чекпоинт/катсцен-спаунеры (continue-*, igc-*, *-igc-*, movie-*) не являются обычными NPC-спаунерами.
+		if (IsCutsceneSpawnerName(name))
 			return true;
 		const std::string art = ReadName(h.art);
 		const int artRank = SpawnerRank(art, hero);

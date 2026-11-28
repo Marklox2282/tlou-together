@@ -550,7 +550,7 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 			partnerDied_ = true;
 			continue;
 		}
-		if (p.type == kEnemy || p.type == kEnemyPos || p.type == kObjectPos) {
+		if (p.type == kEnemy || p.type == kEnemyPos || p.type == kObjectPos || p.type == kDoorOpen) {
 			if (enemyEvents_.size() < 1024) enemyEvents_.push_back(p);
 			continue;
 		}
@@ -567,9 +567,10 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 	// Периодический обмен готовностью и ранним номером главы (чтобы при загрузке "Продолжить"
 	// у хоста партнёр узнал главу и начал загрузку одновременно, не дожидаясь спавна).
 	if (state_ == State::Connected && (chapter_ != lastSentChapter_ || nowMs - lastReadySent_ >= 250)) {
+		const bool chapterChanged = chapter_ != lastSentChapter_;
 		lastSentChapter_ = chapter_;
 		lastReadySent_ = nowMs;
-		Send(Make(kReady));
+		Send(Make(kReady), chapterChanged);
 	}
 	if (state_ == State::Connected && nowMs - lastPing_ >= 1000) {  // пинг раз в секунду
 		lastPing_ = nowMs;
@@ -577,7 +578,7 @@ bool Link::Tick(uint64_t nowMs, Packet& pose) {
 		p.target = nowMs;
 		Send(p);
 	}
-	if (state_ == State::Connected && nowMs - lastHeard_ > 10000) Disconnected("sent nothing for 10 s");
+	if (state_ == State::Connected && nowMs - lastHeard_ > 25000) Disconnected("sent nothing for 25 s");
 	if (leaveAfterTick_) {
 		leaveAfterTick_ = false;
 		log_("net: the lobby host left, leaving the lobby too");
@@ -644,6 +645,13 @@ void Link::SendObjectPos(uint64_t object, const float pos[3], const float rot[4]
 	p.target = object;
 	memcpy(p.pos, pos, sizeof(p.pos));
 	memcpy(p.rot, rot, sizeof(p.rot));
+	Send(p, true);
+}
+
+void Link::SendDoorOpen(uint64_t door) {
+	if (state_ != State::Connected || !door) return;
+	Packet p = Make(kDoorOpen);
+	p.target = door;
 	Send(p, true);
 }
 

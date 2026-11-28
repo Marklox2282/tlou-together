@@ -5,12 +5,22 @@ The mod updates itself: a new version downloads when the game starts and is used
 
 ## 0.42.4
 
+- Door sync: doors opened by one player now open for the partner as well (and resync when catching up to the same chapter).
+- Eliminated `VirtualQuery` frame freezes and Boston spawner lag (single-pass spawner lookup, fast image bounds check, larger region cache).
+- Fixed companion copy issues: native soldier weapon is removed when unarmed, puppet no longer "flies" on slopes/stairs, companion faction updates immediately after reloads so the copy cannot be grabbed, and state caches reset on reloads.
+- More responsive cutscene and skip sync, 25 s network stall timeout, enemy reload cleanup, and stability safeguards (disabled experimental `enemy_sync=full`).
+- Reworked animation sync to run clip/feather resolution safely on the game thread (`anim_sync`), plus an `F12` local bot emulator for solo testing.
 - The partner's join/leave/ready/start messages play the game's own interface sound instead of the Windows beep.
 - You can no longer grab or choke your partner's copy: it is now an ally like the chapter's companion.
 - During cutscenes the mod no longer moves Tess or enemies (Tess could appear in the middle of a cutscene).
 
 ---
 
+- Синхронизация дверей: двери, открытые одним игроком, теперь открываются и у партнёра (включая досылку при входе в ту же главу).
+- Убраны фризы из-за `VirtualQuery` и лаг спавнера в Бостоне (однопроходный подбор спавнера, быстрая проверка адресов игры, расширенный кэш регионов).
+- Исправлено поведение копии: лишнее оружие солдата убирается при пустых руках, копия больше не «летает» по ступенькам и уклонам, фракция союзника обновляется сразу после смерти/перезагрузки (чтобы нельзя было схватить `grab`), а кэши состояния сбрасываются при загрузке.
+- Более быстрый подхват старта и пропуска катсцен, таймаут сети увеличен до 25 с, очистка кэша врагов при перезагрузках и отключение нестабильного `enemy_sync=full`.
+- Переработан перенос анимаций (`anim_sync`) с переносом резолва клипов и feather-масок на безопасный игровой поток, добавлен локальный бот-эмулятор по `F12` для проверки в одиночку.
 - Сообщения «напарник подключился / отключился / готов / начал игру» звучат звуком интерфейса самой игры вместо звука Windows.
 - Копию напарника больше нельзя схватить и задушить: теперь она союзник, как спутник главы.
 - Во время катсцен мод больше не двигает Тесс и врагов (Тесс могла появиться посреди катсцены).

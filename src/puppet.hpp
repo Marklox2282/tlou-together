@@ -99,5 +99,6 @@ Role GetRole();                             // Companion, если мой пер
 // Имена персонажей текущей главы для лобби ("joel", "tess"); пусто - неизвестно.
 std::string HeroCharacter();
 std::string CompanionCharacter();
+float LastErrorMeters();                    // текущая дистанция между копией и целью
 
 }  // namespace puppet
