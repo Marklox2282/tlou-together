@@ -139,6 +139,9 @@ struct BuddyCandidate {
 };
 std::vector<BuddyCandidate> FindBuddyCandidates(const std::string& hero, const std::vector<uintptr_t>& exclude,
 	const std::vector<std::string>& badHeroes);
+// Запасной вариант: спавнеры самого героя (hero), чья сущность ещё не создана - копия Джоэла
+// из его же спавнера на уровне, где других людей нет.
+std::vector<BuddyCandidate> FindHeroCandidates(const std::string& hero, const std::vector<uintptr_t>& exclude);
 uintptr_t FindBuddySpawner(const std::string& hero, const std::vector<uintptr_t>& exclude, std::string& nameOut);
 // Имена (sid) NPC всех спавнеров этого сюжетного персонажа ("marlene") на загруженных уровнях.
 std::vector<uint64_t> CharacterSids(const std::string& character);

@@ -3,6 +3,11 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## 0.43.3
+
+- Where the level has no other people, the partner's copy is now made from the hero's own spawner (Joel's spawner is often loaded), so the partner looks like Joel and the real Ellie stays with you. Ellie stands in only if that fails too.
+- Если на уровне нет других людей, копия напарника делается из спавнера самого героя (спавнер Джоэла часто загружен): напарник выглядит как Джоэл, а настоящая Элли остаётся. Элли изображает напарника, только если и это не вышло.
+
 ## 0.43.2
 
 - Fixed the partner being invisible where the level has no people to copy: the copy is now made only from human NPC spawners (clickers and props such as window blinds were taken for women because of "-f-" in their names and vanished at once). Where there is nobody to copy, the chapter's companion (Ellie, Tess...) stands in for the partner until a copy can be made; F10 gives the companion back to the level if the story needs it.

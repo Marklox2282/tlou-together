@@ -319,7 +319,14 @@ uint64_t Spawn(const Locator& at) {
 			skipHeroes.push_back(h);
 		}
 	}
-	const std::vector<BuddyCandidate> candidates = FindBuddyCandidates(HeroName(look), g_badSpawners, skipHeroes);
+	std::vector<BuddyCandidate> candidates = FindBuddyCandidates(HeroName(look), g_badSpawners, skipHeroes);
+	// Других людей нет: копия героя из его же спавнера (у Джоэла на уровне есть свой спавнер).
+	bool heroSpawner = false;
+	if (candidates.empty()) {
+		candidates = FindHeroCandidates(HeroName(look), g_badSpawners);
+		heroSpawner = !candidates.empty();
+		if (heroSpawner) Log("puppet: no other people here - trying %s's own spawner", HeroName(look).c_str());
+	}
 	if (candidates.empty()) {
 		static uint64_t listedFor = 0;
 		if (listedFor != g_badForChapter) {
@@ -364,8 +371,10 @@ uint64_t Spawn(const Locator& at) {
 			continue;
 		}
 		// Игра отдала настоящего спутника главы вместо новой копии - не трогаем его, спавнер в чёрный список.
-		if (std::find(buddies.begin(), buddies.end(), npc) != buddies.end() || npc == CurrentBuddy(0) ||
-			(!cand.hero.empty() && npc == Sid(cand.hero.c_str()))) {
+		// Спавнер героя мог вернуть самого игрока - его, конечно, не трогаем.
+		const bool isPlayer = heroSpawner && ResolveEntity(npc) == PlayerEntity();
+		if (isPlayer || std::find(buddies.begin(), buddies.end(), npc) != buddies.end() || npc == CurrentBuddy(0) ||
+			(!heroSpawner && !cand.hero.empty() && npc == Sid(cand.hero.c_str()))) {
 			Log("puppet: %s gave the chapter's real companion %016llX, not a copy - leaving it alone", cand.name.c_str(),
 				static_cast<unsigned long long>(npc));
 			g_badSpawners.push_back(sp);

@@ -568,6 +568,24 @@ std::vector<BuddyCandidate> FindBuddyCandidates(const std::string& hero, const s
 	return candidates;
 }
 
+std::vector<BuddyCandidate> FindHeroCandidates(const std::string& hero, const std::vector<uintptr_t>& exclude) {
+	std::vector<BuddyCandidate> out;
+	if (hero.empty()) return out;
+	ForEachSpawner([&](uintptr_t sp, const SpawnerHead& h) {
+		if (!h.type || !h.sid || (h.flags0 & kSpDisabled)) return true;
+		for (uintptr_t bad : exclude)
+			if (bad == sp) return true;
+		const std::string art = ReadName(h.art);
+		if (HeroName(art) != hero || art.find("-costume") == std::string::npos) return true;
+		if (Call(g_dc.entityExists, { h.sid })) return true;  // этот спавнер уже кого-то создал
+		const std::string name = ReadName(h.name);
+		out.push_back({ sp, name + " (" + art + ")", art, hero, IsCutsceneSpawnerName(name) ? 0 : 1 });
+		return out.size() < 8;
+	});
+	std::stable_sort(out.begin(), out.end(), [](const BuddyCandidate& a, const BuddyCandidate& b) { return a.rank > b.rank; });
+	return out;
+}
+
 uintptr_t FindBuddySpawner(const std::string& hero, const std::vector<uintptr_t>& exclude, std::string& nameOut) {
 	uintptr_t best = 0;
 	int bestRank = 0;
