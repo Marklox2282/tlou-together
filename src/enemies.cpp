@@ -41,6 +41,8 @@ struct Remote {
 	ULONGLONG at, snappedAt;
 	float speed = 0;           // скорость врага у хозяина, м/с
 	bool aiOff = false;        // полная синхронизация: ИИ уже выключен
+	uint64_t prevMode = 0;     // режим скрипта до выключения ИИ
+	int infected = -1;         // -1 не знаем; заражённый сохраняет ИИ (рукопашную не скопировать)
 	int mode = -1;             // последняя команда npc-move-to
 	ULONGLONG cmdAt = 0;
 };
@@ -48,7 +50,7 @@ std::atomic<bool> g_fullSync{ false }, g_cutscene{ false };
 std::unordered_map<uint64_t, Remote> g_remote;  // гость: позиции хозяина (под g_lock)
 constexpr ULONGLONG kPosMs = 200, kSnapEveryMs = 3000;
 constexpr float kSnapDist = 6.0f;
-constexpr size_t kMaxSent = 12;
+constexpr size_t kMaxSent = 24;
 
 
 void Push(std::vector<Change>& q, const Change& c) {
@@ -128,29 +130,76 @@ void SendPositions(uint64_t puppet) {
 	ReleaseSRWLockExclusive(&g_lock);
 }
 
+// Облик заражённого: clicker-f-doorstop, runner-..., infected-..., bloater-...
+bool IsInfected(const std::string& art) {
+	for (const char* w : { "infected", "clicker", "runner", "stalker", "bloater", "shambler" })
+		if (art.find(w) != std::string::npos) return true;
+	return false;
+}
+
 // Полная синхронизация: враг у гостя без ИИ идёт за врагом хозяина (как марионетка: шаг/бег/
 // спринт по скорости, телепорт при отставании больше 4 м).
 void FollowHost(uint64_t puppet) {
 	const ULONGLONG now = GetTickCount64();
-	std::vector<std::pair<uint64_t, Remote>> list;
+	std::vector<std::pair<uint64_t, Remote>> list, dropped;
 	AcquireSRWLockExclusive(&g_lock);
 	for (auto it = g_remote.begin(); it != g_remote.end();) {
-		if (now - it->second.at > 2000) { it = g_remote.erase(it); continue; }
+		if (now - it->second.at > 2000) {  // хозяин его больше не шлёт (далеко или убран)
+			if (it->second.aiOff) dropped.push_back({ it->first, it->second });
+			it = g_remote.erase(it);
+			continue;
+		}
 		list.push_back({ it->first, it->second });
 		++it;
 	}
 	ReleaseSRWLockExclusive(&g_lock);
+	// Без команд хозяина враг без ИИ стоял бы столбом: вернуть ему ИИ.
+	for (const auto& [npc, r] : dropped) {
+		if (!Exists(npc) || Dead(npc)) continue;
+		Call(g_dc.scriptMode, { npc, r.prevMode, 1 });
+		Call(g_dc.setBlind, { npc, 0 });
+		Call(g_dc.setDeaf, { npc, 0 });
+		Log("[enemies] %016llX no longer sent by the host: its AI is back", static_cast<unsigned long long>(npc));
+	}
 	const std::vector<uint64_t> buddies = AllBuddies();
 	for (auto& [npc, r] : list) {
 		if (npc == puppet || !Exists(npc) || Dead(npc)) continue;
 		// Спутника ИИ не лишаем (скрипты уровня): только мягкий перенос вне кадра.
 		if (std::find(buddies.begin(), buddies.end(), npc) != buddies.end()) continue;
+		// Заражённые (кликеры, бегуны) атакуют только вблизи и хватают: это не повторить командой,
+		// поэтому их ИИ остаётся - сам нападает на гостя, позицию правит CorrectPositions.
+		if (r.infected < 0) {
+			r.infected = IsInfected(ArtOfNpc(npc)) ? 1 : 0;
+			if (r.infected) Log("[enemies] %016llX is infected: keeps its own AI", static_cast<unsigned long long>(npc));
+		}
+		if (r.infected) {
+			AcquireSRWLockExclusive(&g_lock);
+			if (auto it = g_remote.find(npc); it != g_remote.end()) it->second.infected = 1;
+			ReleaseSRWLockExclusive(&g_lock);
+			continue;
+		}
 		if (!r.aiOff) {
+			r.prevMode = Call(g_dc.getScriptMode, { npc });
 			Call(g_dc.scriptMode, { npc, 2, 1 });
 			Call(g_dc.setBlind, { npc, 1 });
 			Call(g_dc.setDeaf, { npc, 1 });
+			// Без ИИ оружие может остаться в кобуре: npc-fire-weapon без оружия в руках не стреляет.
+			// Пересоздать то же оружие в руках (так стреляет и захваченный спутник).
+			const uint64_t weapon = Call(g_dc.npcWeapon, { npc });
+			if (weapon) {
+				Call(g_dc.destroyWeapon, { npc });
+				Call(g_dc.giveWeapon, { npc, weapon, 999, 1 });
+			}
 			r.aiOff = true;
-			Log("[enemies] %016llX follows the host's copy (AI off)", static_cast<unsigned long long>(npc));
+			Log("[enemies] %016llX follows the host's copy (AI off, weapon %016llX)", static_cast<unsigned long long>(npc),
+				static_cast<unsigned long long>(weapon));
+			AcquireSRWLockExclusive(&g_lock);  // сразу: ИИ и оружие - только один раз
+			if (auto it = g_remote.find(npc); it != g_remote.end()) {
+				it->second.aiOff = true;
+				it->second.prevMode = r.prevMode;
+				it->second.infected = 0;
+			}
+			ReleaseSRWLockExclusive(&g_lock);
 		}
 		Locator cur{};
 		if (!NpcLocator(npc, cur)) continue;
@@ -173,6 +222,7 @@ void FollowHost(uint64_t puppet) {
 		}
 		AcquireSRWLockExclusive(&g_lock);
 		if (auto it = g_remote.find(npc); it != g_remote.end()) {
+			it->second.infected = r.infected;
 			it->second.aiOff = r.aiOff;
 			it->second.mode = r.mode;
 			it->second.cmdAt = r.cmdAt;
@@ -236,7 +286,12 @@ void ApplyShots(uint64_t puppet) {
 	if (!g_fullSync || g_sendPositions) return;
 	static std::vector<uint64_t> unarmedLogged;
 	for (const Shot& s : in) {
-		if (!s.npc || s.npc == puppet || !Exists(s.npc) || Dead(s.npc)) continue;
+		// Только враг, у которого мы выключили ИИ: со своим ИИ он стреляет сам (вышло бы дважды).
+		AcquireSRWLockExclusive(&g_lock);
+		const auto r = g_remote.find(s.npc);
+		const bool followed = r != g_remote.end() && r->second.aiOff;
+		ReleaseSRWLockExclusive(&g_lock);
+		if (!followed || !s.npc || s.npc == puppet || !Exists(s.npc) || Dead(s.npc)) continue;
 		Locator e{}, t{};
 		if (!NpcLocator(s.npc, e)) continue;
 		if (s.atReceiver ? PlayerLocator(t) : (puppet && NpcLocator(puppet, t))) {
@@ -269,7 +324,8 @@ void CorrectPositions(uint64_t puppet) {
 	AcquireSRWLockExclusive(&g_lock);
 	for (auto it = g_remote.begin(); it != g_remote.end();) {
 		if (now - it->second.at > 2000) { it = g_remote.erase(it); continue; }  // хозяин его больше не шлёт
-		if (now - it->second.snappedAt >= kSnapEveryMs) snap.push_back(it->second.p);
+		// Враг без ИИ уже идёт за хозяином (FollowHost); переносим только тех, у кого ИИ свой.
+		if (!it->second.aiOff && now - it->second.snappedAt >= kSnapEveryMs) snap.push_back(it->second.p);
 		++it;
 	}
 	ReleaseSRWLockExclusive(&g_lock);
@@ -376,6 +432,17 @@ void Tick(uint64_t puppet) {
 	if (g_reset.exchange(false)) {
 		g_known.clear();
 		AcquireSRWLockExclusive(&g_lock);
+		std::vector<std::pair<uint64_t, uint64_t>> aiBack;  // новое подключение: всем врагам их ИИ назад
+		for (const auto& [npc, r] : g_remote)
+			if (r.aiOff) aiBack.push_back({ npc, r.prevMode });
+		ReleaseSRWLockExclusive(&g_lock);
+		for (const auto& [npc, mode] : aiBack)
+			if (Exists(npc) && !Dead(npc)) {
+				Call(g_dc.scriptMode, { npc, mode, 1 });
+				Call(g_dc.setBlind, { npc, 0 });
+				Call(g_dc.setDeaf, { npc, 0 });
+			}
+		AcquireSRWLockExclusive(&g_lock);
 		g_out.clear();
 		g_in.clear();
 		g_posOut.clear();
@@ -415,7 +482,10 @@ void Tick(uint64_t puppet) {
 		lastPos = now;
 		const int64_t p0 = QpcNow();
 		if (g_sendPositions) SendPositions(puppet);
-		else if (!g_cutscene) g_fullSync ? FollowHost(puppet) : CorrectPositions(puppet);  // в катсцене никого не двигаем
+		else if (!g_cutscene) {  // в катсцене никого не двигаем
+			if (g_fullSync) FollowHost(puppet);
+			CorrectPositions(puppet);
+		}
 		ProfileAdd("[enemy pos]", MicrosecondsSince(p0));
 	}
 	static ULONGLONG lastShotScan = 0;

@@ -3,6 +3,13 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## 0.43.1
+
+- `enemy_sync=full`: a guest's enemy whose AI is switched off gets its weapon put in its hands, so it can fire.
+- Infected (clickers, runners...) keep their own AI in full mode and attack the guest themselves; only their position follows the host off-screen.
+- Up to 24 enemies follow the host (was 12). An enemy the host stops sending, or every enemy after a reconnect, gets its AI back instead of standing still; host shots are replayed only by enemies that follow the host.
+- `enemy_sync=full`: врагу без ИИ оружие даётся в руки, чтобы он мог стрелять. Заражённые сохраняют свой ИИ и нападают на гостя сами. За хозяином идут до 24 врагов; враг, которого хозяин больше не шлёт, получает ИИ обратно.
+
 ## 0.43.0
 
 - Experimental full enemy sync is back (`enemy_sync=full` in the guest's `tlou-together.ini`; default stays `soft`): the guest's enemies follow the host's, and now also shoot when the host's enemies shoot - turned towards the guest or towards the host's copy. The bullets are real, so the guest takes damage from them. Melee attacks (clickers, grabs) are not copied yet.
