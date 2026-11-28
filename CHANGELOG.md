@@ -5,6 +5,7 @@ The mod updates itself: a new version downloads when the game starts and is used
 
 ## 0.43.4
 
+- F3 updates the mod mid-game (lobby kept); Shift+F3 reloads winmm.dll from disk.
 - The partner's copy takes a weapon-ready stance while the partner aims standing (aiming was not visible).
 - Diagnostics for animation copying (the copy walks to the partner instead of repeating their moves): every 10 s the log shows whether the animation hook sees your character and the copy.
 - Копия напарника встаёт в стойку с оружием наготове, когда напарник целится стоя. Диагностика переноса анимаций в журнале (раз в 10 с).

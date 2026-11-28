@@ -316,6 +316,26 @@ int main() {
 		Check(b.GetState() == net::State::Connected, "b connects anyway");
 	}
 
+	puts("== update on the fly: old link hands over, new one continues");
+	{
+		net::Link a(Log, 8), b(Log, 8);
+		a.Start(Cfg(7851, 7852), t);
+		b.Start(Cfg(7852, 7851), t);
+		Run(a, b, 20);
+		const net::Handoff h = a.Detach();
+		Check(h.active && !h.steam && a.GetState() == net::State::Off, "old link stops and hands over");
+		net::Link a2(Log, 9);  // новая версия
+		a2.Adopt(h, Cfg(7851, 7852), t);
+		Check(a2.GetState() == net::State::Searching, "new version picks up the link (UDP port free again)");
+		g_log.clear();
+		Run(a2, b, 20);
+		Check(b.PeerNewerVersion() == 9 && a2.GetState() != net::State::Connected, "partner on the old version sees a newer one and waits");
+		net::Link b2(Log, 9);
+		b2.Adopt(b.Detach(), Cfg(7852, 7851), t);
+		Run(a2, b2, 40);
+		Check(a2.GetState() == net::State::Connected && b2.GetState() == net::State::Connected, "both updated -> connected again");
+	}
+
 	puts("== silence for 25 s -> searching");
 	{
 		net::Link a(Log, 8), b(Log, 8);
