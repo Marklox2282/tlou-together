@@ -3,6 +3,11 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## 0.42.5
+
+- Fixed the partner being invisible: where no NPC with the hero's skeleton is on the level, the copy is made from another NPC (e.g. a clicker); the mod then re-created that copy every frame forever (thousands of times), so the partner never appeared and the game stuttered.
+- Исправлено: напарник был невидим - если на уровне нет NPC со скелетом героя, копия делается из другого NPC (например, кликера), и мод пересоздавал её каждый кадр без конца.
+
 ## 0.42.4
 
 - Door sync: doors opened by one player now open for the partner as well (and resync when catching up to the same chapter).

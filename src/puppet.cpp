@@ -148,7 +148,9 @@ uint64_t g_badForChapter = 0;
 std::atomic<int> g_myChar{ 0 }, g_partnerChar{ 0 };
 int g_puppetChar = -1;  // для какого выбора партнёра создана копия NPC
 SRWLOCK g_lookLock = SRWLOCK_INIT;
-std::string g_myLook, g_partnerLook, g_puppetLook;  // свой облик, присланный партнёром, у копии
+std::string g_myLook, g_partnerLook, g_puppetLook;  // свой облик, присланный партнёром, запрошенный для копии
+// Убранные под уровень копии: спавнер может вернуть ту же сущность снова - её не берём.
+std::vector<uint64_t> g_putAway;
 
 std::string Locked(const std::string& s) {
 	AcquireSRWLockShared(&g_lookLock);
@@ -300,6 +302,7 @@ uint64_t Spawn(const Locator& at) {
 	if (g_badForChapter != LoadChapter(g_myChapter).task) {
 		g_badSpawners.clear();
 		g_badHeroes.clear();
+		g_putAway.clear();
 		g_badForChapter = LoadChapter(g_myChapter).task;
 	}
 	// Персонаж, который сейчас сам есть на уровне по сюжету (Роберт, Тесс, Марлин), не копируем:
@@ -367,7 +370,15 @@ uint64_t Spawn(const Locator& at) {
 			if (!cand.hero.empty()) g_badHeroes.push_back(cand.hero);
 			continue;
 		}
-		g_puppetLook = tryLook.empty() ? cand.art : tryLook;
+		// Спавнер вернул уже убранную копию (та же сущность) - она спрятана под уровнем.
+		if (std::find(g_putAway.begin(), g_putAway.end(), npc) != g_putAway.end()) {
+			Log("puppet: %s gave back the old copy %016llX - skipping this spawner", cand.name.c_str(),
+				static_cast<unsigned long long>(npc));
+			g_badSpawners.push_back(sp);
+			continue;
+		}
+		// g_puppetLook остаётся запрошенным обликом: если облик не надет (копия в чужом скелете),
+		// сравнение с обликом партнёра иначе пересоздавало бы копию каждый кадр.
 		AiOff(npc);
 		const uint64_t wantWeapon = UsingNetwork() ? g_partnerWeapon.load() : g_myWeapon.load();
 		if (!wantWeapon && Call(g_dc.npcWeapon, { npc })) Call(g_dc.destroyWeapon, { npc });
@@ -1146,6 +1157,7 @@ void ScriptTick() {
 			at.pos[1] -= 1000.0f;
 			if (const uint64_t frame = BoundFrame(at.pos, at.rot)) PlaceNpc(old, frame);
 		}
+		g_putAway.push_back(old);
 		Log("puppet: old copy %016llX put away, making a new one", static_cast<unsigned long long>(old));
 		g_puppet = 0;
 		g_hidden = false;
