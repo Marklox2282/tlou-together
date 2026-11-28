@@ -3,6 +3,11 @@
 The mod updates itself: a new version downloads when the game starts and is used from the next start. Both players need the same version.
 Мод обновляется сам: новая версия скачивается при запуске игры и включается со следующего запуска. У обоих игроков должна быть одна версия.
 
+## 0.43.2
+
+- Fixed the partner being invisible where the level has no people to copy: the copy is now made only from human NPC spawners (clickers and props such as window blinds were taken for women because of "-f-" in their names and vanished at once). Where there is nobody to copy, the chapter's companion (Ellie, Tess...) stands in for the partner until a copy can be made; F10 gives the companion back to the level if the story needs it.
+- Исправлено: напарника не было видно там, где на уровне нет людей. Копия делается только из NPC-людей (кликеры и жалюзи из-за "-f-" в имени считались женщинами и сразу пропадали). Если копировать некого, напарника временно изображает спутник главы (Элли, Тесс...); F10 возвращает спутника уровню, если он нужен по сюжету.
+
 ## 0.43.1
 
 - `enemy_sync=full`: a guest's enemy whose AI is switched off gets its weapon put in its hands, so it can fire.

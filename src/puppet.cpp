@@ -219,6 +219,7 @@ const char* TraversalStateName(uint64_t state) {
 	return it == map.end() ? nullptr : it->second;
 }
 bool g_puppetIsBuddy = false;  // марионетка - настоящий спутник главы (у героя)
+bool g_borrowedBuddy = false;  // спутник изображает партнёра лишь потому, что копию сделать не из чего
 uint64_t g_buddyMode = 0;      // его режим скрипта до нас - вернуть при отпускании
 SRWLOCK g_namesLock = SRWLOCK_INIT;
 std::string g_heroName, g_companionName;
@@ -280,6 +281,7 @@ void ReleaseBuddy(uint64_t npc) {
 	}
 	g_buddyWeapon = 0;
 	g_puppetIsBuddy = false;
+	g_borrowedBuddy = false;
 	Log("puppet: companion %016llX has its AI back", static_cast<unsigned long long>(npc));
 }
 
@@ -464,6 +466,7 @@ void Update() {
 		g_puppet = puppet = 0;
 		g_hidden = false;
 		g_puppetIsBuddy = false;
+		g_borrowedBuddy = false;
 	}
 	Locator target{}, me{};
 	if (!PlayerLocator(me) || !DelayedTarget(now, target) || PartnerTooFar(target)) return;
@@ -493,7 +496,33 @@ void Update() {
 		if (took > 20) Log("puppet: spawn attempt took %llu ms", took);
 		g_lastSpawnTry = g_spawnedAt = GetTickCount64();
 		if (!puppet) ++g_failures;
+		// На этом участке уровня нет людей для копии: партнёра временно изображает спутник главы
+		// (без него партнёра просто не видно). Раз в 15 с снова пробуем сделать копию.
+		if (!puppet && g_failures >= 2)
+			if (const uint64_t buddy = CurrentBuddy(0)) {
+				TakeOverBuddy(buddy);
+				g_borrowedBuddy = true;
+				g_puppet = puppet = buddy;
+				g_lastSpawner = 0;
+				Log("puppet: no NPC to copy here - the companion stands in for the partner (F10 gives it back)");
+			}
 		return;
+	}
+	// Спутник взят взаймы: как только копию можно сделать, вернуть его уровню.
+	if (puppet && g_borrowedBuddy && now - g_lastSpawnTry >= 15000) {
+		g_lastSpawnTry = now;
+		Locator at{};
+		if (NpcLocator(puppet, at))
+			if (const uint64_t copy = Spawn(at)) {
+				const uint64_t buddy = puppet;
+				anim::SetTargets(PlayerEntity(), 0);
+				ReleaseBuddy(buddy);
+				g_puppet = puppet = copy;
+				g_spawnedAt = now;
+				Log("puppet: made a copy %016llX, companion %016llX is back with the level",
+					static_cast<unsigned long long>(copy), static_cast<unsigned long long>(buddy));
+				return;
+			}
 	}
 	if (puppet && checkNow && !g_puppetIsBuddy && PartnerIsBuddy()) {
 		if (const uint64_t buddy = CurrentBuddy(puppet)) {
@@ -1143,7 +1172,7 @@ void ScriptTick() {
 	// Роль сменилась на напарника, а партнёра изображал наш спутник: отдать его ИИ (дальше он спрятан).
 	// Партнёр больше не спутник, а его изображал наш спутник - отдать того ИИ.
 	// И если мы сами стали спутником: наш спутник теперь спрятан, партнёру нужна копия.
-	if (!PartnerIsBuddy() && g_puppetIsBuddy) Hide();
+	if (!PartnerIsBuddy() && g_puppetIsBuddy && !g_borrowedBuddy) Hide();
 	// Партнёр выбрал другого персонажа - копию NPC пересоздать в новом облике.
 	const bool lookChanged = g_puppetChar >= 0 && g_puppetChar != 1 && !Locked(g_partnerLook).empty() &&
 		g_puppetLook != Locked(g_partnerLook) && PartnerCharacter() < 2;

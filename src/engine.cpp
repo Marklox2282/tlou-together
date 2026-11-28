@@ -108,7 +108,8 @@ int SpawnerRank(const std::string& art, const std::string& hero) {
 	// Обычные NPC (контрабандист в Бостоне) хуже слушаются npc-move-to - только если сюжетных нет
 	// (позицию им всё равно выставляет подтягивание к партнёру). Люди: известные виды или любой облик
 	// с полом в имени (-m- / -f-); заражённые и прочее - нет.
-	if (art.find("infected") != std::string::npos) return 0;
+	for (const char* w : { "infected", "clicker", "runner", "stalker", "bloater", "shambler" })
+		if (art.find(w) != std::string::npos) return 0;
 	const bool known = !art.rfind("survivor-", 0) || !art.rfind("smuggler-", 0) || !art.rfind("military-", 0);
 	if (!known && art.find("-m-") == std::string::npos && art.find("-f-") == std::string::npos) return 0;
 	return SameSex(art, hero) ? 2 : 1;
@@ -547,6 +548,11 @@ std::vector<BuddyCandidate> FindBuddyCandidates(const std::string& hero, const s
 		}
 		const bool isNpc = name.rfind("npc-", 0) == 0 || name.find("-npc-") != std::string::npos;
 		const bool isSnpc = name.rfind("snpc-", 0) == 0 || name.find("-snpc-") != std::string::npos;
+		// Не сюжетный герой: только спавнер NPC или известный облик людей. Иначе "-f-" в имени
+		// облика жалюзи (window-blinds-a-single-f-wind) принимался за женщину.
+		if (HeroName(art).empty() && !isNpc && !isSnpc && art.rfind("survivor-", 0) && art.rfind("smuggler-", 0) &&
+			art.rfind("military-", 0))
+			return true;
 		const int nameBonus = isNpc ? 3 : (isSnpc ? 0 : 1);
 		const int rank = artRank * 4 + nameBonus;
 		candidates.push_back({ sp, name + " (" + art + ")", art, spHero, rank });
@@ -580,6 +586,11 @@ uintptr_t FindBuddySpawner(const std::string& hero, const std::vector<uintptr_t>
 		// чем "snpc-..." (упрощённая массовка) или прочие служебные спаунеры.
 		const bool isNpc = name.rfind("npc-", 0) == 0 || name.find("-npc-") != std::string::npos;
 		const bool isSnpc = name.rfind("snpc-", 0) == 0 || name.find("-snpc-") != std::string::npos;
+		// Не сюжетный герой: только спавнер NPC или известный облик людей. Иначе "-f-" в имени
+		// облика жалюзи (window-blinds-a-single-f-wind) принимался за женщину.
+		if (HeroName(art).empty() && !isNpc && !isSnpc && art.rfind("survivor-", 0) && art.rfind("smuggler-", 0) &&
+			art.rfind("military-", 0))
+			return true;
 		const int nameBonus = isNpc ? 3 : (isSnpc ? 0 : 1);
 		const int rank = artRank * 4 + nameBonus;
 		if (rank > bestRank) {
